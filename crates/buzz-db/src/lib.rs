@@ -27,6 +27,8 @@ pub mod event;
 pub mod feed;
 /// Git repository name registry (NIP-34 kind:30617).
 pub mod git_repo;
+/// Centralized managed-agent configuration and runner leases.
+pub mod managed_agent_host;
 /// Embedded database migrations.
 pub mod migration;
 /// Community moderation: reports, bans/timeouts, audit actions.
@@ -4018,6 +4020,109 @@ impl Db {
         community: CommunityId,
     ) -> Result<Vec<relay_members::RelayMember>> {
         relay_members::list_relay_members(&self.pool, community).await
+    }
+
+    /// Create a centralized managed agent and its relay identity records.
+    pub async fn create_managed_agent_host(
+        &self,
+        community: CommunityId,
+        input: managed_agent_host::NewManagedAgentHost<'_>,
+    ) -> Result<managed_agent_host::ManagedAgentHostRecord> {
+        managed_agent_host::create(&self.pool, community, input).await
+    }
+
+    /// List centralized agents belonging to `owner_pubkey`.
+    pub async fn list_managed_agent_hosts(
+        &self,
+        community: CommunityId,
+        owner_pubkey: &str,
+    ) -> Result<Vec<managed_agent_host::ManagedAgentHostRecord>> {
+        managed_agent_host::list_owned(&self.pool, community, owner_pubkey).await
+    }
+
+    /// Change the requested runtime state for an owned agent.
+    pub async fn set_managed_agent_desired_state(
+        &self,
+        community: CommunityId,
+        owner_pubkey: &str,
+        id: Uuid,
+        desired_state: &str,
+    ) -> Result<Option<managed_agent_host::ManagedAgentHostRecord>> {
+        managed_agent_host::set_desired_state(
+            &self.pool,
+            community,
+            owner_pubkey,
+            id,
+            desired_state,
+        )
+        .await
+    }
+
+    /// Delete a stopped, unleased managed agent.
+    pub async fn delete_managed_agent_host(
+        &self,
+        community: CommunityId,
+        owner_pubkey: &str,
+        id: Uuid,
+    ) -> Result<Option<String>> {
+        managed_agent_host::delete_owned(&self.pool, community, owner_pubkey, id).await
+    }
+
+    /// Claim the next runnable agent for a fenced runner instance.
+    pub async fn claim_managed_agent_host(
+        &self,
+        runner_id: Uuid,
+        lease_seconds: i64,
+    ) -> Result<Option<managed_agent_host::ManagedAgentLease>> {
+        managed_agent_host::claim_next(&self.pool, runner_id, lease_seconds).await
+    }
+
+    /// Renew a managed-agent runner lease.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn renew_managed_agent_lease(
+        &self,
+        community: CommunityId,
+        id: Uuid,
+        runner_id: Uuid,
+        lease_epoch: i64,
+        lease_seconds: i64,
+        observed_state: &str,
+        runtime_pid: Option<i64>,
+    ) -> Result<bool> {
+        managed_agent_host::renew_lease(
+            &self.pool,
+            community,
+            id,
+            runner_id,
+            lease_epoch,
+            lease_seconds,
+            observed_state,
+            runtime_pid,
+        )
+        .await
+    }
+
+    /// Release a managed-agent runner lease.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn release_managed_agent_lease(
+        &self,
+        community: CommunityId,
+        id: Uuid,
+        runner_id: Uuid,
+        lease_epoch: i64,
+        observed_state: &str,
+        last_error: Option<&str>,
+    ) -> Result<bool> {
+        managed_agent_host::release_lease(
+            &self.pool,
+            community,
+            id,
+            runner_id,
+            lease_epoch,
+            observed_state,
+            last_error,
+        )
+        .await
     }
 
     /// Adds a new relay member to `community`.

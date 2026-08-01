@@ -1,0 +1,39 @@
+[package]
+name = "buzz-agent-host"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Fenced server-side supervisor for Buzz ACP agent runtimes"
+
+[lib]
+name = "buzz_agent_host"
+path = "src/lib.rs"
+
+[[bin]]
+name = "buzz-agent-host"
+path = "src/main.rs"
+
+[[bin]]
+name = "buzz-agent-bootstrap"
+path = "src/bootstrap.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+buzz-core = { workspace = true }
+buzz-db = { workspace = true }
+chacha20poly1305 = { workspace = true }
+hex = { workspace = true }
+nostr = { workspace = true }
+rand = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+uuid = { workspace = true }
+zeroize = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.31", default-features = false, features = ["signal"] }

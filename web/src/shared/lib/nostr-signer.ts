@@ -48,6 +48,17 @@ export function hasNip07Provider(): boolean {
   return typeof window !== "undefined" && window.nostr != null;
 }
 
+/** Ask the browser signer for its active public key without exposing a secret. */
+export async function getNip07PublicKey(): Promise<string> {
+  const provider = typeof window === "undefined" ? undefined : window.nostr;
+  if (!provider) throw new Nip07UnavailableError();
+  const pubkey = await provider.getPublicKey();
+  if (!/^[0-9a-f]{64}$/.test(pubkey)) {
+    throw new Error("The NIP-07 extension returned an invalid public key.");
+  }
+  return pubkey;
+}
+
 function sameUnsignedEvent(
   expected: UnsignedNostrEvent,
   actual: SignedNostrEvent,

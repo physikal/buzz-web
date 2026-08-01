@@ -32,7 +32,8 @@ const QUERY_TIMEOUT_MS = 10_000;
  */
 export function queryEvents(
   wsUrl: string,
-  filter: NostrFilter,
+  filter: NostrFilter | NostrFilter[],
+  options?: { requireNip07?: boolean },
 ): Promise<NostrEvent[]> {
   return new Promise((resolve, reject) => {
     const events: NostrEvent[] = [];
@@ -67,7 +68,8 @@ export function queryEvents(
     const sendReq = () => {
       if (!reqSent) {
         reqSent = true;
-        ws.send(JSON.stringify(["REQ", subId, filter]));
+        const filters = Array.isArray(filter) ? filter : [filter];
+        ws.send(JSON.stringify(["REQ", subId, ...filters]));
       }
     };
 
@@ -97,7 +99,9 @@ export function queryEvents(
         const challenge = data[1];
         const template = makeAuthEvent(wsUrl, challenge);
         try {
-          const signed = await signNostrEvent(template);
+          const signed = await signNostrEvent(template, {
+            requireNip07: options?.requireNip07,
+          });
           if (settled) return;
           authEventId = signed.id;
           ws.send(JSON.stringify(["AUTH", signed]));

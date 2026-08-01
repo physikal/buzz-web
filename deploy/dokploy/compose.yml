@@ -1,0 +1,223 @@
+name: buzz-web
+
+x-app-security: &app-security
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  init: true
+  restart: unless-stopped
+
+services:
+  bootstrap:
+    image: ${BUZZ_AGENT_IMAGE:-ghcr.io/physikal/buzz-web:agent-main}
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        /usr/local/bin/buzz-agent-bootstrap /staging /run/buzz-owner
+        mkdir -p /relay-secrets /agent-secrets /postgres-secret /redis-secret /s3-secrets
+        cp /staging/* /relay-secrets/
+        cp /staging/postgres_password /staging/agent_envelope_key /agent-secrets/
+        cp /staging/postgres_password /postgres-secret/
+        cp /staging/redis_password /redis-secret/
+        cp /staging/s3_access_key /staging/s3_secret_key /s3-secrets/
+        chown -R 1000:1000 /relay-secrets
+        chmod 0700 /relay-secrets
+        chmod 0600 /relay-secrets/*
+        chown -R 0:0 /agent-secrets
+        chmod 0700 /agent-secrets
+        chmod 0600 /agent-secrets/*
+        chmod 0755 /postgres-secret /redis-secret /s3-secrets
+        chmod 0444 /postgres-secret/* /redis-secret/* /s3-secrets/*
+    volumes:
+      - buzz-secret-staging:/staging
+      - buzz-owner-key:/run/buzz-owner
+      - buzz-relay-secrets:/relay-secrets
+      - buzz-agent-secrets:/agent-secrets
+      - buzz-postgres-secret:/postgres-secret
+      - buzz-redis-secret:/redis-secret
+      - buzz-s3-secrets:/s3-secrets
+    network_mode: none
+    restart: "no"
+
+  relay:
+    <<: *app-security
+    image: ${BUZZ_IMAGE:-ghcr.io/physikal/buzz-web:main}
+    entrypoint: ["/bin/bash", "-ec"]
+    command:
+      - |
+        export DATABASE_URL="postgres://buzz:$$(cat /run/buzz-relay-secrets/postgres_password)@postgres:5432/buzz"
+        export REDIS_URL="redis://:$$(cat /run/buzz-relay-secrets/redis_password)@redis:6379"
+        export RELAY_OWNER_PUBKEY="$$(cat /run/buzz-relay-secrets/owner_pubkey)"
+        export BUZZ_RELAY_PRIVATE_KEY="$$(cat /run/buzz-relay-secrets/relay_private_key)"
+        export BUZZ_GIT_HOOK_HMAC_SECRET="$$(cat /run/buzz-relay-secrets/git_hook_hmac_secret)"
+        export BUZZ_AGENT_SECRET_KEY="$$(cat /run/buzz-relay-secrets/agent_envelope_key)"
+        export BUZZ_S3_ACCESS_KEY="$$(cat /run/buzz-relay-secrets/s3_access_key)"
+        export BUZZ_S3_SECRET_KEY="$$(cat /run/buzz-relay-secrets/s3_secret_key)"
+        exec /usr/local/bin/buzz-relay
+    environment:
+      BUZZ_BIND_ADDR: 0.0.0.0:3000
+      BUZZ_HEALTH_PORT: "8080"
+      BUZZ_METRICS_PORT: "9102"
+      RELAY_URL: wss://${BUZZ_DOMAIN:?set BUZZ_DOMAIN}
+      BUZZ_MEDIA_BASE_URL: https://${BUZZ_DOMAIN}/media
+      BUZZ_MEDIA_SERVER_DOMAIN: ${BUZZ_DOMAIN}
+      BUZZ_CORS_ORIGINS: https://${BUZZ_DOMAIN}
+      BUZZ_REQUIRE_AUTH_TOKEN: "true"
+      BUZZ_REQUIRE_RELAY_MEMBERSHIP: "true"
+      BUZZ_ALLOW_NIP_OA_AUTH: "true"
+      BUZZ_AUTO_MIGRATE: "true"
+      BUZZ_S3_ENDPOINT: http://minio:9000
+      BUZZ_S3_ADDRESSING_STYLE: path
+      BUZZ_S3_BUCKET: buzz-media
+      BUZZ_GIT_REPO_PATH: /data/git
+      BUZZ_SERVE_GIT_WEB_GUI: "true"
+      RUST_LOG: buzz_relay=info,buzz_db=info,buzz_agent_host=info
+    volumes:
+      - buzz-relay-secrets:/run/buzz-relay-secrets:ro
+      - buzz-git-data:/data/git
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    read_only: true
+    pids_limit: 512
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "bash -ec 'exec 3<>/dev/tcp/127.0.0.1/8080; printf \"GET /_readiness HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n\" >&3; grep -q \"200 OK\" <&3'"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 30s
+    networks: [edge, backend]
+
+  agent-host:
+    <<: *app-security
+    image: ${BUZZ_AGENT_IMAGE:-ghcr.io/physikal/buzz-web:agent-main}
+    user: "0:0"
+    cap_add: [SETUID, SETGID, CHOWN]
+    entrypoint: ["/bin/bash", "-ec"]
+    command:
+      - |
+        export DATABASE_URL="postgres://buzz:$$(cat /run/buzz-agent-secrets/postgres_password)@postgres:5432/buzz"
+        export BUZZ_AGENT_SECRET_KEY="$$(cat /run/buzz-agent-secrets/agent_envelope_key)"
+        exec /usr/local/bin/buzz-agent-host
+    environment:
+      BUZZ_RELAY_URL: wss://${BUZZ_DOMAIN:?set BUZZ_DOMAIN}
+      BUZZ_AGENT_DATA_DIR: /data/agents
+      BUZZ_AGENT_HOST_MAX_AGENTS: ${BUZZ_AGENT_HOST_MAX_AGENTS:-8}
+      RUST_LOG: buzz_agent_host=info
+    volumes:
+      - buzz-agent-secrets:/run/buzz-agent-secrets:ro
+      - buzz-agent-data:/data/agents
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    read_only: true
+    pids_limit: 1024
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      relay:
+        condition: service_healthy
+    networks: [edge, backend]
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: buzz
+      POSTGRES_USER: buzz
+      POSTGRES_PASSWORD_FILE: /run/buzz-postgres-secret/postgres_password
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - buzz-postgres-secret:/run/buzz-postgres-secret:ro
+      - buzz-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U buzz -d buzz"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+    networks: [backend]
+
+  redis:
+    image: redis:7-alpine
+    entrypoint: ["/bin/sh", "-ec"]
+    command: ["exec redis-server --appendonly yes --requirepass \"$$(cat /run/buzz-redis-secret/redis_password)\""]
+    volumes:
+      - buzz-redis-secret:/run/buzz-redis-secret:ro
+      - buzz-redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$(cat /run/buzz-redis-secret/redis_password)\" ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+    restart: unless-stopped
+    networks: [backend]
+
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        export MINIO_ROOT_USER="$$(cat /run/buzz-s3-secrets/s3_access_key)"
+        export MINIO_ROOT_PASSWORD="$$(cat /run/buzz-s3-secrets/s3_secret_key)"
+        exec minio server /data
+    volumes:
+      - buzz-s3-secrets:/run/buzz-s3-secrets:ro
+      - buzz-minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+    networks: [backend]
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        mc alias set local http://minio:9000 "$$(cat /run/buzz-s3-secrets/s3_access_key)" "$$(cat /run/buzz-s3-secrets/s3_secret_key)"
+        mc mb --ignore-existing local/buzz-media
+        mc anonymous set none local/buzz-media
+    volumes:
+      - buzz-s3-secrets:/run/buzz-s3-secrets:ro
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+      minio:
+        condition: service_healthy
+    restart: "no"
+    networks: [backend]
+
+volumes:
+  buzz-secret-staging:
+  buzz-owner-key:
+  buzz-relay-secrets:
+  buzz-agent-secrets:
+  buzz-postgres-secret:
+  buzz-redis-secret:
+  buzz-s3-secrets:
+  buzz-postgres-data:
+  buzz-redis-data:
+  buzz-minio-data:
+  buzz-git-data:
+  buzz-agent-data:
+
+networks:
+  edge:
+  backend:
+    internal: true

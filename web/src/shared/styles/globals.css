@@ -40,6 +40,8 @@
     --sidebar-accent-foreground: 234 16.02% 35.49%;
     --sidebar-border: 225 13.56% 76.86%;
     --sidebar-ring: 225 13.56% 76.86%;
+    --ui-warning: #8a5a00;
+    --ui-warning-bg: #fff7df;
   }
 
   .dark {
@@ -78,6 +80,8 @@
     --sidebar-accent-foreground: 227 68.25% 87.65%;
     --sidebar-border: 231 15.61% 33.92%;
     --sidebar-ring: 231 15.61% 33.92%;
+    --ui-warning: #f3c969;
+    --ui-warning-bg: #3c321d;
   }
 
   * {

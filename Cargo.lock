@@ -880,6 +880,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "buzz-agent-host"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "buzz-core",
+ "buzz-db",
+ "chacha20poly1305",
+ "hex",
+ "nix 0.31.3",
+ "nostr",
+ "rand 0.10.1",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+ "zeroize",
+]
+
+[[package]]
 name = "buzz-audit"
 version = "0.1.0"
 dependencies = [
@@ -1166,6 +1187,7 @@ dependencies = [
  "async-trait",
  "axum",
  "base64 0.22.1",
+ "buzz-agent-host",
  "buzz-audit",
  "buzz-auth",
  "buzz-conformance",

@@ -6,9 +6,9 @@ use std::sync::Arc;
 use axum::{
     body::Body,
     extract::{ConnectInfo, FromRequest, State, WebSocketUpgrade},
-    http::{HeaderMap, Request, StatusCode},
+    http::{HeaderMap, HeaderValue, Request, StatusCode},
     middleware,
-    response::{IntoResponse, Json},
+    response::{IntoResponse, Json, Response},
     routing::{get, post, put},
     Router,
 };
@@ -110,6 +110,18 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             post(api::invites::accept_policy),
         )
         .route("/api/invites/claim", post(api::invites::claim_invite))
+        // Server-owned agent control plane. Every handler performs owner auth;
+        // the separate buzz-agent-host service owns process execution.
+        .route(
+            "/api/agents",
+            get(api::agents::list_agents).post(api::agents::create_agent),
+        )
+        .route(
+            "/api/agents/{id}",
+            axum::routing::delete(api::agents::delete_agent),
+        )
+        .route("/api/agents/{id}/start", post(api::agents::start_agent))
+        .route("/api/agents/{id}/stop", post(api::agents::stop_agent))
         // Moderation queue reads (NIP-98 auth + mod-authz gate, L6)
         .route("/moderation/reports", get(api::bridge::moderation_reports))
         .route("/moderation/audit", get(api::bridge::moderation_audit))
@@ -190,6 +202,41 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .layer(middleware::from_fn(track_metrics))
         .layer(http_trace_layer())
         .layer(build_cors_layer(&state.config.cors_origins))
+        .layer(middleware::from_fn(add_security_headers))
+}
+
+async fn add_security_headers(request: Request<Body>, next: middleware::Next) -> Response {
+    let is_agent_api = request.uri().path().starts_with("/api/agents");
+    let mut response = next.run(request).await;
+    let headers = response.headers_mut();
+    headers.insert(
+        "content-security-policy",
+        HeaderValue::from_static(
+            "default-src 'none'; base-uri 'self'; connect-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data: blob:; manifest-src 'self'; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:",
+        ),
+    );
+    headers.insert(
+        "x-content-type-options",
+        HeaderValue::from_static("nosniff"),
+    );
+    headers.insert("x-frame-options", HeaderValue::from_static("DENY"));
+    headers.insert(
+        "strict-transport-security",
+        HeaderValue::from_static("max-age=31536000"),
+    );
+    headers.insert("referrer-policy", HeaderValue::from_static("no-referrer"));
+    headers.insert(
+        "permissions-policy",
+        HeaderValue::from_static("camera=(), geolocation=(), payment=(), usb=()"),
+    );
+    if is_agent_api {
+        headers.insert(
+            "cache-control",
+            HeaderValue::from_static("no-store, private"),
+        );
+        headers.append("vary", HeaderValue::from_static("Authorization"));
+    }
+    response
 }
 
 fn http_trace_layer() -> TraceLayer<HttpMakeClassifier, fn(&Request<Body>) -> tracing::Span> {
@@ -219,7 +266,10 @@ fn is_invite_landing_path(path: &str) -> bool {
 }
 
 fn should_serve_spa(path: &str, serve_git_web_gui: bool) -> bool {
-    is_invite_landing_path(path) || (serve_git_web_gui && is_git_web_gui_path(path))
+    is_invite_landing_path(path)
+        || path == "/agents"
+        || path.starts_with("/agents/")
+        || (serve_git_web_gui && is_git_web_gui_path(path))
 }
 
 fn is_git_web_gui_path(path: &str) -> bool {
@@ -485,9 +535,35 @@ mod tests {
         assert!(should_serve_spa("/invite/payload.mac", true));
         assert!(!should_serve_spa("/", false));
         assert!(!should_serve_spa("/repos/example", false));
+        assert!(should_serve_spa("/agents", false));
+        assert!(should_serve_spa("/agents/example", false));
         assert!(should_serve_spa("/", true));
         assert!(should_serve_spa("/repos/example", true));
         assert!(!should_serve_spa("/arbitrary", true));
+    }
+
+    #[tokio::test]
+    async fn browser_security_headers_are_applied() {
+        let app = Router::new()
+            .route("/", get(|| async { "ok" }))
+            .layer(middleware::from_fn(add_security_headers));
+        let response = app
+            .oneshot(Request::get("/api/agents").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(response.headers()["x-frame-options"], "DENY");
+        assert_eq!(response.headers()["x-content-type-options"], "nosniff");
+        assert_eq!(response.headers()["cache-control"], "no-store, private");
+        assert_eq!(response.headers()["vary"], "Authorization");
+        assert_eq!(
+            response.headers()["strict-transport-security"],
+            "max-age=31536000"
+        );
+        assert!(response.headers()["content-security-policy"]
+            .to_str()
+            .unwrap()
+            .contains("script-src 'self'"));
     }
 
     #[tokio::test(flavor = "current_thread")]

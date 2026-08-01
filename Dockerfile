@@ -14,6 +14,7 @@
 ARG RUST_VERSION=1.95
 ARG NODE_VERSION=24
 ARG DEBIAN_VERSION=bookworm
+ARG SOURCE_REPOSITORY=https://github.com/block/buzz
 
 # Optional extra CA bundle for builds behind a TLS-intercepting corporate proxy
 # (e.g. a Cloudflare/Zscaler gateway that re-signs TLS). Empty by default, so
@@ -69,14 +70,26 @@ RUN cargo chef cook --release --recipe-path recipe.json
 COPY . .
 RUN cargo build --release --locked -p buzz-relay --bin buzz-relay \
                                    -p buzz-admin --bin buzz-admin \
-                                   -p buzz-pair-relay --bin buzz-pair-relay
+                                   -p buzz-pair-relay --bin buzz-pair-relay \
+                                   -p buzz-agent-host --bin buzz-agent-host \
+                                   -p buzz-agent-host --bin buzz-agent-bootstrap \
+                                   -p buzz-acp --bin buzz-acp \
+                                   -p buzz-agent --bin buzz-agent \
+                                   -p buzz-cli --bin buzz \
+                                   -p buzz-dev-mcp --bin buzz-dev-mcp
 
 # Derive the normal release binaries from the same optimized ELF files as the
 # debug image so the two variants cannot drift at code-generation time.
 FROM builder AS stripped-binaries
 RUN strip target/release/buzz-relay \
     && strip target/release/buzz-admin \
-    && strip target/release/buzz-pair-relay
+    && strip target/release/buzz-pair-relay \
+    && strip target/release/buzz-agent-host \
+    && strip target/release/buzz-agent-bootstrap \
+    && strip target/release/buzz-acp \
+    && strip target/release/buzz-agent \
+    && strip target/release/buzz \
+    && strip target/release/buzz-dev-mcp
 
 # ─── Stage 4: web bundle (pnpm + vite) ──────────────────────────────────────
 # Independent of the Rust layers so a CSS change doesn't bust Rust cache and
@@ -120,15 +133,16 @@ RUN pnpm -C web build && pnpm -C admin-web build
 
 # ─── Stage 5: shared runtime ────────────────────────────────────────────────
 FROM debian:${DEBIAN_VERSION}-slim AS runtime-base
+ARG SOURCE_REPOSITORY
 
 # OCI annotations: required for GHCR to auto-link the image to this repo and
 # inherit its visibility. org.opencontainers.image.source is the load-bearing
 # one — without it GHCR keeps the image private even when the repo is public.
 LABEL org.opencontainers.image.title="Buzz" \
       org.opencontainers.image.description="WebSocket relay server for the Buzz communications platform" \
-      org.opencontainers.image.source="https://github.com/block/buzz" \
-      org.opencontainers.image.url="https://github.com/block/buzz" \
-      org.opencontainers.image.documentation="https://github.com/block/buzz#readme" \
+      org.opencontainers.image.source="${SOURCE_REPOSITORY}" \
+      org.opencontainers.image.url="${SOURCE_REPOSITORY}" \
+      org.opencontainers.image.documentation="${SOURCE_REPOSITORY}#readme" \
       org.opencontainers.image.licenses="Apache-2.0"
 
 RUN apt-get update \
@@ -176,3 +190,45 @@ FROM runtime-base AS runtime
 COPY --from=stripped-binaries /build/target/release/buzz-relay /usr/local/bin/buzz-relay
 COPY --from=stripped-binaries /build/target/release/buzz-admin /usr/local/bin/buzz-admin
 COPY --from=stripped-binaries /build/target/release/buzz-pair-relay /usr/local/bin/buzz-pair-relay
+
+# Agent execution stays in a separate image/process from the public relay. This
+# keeps Node and third-party ACP adapters out of the relay's attack surface.
+FROM node:${NODE_VERSION}-${DEBIAN_VERSION}-slim AS agent-runtime-base
+ARG SOURCE_REPOSITORY
+
+LABEL org.opencontainers.image.title="Buzz Agent Host" \
+      org.opencontainers.image.description="Centralized, fenced Buzz ACP agent supervisor" \
+      org.opencontainers.image.source="${SOURCE_REPOSITORY}" \
+      org.opencontainers.image.url="${SOURCE_REPOSITORY}" \
+      org.opencontainers.image.licenses="Apache-2.0"
+
+COPY deploy/agent-runtime/package.json deploy/agent-runtime/package-lock.json /opt/buzz-agent-runtime/
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates git \
+    && rm -rf /var/lib/apt/lists/* \
+    && cd /opt/buzz-agent-runtime \
+    && npm ci --omit=dev --ignore-scripts=false \
+    && ln -s /opt/buzz-agent-runtime/node_modules/.bin/codex /usr/local/bin/codex \
+    && ln -s /opt/buzz-agent-runtime/node_modules/.bin/claude /usr/local/bin/claude \
+    && ln -s /opt/buzz-agent-runtime/node_modules/.bin/codex-acp /usr/local/bin/codex-acp \
+    && ln -s /opt/buzz-agent-runtime/node_modules/.bin/claude-agent-acp /usr/local/bin/claude-agent-acp \
+    && npm cache clean --force \
+    && groupadd --system --gid 10001 buzz \
+    && useradd --system --uid 10001 --gid 10001 --home-dir /var/lib/buzz \
+        --create-home --shell /usr/sbin/nologin buzz \
+    && mkdir -p /data/agents \
+    && chown -R buzz:buzz /data/agents \
+    && chmod 0711 /data/agents \
+    && chown -R buzz:buzz /var/lib/buzz
+
+USER buzz:buzz
+WORKDIR /var/lib/buzz
+ENTRYPOINT ["/usr/local/bin/buzz-agent-host"]
+
+FROM agent-runtime-base AS agent-runtime
+COPY --from=stripped-binaries /build/target/release/buzz-agent-host /usr/local/bin/buzz-agent-host
+COPY --from=stripped-binaries /build/target/release/buzz-agent-bootstrap /usr/local/bin/buzz-agent-bootstrap
+COPY --from=stripped-binaries /build/target/release/buzz-acp /usr/local/bin/buzz-acp
+COPY --from=stripped-binaries /build/target/release/buzz-agent /usr/local/bin/buzz-agent
+COPY --from=stripped-binaries /build/target/release/buzz /usr/local/bin/buzz
+COPY --from=stripped-binaries /build/target/release/buzz-dev-mcp /usr/local/bin/buzz-dev-mcp
