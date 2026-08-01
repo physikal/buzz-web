@@ -232,6 +232,12 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await expect(page.getByLabel("Message #general")).toBeVisible();
   expect(ownerPubkey).toMatch(/^[0-9a-f]{64}$/);
 
+  await page.getByRole("link", { name: "Settings" }).click();
+  await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Profile" })).toBeVisible();
+  await page.getByRole("link", { name: "Channels" }).click();
+  await expect(page.getByRole("heading", { name: "general" })).toBeVisible();
+
   await page.reload();
   await page.setViewportSize({ width: 390, height: 844 });
   expect(

@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import {
   Bot,
   BookMarked,
@@ -576,6 +577,7 @@ function PrimarySidebar({
           label="Channels"
         />
         <SidebarLink href="/agents" icon={<Bot />} label="Agents" />
+        <SidebarLink href="/settings" icon={<Settings />} label="Settings" />
       </nav>
       <div className="mt-auto border-t border-sidebar-border pt-3">
         <button
@@ -599,19 +601,19 @@ function SidebarLink({
   label,
   active = false,
 }: {
-  href: string;
+  href: "/" | "/channels" | "/agents" | "/settings";
   icon: React.ReactNode;
   label: string;
   active?: boolean;
 }) {
   return (
-    <a
+    <Link
       className={`flex items-center gap-2 rounded-md px-2 py-2 ${active ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground" : "text-muted-foreground hover:bg-sidebar-accent"}`}
-      href={href}
+      to={href}
     >
       <span className="[&_svg]:h-4 [&_svg]:w-4">{icon}</span>
       {label}
-    </a>
+    </Link>
   );
 }
 

@@ -5,6 +5,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from "./routes/root";
+import { Route as settingsRouteImport } from "./routes/settings";
 import { Route as reposRouteImport } from "./routes/repos";
 import { Route as channelsRouteImport } from "./routes/channels";
 import { Route as agentsRouteImport } from "./routes/agents";
@@ -14,6 +15,11 @@ import { Route as inviteDotcodeRouteImport } from "./routes/invite.$code";
 import { Route as agentsDotsetupRouteImport } from "./routes/agents.setup";
 import { Route as reposDotrepoIdDotblobDotsplatRouteImport } from "./routes/repos.$repoId.blob.$";
 
+const settingsRoute = settingsRouteImport.update({
+  id: "/settings",
+  path: "/settings",
+  getParentRoute: () => rootRouteImport,
+} as any);
 const reposRoute = reposRouteImport.update({
   id: "/repos",
   path: "/repos",
@@ -61,6 +67,7 @@ export interface FileRoutesByFullPath {
   "/agents": typeof agentsRoute;
   "/channels": typeof channelsRoute;
   "/repos": typeof reposRoute;
+  "/settings": typeof settingsRoute;
   "/agents/setup": typeof agentsDotsetupRoute;
   "/invite/$code": typeof inviteDotcodeRoute;
   "/repos/$repoId": typeof reposDotrepoIdRoute;
@@ -71,6 +78,7 @@ export interface FileRoutesByTo {
   "/agents": typeof agentsRoute;
   "/channels": typeof channelsRoute;
   "/repos": typeof reposRoute;
+  "/settings": typeof settingsRoute;
   "/agents/setup": typeof agentsDotsetupRoute;
   "/invite/$code": typeof inviteDotcodeRoute;
   "/repos/$repoId": typeof reposDotrepoIdRoute;
@@ -82,6 +90,7 @@ export interface FileRoutesById {
   "/agents": typeof agentsRoute;
   "/channels": typeof channelsRoute;
   "/repos": typeof reposRoute;
+  "/settings": typeof settingsRoute;
   "/agents/setup": typeof agentsDotsetupRoute;
   "/invite/$code": typeof inviteDotcodeRoute;
   "/repos/$repoId": typeof reposDotrepoIdRoute;
@@ -94,6 +103,7 @@ export interface FileRouteTypes {
     | "/agents"
     | "/channels"
     | "/repos"
+    | "/settings"
     | "/agents/setup"
     | "/invite/$code"
     | "/repos/$repoId"
@@ -104,6 +114,7 @@ export interface FileRouteTypes {
     | "/agents"
     | "/channels"
     | "/repos"
+    | "/settings"
     | "/agents/setup"
     | "/invite/$code"
     | "/repos/$repoId"
@@ -114,6 +125,7 @@ export interface FileRouteTypes {
     | "/agents"
     | "/channels"
     | "/repos"
+    | "/settings"
     | "/agents/setup"
     | "/invite/$code"
     | "/repos/$repoId"
@@ -125,6 +137,7 @@ export interface RootRouteChildren {
   agentsRoute: typeof agentsRoute;
   channelsRoute: typeof channelsRoute;
   reposRoute: typeof reposRoute;
+  settingsRoute: typeof settingsRoute;
   agentsDotsetupRoute: typeof agentsDotsetupRoute;
   inviteDotcodeRoute: typeof inviteDotcodeRoute;
   reposDotrepoIdRoute: typeof reposDotrepoIdRoute;
@@ -133,6 +146,13 @@ export interface RootRouteChildren {
 
 declare module "@tanstack/react-router" {
   interface FileRoutesByPath {
+    "/settings": {
+      id: "/settings";
+      path: "/settings";
+      fullPath: "/settings";
+      preLoaderRoute: typeof settingsRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
     "/repos": {
       id: "/repos";
       path: "/repos";
@@ -197,6 +217,7 @@ const rootRouteChildren: RootRouteChildren = {
   agentsRoute: agentsRoute,
   channelsRoute: channelsRoute,
   reposRoute: reposRoute,
+  settingsRoute: settingsRoute,
   agentsDotsetupRoute: agentsDotsetupRoute,
   inviteDotcodeRoute: inviteDotcodeRoute,
   reposDotrepoIdRoute: reposDotrepoIdRoute,

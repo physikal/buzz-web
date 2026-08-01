@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import {
   Bot,
   BookMarked,
@@ -6,6 +7,7 @@ import {
   MessageSquare,
   Plus,
   RefreshCw,
+  Settings,
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -233,13 +235,16 @@ function AgentsWorkspace({
           <span className="font-semibold">Buzz</span>
         </div>
         <nav className="mt-4 space-y-1 text-sm">
-          <a href="/" className="block">
+          <Link to="/" className="block">
             <SidebarItem icon={<BookMarked />} label="Repositories" />
-          </a>
-          <a href="/channels" className="block">
+          </Link>
+          <Link to="/channels" className="block">
             <SidebarItem icon={<MessageSquare />} label="Channels" />
-          </a>
+          </Link>
           <SidebarItem active icon={<Bot />} label="Agents" />
+          <Link to="/settings" className="block">
+            <SidebarItem icon={<Settings />} label="Settings" />
+          </Link>
         </nav>
         <div className="mt-auto border-t border-sidebar-border pt-3">
           <button

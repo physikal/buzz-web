@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { subscribeEvents } from "@/shared/lib/nostr-client";
 import { relayWsUrl } from "@/shared/lib/relay-url";
+import { readNotificationSettings } from "@/features/settings/settings-api";
 import type { Channel } from "./channel-api";
 
 const LIVE_KINDS = [
@@ -79,11 +80,30 @@ export function useLiveChannels({
             return next;
           });
         }
+        if ([9, 40002, 40008, 45001, 45003].includes(event.kind)) {
+          const settings = readNotificationSettings();
+          const shouldNotify =
+            settings.enabled &&
+            (channelId !== selectedChannelId || settings.notifyWhileViewing) &&
+            event.pubkey !== ownerPubkey &&
+            typeof Notification !== "undefined" &&
+            Notification.permission === "granted";
+          if (shouldNotify) {
+            const channel = channels.find((item) => item.id === channelId);
+            const notification = new Notification(
+              channel?.channelType === "dm"
+                ? channel.name
+                : `#${channel?.name ?? "Buzz"}`,
+              { body: event.content.slice(0, 240), tag: event.id },
+            );
+            notification.onclick = () => window.focus();
+          }
+        }
       },
       { requireNip07: true, onStatus: setStatus },
     );
     return subscription.close;
-  }, [channelIds, onChannelEvent, ownerPubkey, selectedChannelId]);
+  }, [channelIds, channels, onChannelEvent, ownerPubkey, selectedChannelId]);
 
   return { status, unread };
 }
