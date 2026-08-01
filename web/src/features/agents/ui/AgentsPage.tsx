@@ -20,12 +20,15 @@ import {
   setAgentRunning,
   type CreateAgentInput,
   type ManagedAgent,
+  updateAgent,
+  type UpdateAgentInput,
 } from "../agent-api";
 import { Button } from "@/shared/ui/button";
 import { AddAgentToChannelDialog } from "./AddAgentToChannelDialog";
 import { AgentAuthDialog } from "./AgentAuthDialog";
 import { AgentCard } from "./AgentCard";
 import { AgentCreateDialog } from "./AgentCreateDialog";
+import { AgentEditDialog } from "./AgentEditDialog";
 import { OwnerConnection } from "./OwnerConnection";
 
 const PREVIEW_AGENTS: ManagedAgent[] = [
@@ -144,6 +147,7 @@ function AgentsWorkspace({
     );
   const [agentToAuthenticate, setAgentToAuthenticate] =
     useState<ManagedAgent | null>(null);
+  const [agentToEdit, setAgentToEdit] = useState<ManagedAgent | null>(null);
   const agentsQuery = useQuery({
     queryKey: ["managed-agents", ownerPubkey],
     queryFn: () => (preview ? Promise.resolve(PREVIEW_AGENTS) : listAgents()),
@@ -189,6 +193,17 @@ function AgentsWorkspace({
     onError: (error) =>
       toast.error("Could not delete agent", { description: error.message }),
   });
+  const editMutation = useMutation({
+    mutationFn: ({ id, input }: { id: string; input: UpdateAgentInput }) =>
+      updateAgent(id, input),
+    onSuccess: (agent) => {
+      replaceAgent(agent);
+      setAgentToEdit(null);
+      toast.success(`${agent.name} updated`);
+    },
+    onError: (error) =>
+      toast.error("Could not update agent", { description: error.message }),
+  });
 
   function replaceAgent(updated: ManagedAgent) {
     queryClient.setQueryData<ManagedAgent[]>(
@@ -202,7 +217,8 @@ function AgentsWorkspace({
   const pending =
     createMutation.isPending ||
     stateMutation.isPending ||
-    deleteMutation.isPending;
+    deleteMutation.isPending ||
+    editMutation.isPending;
 
   return (
     <div className="flex min-h-dvh bg-background">
@@ -282,6 +298,7 @@ function AgentsWorkspace({
                   onAddToChannel={() => setAgentToAddToChannel(agent)}
                   onAuthenticate={() => setAgentToAuthenticate(agent)}
                   onDelete={() => deleteMutation.mutate(agent.id)}
+                  onEdit={() => setAgentToEdit(agent)}
                   onSetRunning={(running) =>
                     stateMutation.mutate({ id: agent.id, running })
                   }
@@ -332,6 +349,15 @@ function AgentsWorkspace({
           toast.success(`${agent.name} is starting`);
         }}
         onClose={() => setAgentToAuthenticate(null)}
+      />
+      <AgentEditDialog
+        agent={agentToEdit}
+        pending={editMutation.isPending}
+        onClose={() => setAgentToEdit(null)}
+        onSubmit={async (input) => {
+          if (!agentToEdit) return;
+          await editMutation.mutateAsync({ id: agentToEdit.id, input });
+        }}
       />
     </div>
   );

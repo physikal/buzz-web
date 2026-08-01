@@ -9,8 +9,8 @@ use axum::{
     response::Json,
 };
 use buzz_agent_host::{
-    allowed_secret_env_name, derive_control_token, encrypt_secret, parse_envelope_key,
-    runtime_command, AgentSecretPayload,
+    allowed_secret_env_name, decrypt_secret, derive_control_token, encrypt_secret,
+    parse_envelope_key, runtime_command, AgentSecretPayload,
 };
 use buzz_core::TenantContext;
 use nostr::{Keys, ToBech32};
@@ -45,6 +45,21 @@ pub struct CreateAgentRequest {
     secrets: BTreeMap<String, String>,
     #[serde(default = "default_credential_mode")]
     credential_mode: String,
+}
+
+/// Owner-supplied replacement configuration. Omitted fields retain their value;
+/// omitted secrets retain the existing write-only credential envelope.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UpdateAgentRequest {
+    name: Option<String>,
+    system_prompt: Option<String>,
+    runtime: Option<String>,
+    model: Option<Option<String>>,
+    respond_to: Option<String>,
+    respond_to_allowlist: Option<Vec<String>>,
+    secrets: Option<BTreeMap<String, String>>,
+    credential_mode: Option<String>,
 }
 
 fn default_respond_to() -> String {
@@ -206,6 +221,128 @@ pub async fn create_agent(
             )
         })?;
     Ok((StatusCode::CREATED, Json(json!({ "agent": record }))))
+}
+
+/// Replace mutable configuration for a stopped agent while keeping credentials write-only.
+pub async fn update_agent(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let path = format!("/api/agents/{id}");
+    let (tenant, owner) =
+        authorize_owner(&state, &headers, "PATCH", &path, Some(&body), true).await?;
+    let input: UpdateAgentRequest = serde_json::from_slice(&body)
+        .map_err(|_| api_error(StatusCode::BAD_REQUEST, "invalid request body"))?;
+    let envelope_key = std::env::var("BUZZ_AGENT_SECRET_KEY")
+        .ok()
+        .and_then(|value| parse_envelope_key(&value).ok())
+        .ok_or_else(|| {
+            api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "agent hosting is not configured",
+            )
+        })?;
+    let owner_pubkey = owner.to_hex();
+    let existing = state
+        .db
+        .get_owned_managed_agent_host_with_secret(tenant.community(), &owner_pubkey, id)
+        .await
+        .map_err(|error| {
+            tracing::error!(%error, "managed-agent update lookup failed");
+            api_error(StatusCode::INTERNAL_SERVER_ERROR, "internal server error")
+        })?
+        .ok_or_else(|| api_error(StatusCode::NOT_FOUND, "agent not found"))?;
+    if existing.record.desired_state != "stopped" || existing.record.observed_state != "stopped" {
+        return Err(api_error(
+            StatusCode::CONFLICT,
+            "stop the agent before changing its configuration",
+        ));
+    }
+
+    let mut secret = decrypt_secret(
+        &envelope_key,
+        *tenant.community().as_uuid(),
+        id,
+        &existing.secret_nonce,
+        &existing.secret_ciphertext,
+    )
+    .map_err(|error| {
+        tracing::error!(%error, "managed-agent secret decrypt failed");
+        api_error(StatusCode::INTERNAL_SERVER_ERROR, "agent update failed")
+    })?;
+    let credential_mode = input
+        .credential_mode
+        .as_deref()
+        .unwrap_or(&existing.record.credential_mode);
+    if credential_mode == "subscription" {
+        secret.env.clear();
+    } else if let Some(secrets) = input.secrets {
+        secret.env = secrets;
+    }
+    let validation = CreateAgentRequest {
+        name: input.name.unwrap_or_else(|| existing.record.name.clone()),
+        system_prompt: input
+            .system_prompt
+            .unwrap_or_else(|| existing.record.system_prompt.clone()),
+        runtime: input
+            .runtime
+            .unwrap_or_else(|| existing.record.runtime.clone()),
+        model: input.model.unwrap_or_else(|| existing.record.model.clone()),
+        respond_to: input
+            .respond_to
+            .unwrap_or_else(|| existing.record.respond_to.clone()),
+        respond_to_allowlist: input
+            .respond_to_allowlist
+            .unwrap_or_else(|| existing.record.respond_to_allowlist.clone()),
+        secrets: secret.env.clone(),
+        credential_mode: credential_mode.to_owned(),
+    };
+    validate_create(&validation)?;
+    let encrypted = encrypt_secret(
+        &envelope_key,
+        *tenant.community().as_uuid(),
+        id,
+        AgentSecretPayload {
+            private_key_nsec: secret.private_key_nsec.clone(),
+            env: secret.env.clone(),
+        },
+    )
+    .map_err(|error| {
+        tracing::error!(%error, "managed-agent secret re-encrypt failed");
+        api_error(StatusCode::INTERNAL_SERVER_ERROR, "agent update failed")
+    })?;
+    let record = state
+        .db
+        .update_managed_agent_host(
+            tenant.community(),
+            &owner_pubkey,
+            id,
+            buzz_db::managed_agent_host::UpdateManagedAgentHost {
+                name: validation.name.trim(),
+                system_prompt: validation.system_prompt.trim(),
+                runtime: &validation.runtime,
+                model: validation.model.as_deref().map(str::trim),
+                credential_mode: &validation.credential_mode,
+                respond_to: &validation.respond_to,
+                respond_to_allowlist: &validation.respond_to_allowlist,
+                secret_nonce: &encrypted.nonce,
+                secret_ciphertext: &encrypted.ciphertext,
+            },
+        )
+        .await
+        .map_err(|error| {
+            tracing::error!(%error, "managed-agent update failed");
+            api_error(StatusCode::INTERNAL_SERVER_ERROR, "internal server error")
+        })?
+        .ok_or_else(|| {
+            api_error(
+                StatusCode::CONFLICT,
+                "stop the agent before changing its configuration",
+            )
+        })?;
+    Ok(Json(json!({ "agent": record })))
 }
 
 /// Return subscription-login status from the private agent-host control port.

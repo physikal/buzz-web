@@ -5,6 +5,7 @@ import {
   KeyRound,
   MessageSquarePlus,
   OctagonX,
+  Pencil,
   Play,
   Trash2,
 } from "lucide-react";
@@ -27,6 +28,7 @@ export function AgentCard({
   onAddToChannel,
   onAuthenticate,
   onDelete,
+  onEdit,
   onSetRunning,
 }: {
   agent: ManagedAgent;
@@ -34,6 +36,7 @@ export function AgentCard({
   onAddToChannel: () => void;
   onAuthenticate: () => void;
   onDelete: () => void;
+  onEdit: () => void;
   onSetRunning: (running: boolean) => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -86,6 +89,17 @@ export function AgentCard({
         </Button>
         {menuOpen ? (
           <div className="absolute top-10 right-0 z-30 w-40 rounded-md border bg-popover p-1 shadow-lg">
+            <button
+              className="flex h-9 w-full items-center gap-2 rounded px-2 text-sm hover:bg-accent disabled:opacity-50"
+              disabled={pending || active || agent.desired_state !== "stopped"}
+              onClick={() => {
+                setMenuOpen(false);
+                onEdit();
+              }}
+              type="button"
+            >
+              <Pencil className="h-4 w-4" /> Edit agent
+            </button>
             <button
               className="flex h-9 w-full items-center gap-2 rounded px-2 text-sm hover:bg-accent"
               disabled={pending}

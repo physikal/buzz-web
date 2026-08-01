@@ -15,6 +15,7 @@ export interface NostrFilter {
   ids?: string[];
   authors?: string[];
   kinds?: number[];
+  search?: string;
   since?: number;
   until?: number;
   limit?: number;
@@ -176,4 +177,110 @@ export function queryEvents(
       }
     });
   });
+}
+
+export type LiveSubscription = {
+  close: () => void;
+};
+
+/**
+ * Keep an authenticated NIP-01 subscription alive and reconnect it when the
+ * relay or network drops. Callers own cache reconciliation and deduplication.
+ */
+export function subscribeEvents(
+  wsUrl: string,
+  filter: NostrFilter | NostrFilter[],
+  onEvent: (event: NostrEvent) => void,
+  options?: {
+    requireNip07?: boolean;
+    onStatus?: (status: "connecting" | "live" | "offline") => void;
+  },
+): LiveSubscription {
+  let stopped = false;
+  let ws: WebSocket | null = null;
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let reconnectAttempt = 0;
+  let generation = 0;
+
+  const connect = () => {
+    if (stopped) return;
+    const currentGeneration = ++generation;
+    const subId = `live-${Date.now().toString(36)}-${currentGeneration}`;
+    let reqSent = false;
+    let authEventId: string | null = null;
+    let authTimer: ReturnType<typeof setTimeout> | null = null;
+    options?.onStatus?.("connecting");
+    ws = new WebSocket(wsUrl);
+
+    const sendReq = () => {
+      if (reqSent || ws?.readyState !== WebSocket.OPEN) return;
+      reqSent = true;
+      const filters = Array.isArray(filter) ? filter : [filter];
+      ws.send(JSON.stringify(["REQ", subId, ...filters]));
+    };
+
+    ws.addEventListener("open", () => {
+      authTimer = setTimeout(sendReq, 100);
+    });
+    ws.addEventListener("message", async (message) => {
+      let frame: unknown;
+      try {
+        frame = JSON.parse(String(message.data));
+      } catch {
+        return;
+      }
+      if (!Array.isArray(frame) || stopped || currentGeneration !== generation)
+        return;
+      if (frame[0] === "AUTH" && typeof frame[1] === "string") {
+        if (authTimer) clearTimeout(authTimer);
+        try {
+          const signed = await signNostrEvent(makeAuthEvent(wsUrl, frame[1]), {
+            requireNip07: options?.requireNip07,
+          });
+          if (stopped || currentGeneration !== generation) return;
+          authEventId = signed.id;
+          ws?.send(JSON.stringify(["AUTH", signed]));
+        } catch {
+          ws?.close();
+        }
+        return;
+      }
+      if (frame[0] === "OK" && frame[1] === authEventId) {
+        if (frame[2] === true) sendReq();
+        else ws?.close();
+        return;
+      }
+      if (frame[0] === "EVENT" && frame[1] === subId && frame[2]) {
+        onEvent(frame[2] as NostrEvent);
+        return;
+      }
+      if (frame[0] === "EOSE" && frame[1] === subId) {
+        reconnectAttempt = 0;
+        options?.onStatus?.("live");
+      }
+      if (frame[0] === "CLOSED" && frame[1] === subId) ws?.close();
+    });
+    ws.addEventListener("close", () => {
+      if (authTimer) clearTimeout(authTimer);
+      if (stopped || currentGeneration !== generation) return;
+      options?.onStatus?.("offline");
+      const delay = Math.min(15_000, 500 * 2 ** reconnectAttempt++);
+      reconnectTimer = setTimeout(connect, delay);
+    });
+    ws.addEventListener("error", () => ws?.close());
+  };
+
+  connect();
+  return {
+    close: () => {
+      stopped = true;
+      generation += 1;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      try {
+        ws?.close();
+      } catch {
+        // Already closed.
+      }
+    },
+  };
 }

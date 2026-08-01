@@ -1,0 +1,154 @@
+import { FileText, Paperclip, Send, X } from "lucide-react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
+
+import { Button } from "@/shared/ui/button";
+import {
+  mediaImetaTag,
+  type Channel,
+  type ChannelMessage,
+  uploadMedia,
+} from "../channel-api";
+
+export type ComposerPayload = {
+  content: string;
+  mediaTags: string[][];
+};
+
+function draftKey(channelId: string, parentId?: string | null) {
+  return `buzz-web:draft:${channelId}:${parentId ?? "root"}`;
+}
+
+export function MessageComposer({
+  channel,
+  parent,
+  pending,
+  onSubmit,
+}: {
+  channel: Channel;
+  parent?: ChannelMessage | null;
+  pending: boolean;
+  onSubmit: (payload: ComposerPayload) => Promise<void>;
+}) {
+  const key = draftKey(channel.id, parent?.id);
+  const [draft, setDraft] = useState(() => localStorage.getItem(key) ?? "");
+  const [files, setFiles] = useState<File[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const fileInput = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setDraft(localStorage.getItem(key) ?? "");
+    setFiles([]);
+  }, [key]);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if ((!draft.trim() && !files.length) || pending || uploading) return;
+    setUploading(true);
+    try {
+      const uploads = await Promise.all(
+        files.map(async (file) =>
+          mediaImetaTag(await uploadMedia(file), file.name),
+        ),
+      );
+      await onSubmit({ content: draft, mediaTags: uploads });
+      setDraft("");
+      setFiles([]);
+      localStorage.removeItem(key);
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  const placeholder = parent
+    ? "Reply in thread"
+    : channel.channelType === "forum"
+      ? "Create a new post"
+      : channel.channelType === "dm"
+        ? `Message ${channel.name}`
+        : `Message #${channel.name}`;
+
+  return (
+    <form className="border-t p-3 sm:p-4" onSubmit={submit}>
+      <div className="mx-auto max-w-4xl rounded-md border bg-background shadow-xs focus-within:ring-1 focus-within:ring-ring">
+        {files.length ? (
+          <div className="flex flex-wrap gap-2 border-b p-2">
+            {files.map((file, index) => (
+              <span
+                className="flex max-w-full items-center gap-2 rounded-md bg-muted px-2 py-1 text-xs"
+                key={`${file.name}-${file.lastModified}`}
+              >
+                <FileText className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">{file.name}</span>
+                <button
+                  aria-label={`Remove ${file.name}`}
+                  onClick={() =>
+                    setFiles((current) =>
+                      current.filter((_, itemIndex) => itemIndex !== index),
+                    )
+                  }
+                  type="button"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </span>
+            ))}
+          </div>
+        ) : null}
+        <div className="flex items-end gap-1 p-2">
+          <input
+            className="hidden"
+            multiple
+            ref={fileInput}
+            type="file"
+            onChange={(event) => {
+              const selected = [...(event.target.files ?? [])];
+              setFiles((current) => [...current, ...selected].slice(0, 10));
+              event.target.value = "";
+            }}
+          />
+          <Button
+            aria-label="Attach files"
+            disabled={pending || uploading}
+            onClick={() => fileInput.current?.click()}
+            size="icon"
+            type="button"
+            variant="ghost"
+          >
+            <Paperclip />
+          </Button>
+          <textarea
+            aria-label={placeholder}
+            className="max-h-40 min-h-10 flex-1 resize-none bg-transparent px-2 py-2 text-sm outline-none"
+            disabled={pending || uploading}
+            placeholder={placeholder}
+            rows={1}
+            value={draft}
+            onChange={(event) => {
+              setDraft(event.target.value);
+              localStorage.setItem(key, event.target.value);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                event.currentTarget.form?.requestSubmit();
+              }
+            }}
+          />
+          <Button
+            aria-label="Send message"
+            disabled={(!draft.trim() && !files.length) || pending || uploading}
+            size="icon"
+            type="submit"
+          >
+            <Send />
+          </Button>
+        </div>
+        {uploading ? (
+          <p className="px-3 pb-2 text-xs text-muted-foreground">
+            Uploading attachments…
+          </p>
+        ) : null}
+      </div>
+    </form>
+  );
+}

@@ -92,6 +92,28 @@ pub struct NewManagedAgentHost<'a> {
     pub secret_ciphertext: &'a [u8],
 }
 
+/// Mutable configuration for an existing stopped managed agent.
+pub struct UpdateManagedAgentHost<'a> {
+    /// Display name.
+    pub name: &'a str,
+    /// Harness instructions.
+    pub system_prompt: &'a str,
+    /// Allowlisted runtime id.
+    pub runtime: &'a str,
+    /// Optional model override.
+    pub model: Option<&'a str>,
+    /// Provider credential source.
+    pub credential_mode: &'a str,
+    /// Inbound author gate.
+    pub respond_to: &'a str,
+    /// Inbound allowlist.
+    pub respond_to_allowlist: &'a [String],
+    /// Fresh envelope nonce after the write-only secret payload is re-encrypted.
+    pub secret_nonce: &'a [u8],
+    /// Fresh encrypted secret payload.
+    pub secret_ciphertext: &'a [u8],
+}
+
 fn row_to_record(row: &sqlx::postgres::PgRow) -> Result<ManagedAgentHostRecord> {
     let allowlist: serde_json::Value = row.try_get("respond_to_allowlist")?;
     Ok(ManagedAgentHostRecord {
@@ -217,6 +239,70 @@ pub async fn get_owned(
          last_error, created_at, updated_at FROM managed_agent_hosts \
          WHERE community_id = $1 AND owner_pubkey = $2 AND id = $3",
     )
+    .bind(community.as_uuid())
+    .bind(owner_pubkey)
+    .bind(id)
+    .fetch_optional(pool)
+    .await?;
+    row.as_ref().map(row_to_record).transpose()
+}
+
+/// Load an owned agent together with its encrypted envelope for a control-plane update.
+pub async fn get_owned_with_secret(
+    pool: &PgPool,
+    community: CommunityId,
+    owner_pubkey: &str,
+    id: Uuid,
+) -> Result<Option<ManagedAgentLease>> {
+    let row = sqlx::query(
+        "SELECT community_id, id, sandbox_uid, owner_pubkey, agent_pubkey, name, system_prompt, runtime, model, credential_mode, respond_to, \
+         respond_to_allowlist, desired_state, observed_state, lease_epoch, runtime_pid, \
+         last_error, created_at, updated_at, secret_nonce, secret_ciphertext FROM managed_agent_hosts \
+         WHERE community_id = $1 AND owner_pubkey = $2 AND id = $3",
+    )
+    .bind(community.as_uuid())
+    .bind(owner_pubkey)
+    .bind(id)
+    .fetch_optional(pool)
+    .await?;
+    row.as_ref()
+        .map(|row| {
+            Ok(ManagedAgentLease {
+                record: row_to_record(row)?,
+                secret_nonce: row.try_get("secret_nonce")?,
+                secret_ciphertext: row.try_get("secret_ciphertext")?,
+            })
+        })
+        .transpose()
+}
+
+/// Update a stopped, unleased agent without exposing its credential envelope.
+pub async fn update_owned(
+    pool: &PgPool,
+    community: CommunityId,
+    owner_pubkey: &str,
+    id: Uuid,
+    input: UpdateManagedAgentHost<'_>,
+) -> Result<Option<ManagedAgentHostRecord>> {
+    let allowlist = serde_json::to_value(input.respond_to_allowlist)?;
+    let row = sqlx::query(
+        "UPDATE managed_agent_hosts SET name = $1, system_prompt = $2, runtime = $3, model = $4, \
+         credential_mode = $5, respond_to = $6, respond_to_allowlist = $7, secret_nonce = $8, \
+         secret_ciphertext = $9, last_error = NULL, updated_at = NOW() \
+         WHERE community_id = $10 AND owner_pubkey = $11 AND id = $12 \
+           AND desired_state = 'stopped' AND lease_expires_at IS NULL \
+         RETURNING community_id, id, sandbox_uid, owner_pubkey, agent_pubkey, name, system_prompt, runtime, model, credential_mode, respond_to, \
+         respond_to_allowlist, desired_state, observed_state, lease_epoch, runtime_pid, last_error, created_at, updated_at",
+    )
+    .bind(input.name)
+    .bind(input.system_prompt)
+    .bind(input.runtime)
+    .bind(input.model)
+    .bind(input.credential_mode)
+    .bind(input.respond_to)
+    .bind(allowlist)
+    .bind(input.secret_nonce)
+    .bind(input.secret_ciphertext)
     .bind(community.as_uuid())
     .bind(owner_pubkey)
     .bind(id)

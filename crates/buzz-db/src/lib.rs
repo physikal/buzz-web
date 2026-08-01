@@ -4052,6 +4052,27 @@ impl Db {
         managed_agent_host::get_owned(&self.pool, community, owner_pubkey, id).await
     }
 
+    /// Load an owned managed agent together with its encrypted credential envelope.
+    pub async fn get_owned_managed_agent_host_with_secret(
+        &self,
+        community: CommunityId,
+        owner_pubkey: &str,
+        id: Uuid,
+    ) -> Result<Option<managed_agent_host::ManagedAgentLease>> {
+        managed_agent_host::get_owned_with_secret(&self.pool, community, owner_pubkey, id).await
+    }
+
+    /// Update one stopped managed agent's configuration and credential envelope.
+    pub async fn update_managed_agent_host(
+        &self,
+        community: CommunityId,
+        owner_pubkey: &str,
+        id: Uuid,
+        input: managed_agent_host::UpdateManagedAgentHost<'_>,
+    ) -> Result<Option<managed_agent_host::ManagedAgentHostRecord>> {
+        managed_agent_host::update_owned(&self.pool, community, owner_pubkey, id, input).await
+    }
+
     /// Load one centralized agent for the internal host control service.
     pub async fn get_managed_agent_host(
         &self,

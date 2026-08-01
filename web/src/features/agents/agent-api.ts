@@ -40,6 +40,13 @@ export type CreateAgentInput = {
   credential_mode: AgentCredentialMode;
 };
 
+export type UpdateAgentInput = Partial<
+  Omit<CreateAgentInput, "model" | "secrets">
+> & {
+  model?: string | null;
+  secrets?: Record<string, string>;
+};
+
 export type AgentAuthStatus = {
   state: "disconnected" | "waiting" | "connected" | "failed" | "cancelled";
   connected: boolean;
@@ -87,6 +94,17 @@ export async function createAgent(
     method: "POST",
     body: JSON.stringify(input),
   });
+  return result.agent;
+}
+
+export async function updateAgent(
+  id: string,
+  input: UpdateAgentInput,
+): Promise<ManagedAgent> {
+  const result = await signedRequest<{ agent: ManagedAgent }>(
+    `/api/agents/${encodeURIComponent(id)}`,
+    { method: "PATCH", body: JSON.stringify(input) },
+  );
   return result.agent;
 }
 

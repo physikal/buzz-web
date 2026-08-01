@@ -1,4 +1,4 @@
-import { X } from "lucide-react";
+import { Hash, LayoutList, Lock, X } from "lucide-react";
 import { type FormEvent, useState } from "react";
 
 import { Button } from "@/shared/ui/button";
@@ -13,16 +13,28 @@ export function CreateChannelDialog({
   open: boolean;
   pending: boolean;
   onClose: () => void;
-  onSubmit: (input: { name: string; description: string }) => Promise<void>;
+  onSubmit: (input: {
+    name: string;
+    description: string;
+    channelType: "stream" | "forum";
+    visibility: "open" | "private";
+  }) => Promise<void>;
 }) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [channelType, setChannelType] = useState<"stream" | "forum">("stream");
+  const [visibility, setVisibility] = useState<"open" | "private">("open");
   if (!open) return null;
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (!name.trim()) return;
-    await onSubmit({ name: name.trim(), description: description.trim() });
+    await onSubmit({
+      name: name.trim(),
+      description: description.trim(),
+      channelType,
+      visibility,
+    });
     setName("");
     setDescription("");
   }
@@ -75,6 +87,39 @@ export function CreateChannelDialog({
           value={name}
           onChange={(event) => setName(event.target.value)}
         />
+        <fieldset className="mt-4">
+          <legend className="text-sm font-medium">Channel type</legend>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <ChoiceButton
+              active={channelType === "stream"}
+              icon={<Hash />}
+              label="Stream"
+              description="Continuous conversation"
+              onClick={() => setChannelType("stream")}
+            />
+            <ChoiceButton
+              active={channelType === "forum"}
+              icon={<LayoutList />}
+              label="Forum"
+              description="Posts with focused replies"
+              onClick={() => setChannelType("forum")}
+            />
+          </div>
+        </fieldset>
+        <label className="mt-4 flex items-center justify-between gap-4 rounded-md border p-3 text-sm">
+          <span className="flex items-center gap-2">
+            <Lock className="h-4 w-4" />
+            Private channel
+          </span>
+          <input
+            checked={visibility === "private"}
+            disabled={pending}
+            type="checkbox"
+            onChange={(event) =>
+              setVisibility(event.target.checked ? "private" : "open")
+            }
+          />
+        </label>
         <label
           className="mt-4 block text-sm font-medium"
           htmlFor="channel-description"
@@ -105,5 +150,35 @@ export function CreateChannelDialog({
         </div>
       </form>
     </div>
+  );
+}
+
+function ChoiceButton({
+  active,
+  icon,
+  label,
+  description,
+  onClick,
+}: {
+  active: boolean;
+  icon: React.ReactNode;
+  label: string;
+  description: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      className={`min-w-0 rounded-md border p-3 text-left ${active ? "border-primary bg-primary/10" : "hover:bg-muted/60"}`}
+      onClick={onClick}
+      type="button"
+    >
+      <span className="flex items-center gap-2 text-sm font-medium [&_svg]:h-4 [&_svg]:w-4">
+        {icon}
+        {label}
+      </span>
+      <span className="mt-1 block text-xs text-muted-foreground">
+        {description}
+      </span>
+    </button>
   );
 }
