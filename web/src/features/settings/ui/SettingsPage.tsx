@@ -8,6 +8,7 @@ import {
   LogOut,
   MessageSquare,
   MonitorCog,
+  Ticket,
   UserRound,
 } from "lucide-react";
 import { useState } from "react";
@@ -20,6 +21,7 @@ import { truncatePubkey } from "@/shared/lib/pubkey";
 import { ThemeToggle } from "@/shared/theme/ThemeToggle";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
+import { CommunityMembersPanel } from "./CommunityMembersPanel";
 import {
   getOwnerProfile,
   type ProfileInput,
@@ -29,7 +31,7 @@ import {
   writeNotificationSettings,
 } from "../settings-api";
 
-type Section = "profile" | "notifications" | "appearance";
+type Section = "profile" | "notifications" | "appearance" | "community-members";
 
 export function SettingsPage() {
   const [ownerPubkey, setOwnerPubkey] = useState<string | null>(null);
@@ -90,6 +92,9 @@ function SettingsWorkspace({
           ) : null}
           {section === "notifications" ? <NotificationsPanel /> : null}
           {section === "appearance" ? <AppearancePanel /> : null}
+          {section === "community-members" ? (
+            <CommunityMembersPanel ownerPubkey={ownerPubkey} />
+          ) : null}
         </div>
       </main>
     </div>
@@ -107,6 +112,7 @@ function SettingsNav({
     ["profile", "Profile", <UserRound key="profile" />],
     ["notifications", "Notifications", <Bell key="notifications" />],
     ["appearance", "Appearance", <MonitorCog key="appearance" />],
+    ["community-members", "Invites", <Ticket key="community-members" />],
   ];
   return (
     <nav className="space-y-1">

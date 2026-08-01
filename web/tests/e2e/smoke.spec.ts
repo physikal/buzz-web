@@ -17,6 +17,7 @@ test("home page shows repositories section", async ({ page }) => {
 test("owner setup creates a passkey-wrapped signer and enters Channels", async ({
   page,
 }) => {
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
   const cdp = await page.context().newCDPSession(page);
   await cdp.send("WebAuthn.enable");
   await cdp.send("WebAuthn.addVirtualAuthenticator", {
@@ -130,6 +131,34 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
       body: JSON.stringify({ agents: [] }),
     });
   });
+  await page.route("**/api/invites", async (route) => {
+    const request = route.request();
+    const body = request.postData() ?? "";
+    expect(JSON.parse(body)).toEqual({ ttl_secs: 259200 });
+    const authorization = request.headers().authorization ?? "";
+    const event = JSON.parse(
+      Buffer.from(authorization.slice("Nostr ".length), "base64").toString(
+        "utf8",
+      ),
+    );
+    expect(verifyEvent(event)).toBe(true);
+    expect(event.pubkey).toBe(ownerPubkey);
+    expect(event.tags).toContainEqual([
+      "payload",
+      createHash("sha256").update(body).digest("hex"),
+    ]);
+    await route.fulfill({
+      status: 201,
+      contentType: "application/json",
+      body: JSON.stringify({
+        code: "owner-invite",
+        expires_at: Math.floor(Date.now() / 1000) + 259200,
+        url: "http://localhost:4173/invite/owner-invite",
+        max_uses: null,
+        uses_remaining: null,
+      }),
+    });
+  });
   await page.route("**/events", async (route) => {
     await route.fulfill({
       status: 200,
@@ -207,6 +236,23 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
               ]),
             );
           }
+          if (filters.includes("13534")) {
+            socket.send(
+              JSON.stringify([
+                "EVENT",
+                subscriptionId,
+                finalizeEvent(
+                  {
+                    kind: 13534,
+                    created_at: createdAt,
+                    content: "",
+                    tags: [["member", ownerPubkey, "owner"]],
+                  },
+                  signer,
+                ),
+              ]),
+            );
+          }
           socket.send(JSON.stringify(["EOSE", subscriptionId]));
         }
       });
@@ -235,6 +281,17 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await page.getByRole("link", { name: "Settings" }).click();
   await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Profile" })).toBeVisible();
+  await page.getByRole("button", { name: "Invites" }).click();
+  await expect(
+    page.getByRole("button", { name: "Invite to community" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Invite to community" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Invite to community" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Copy link" }).click();
+  await expect(page.getByRole("button", { name: "Copied" })).toBeVisible();
+  await page.getByRole("button", { name: "Close" }).click();
   await page.getByRole("link", { name: "Channels" }).click();
   await expect(page.getByRole("heading", { name: "general" })).toBeVisible();
 
