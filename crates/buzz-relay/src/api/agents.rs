@@ -49,7 +49,7 @@ fn default_respond_to() -> String {
     "owner-only".into()
 }
 
-async fn authorize_owner(
+pub(crate) async fn authorize_owner(
     state: &AppState,
     headers: &HeaderMap,
     method: &str,

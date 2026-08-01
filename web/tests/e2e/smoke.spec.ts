@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { expect, test } from "@playwright/test";
+import { verifyEvent } from "nostr-tools/pure";
 
 test("home page loads with Buzz branding", async ({ page }) => {
   await page.goto("/");
@@ -11,6 +12,152 @@ test("home page loads with Buzz branding", async ({ page }) => {
 test("home page shows repositories section", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByText("Repositories")).toBeVisible();
+});
+
+test("owner setup creates a passkey-wrapped signer and enters Agents", async ({
+  page,
+}) => {
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("WebAuthn.enable");
+  await cdp.send("WebAuthn.addVirtualAuthenticator", {
+    options: {
+      protocol: "ctap2",
+      transport: "internal",
+      hasResidentKey: true,
+      hasUserVerification: true,
+      isUserVerified: true,
+      automaticPresenceSimulation: true,
+      hasPrf: true,
+    },
+  });
+
+  const token = "42".repeat(32);
+  let ownerPubkey = "";
+  let claimedCredential: {
+    credential_id: string;
+    prf_input: string;
+    kdf_salt: string;
+    nonce: string;
+    ciphertext: string;
+  } | null = null;
+  await page.route("**/api/owner/status", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        claimed: claimedCredential !== null,
+        vault_ready: claimedCredential !== null,
+        owner_pubkey: ownerPubkey || null,
+        claim_enabled: true,
+      }),
+    });
+  });
+  await page.route("**/api/owner/claim", async (route) => {
+    const request = route.request();
+    const body = request.postData() ?? "";
+    const payload = JSON.parse(body) as {
+      token: string;
+      credential: {
+        credential_id: string;
+        prf_input: string;
+        kdf_salt: string;
+        nonce: string;
+        ciphertext: string;
+      };
+      recovery: { ciphertext: string };
+    };
+    expect(payload.token).toBe(token);
+    expect(
+      Buffer.from(payload.credential.ciphertext, "base64url"),
+    ).toHaveLength(48);
+    expect(Buffer.from(payload.recovery.ciphertext, "base64url")).toHaveLength(
+      48,
+    );
+    expect(
+      Buffer.from(payload.credential.credential_id, "base64url").length,
+    ).toBeGreaterThanOrEqual(16);
+
+    const authorization = request.headers().authorization ?? "";
+    expect(authorization).toMatch(/^Nostr /);
+    const event = JSON.parse(
+      Buffer.from(authorization.slice("Nostr ".length), "base64").toString(
+        "utf8",
+      ),
+    );
+    expect(verifyEvent(event)).toBe(true);
+    expect(event.tags).toContainEqual([
+      "payload",
+      createHash("sha256").update(body).digest("hex"),
+    ]);
+    ownerPubkey = event.pubkey;
+    claimedCredential = payload.credential;
+    await route.fulfill({
+      status: 201,
+      contentType: "application/json",
+      body: JSON.stringify({ owner_pubkey: ownerPubkey }),
+    });
+  });
+  await page.route("**/api/owner/vault/unlock", async (route) => {
+    expect(claimedCredential).not.toBeNull();
+    const body = JSON.parse(route.request().postData() ?? "{}") as {
+      credential_id?: string;
+    };
+    expect(body.credential_id).toBe(claimedCredential?.credential_id);
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        owner_pubkey: ownerPubkey,
+        prf_input: claimedCredential?.prf_input,
+        kdf_salt: claimedCredential?.kdf_salt,
+        nonce: claimedCredential?.nonce,
+        ciphertext: claimedCredential?.ciphertext,
+      }),
+    });
+  });
+  await page.route("**/api/agents", async (route) => {
+    const authorization = route.request().headers().authorization ?? "";
+    const event = JSON.parse(
+      Buffer.from(authorization.slice("Nostr ".length), "base64").toString(
+        "utf8",
+      ),
+    );
+    expect(verifyEvent(event)).toBe(true);
+    expect(event.pubkey).toBe(ownerPubkey);
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ agents: [] }),
+    });
+  });
+
+  await page.goto(`http://localhost:4173/agents/setup#${token}`);
+  await expect(page).toHaveURL(/\/agents\/setup$/);
+  await page.getByRole("button", { name: "Create owner passkey" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Owner passkey created" }),
+  ).toBeVisible();
+  await expect(page.locator("code")).toContainText("buzz-recovery-v1_");
+  await page.getByLabel("I saved this recovery code somewhere secure.").check();
+  await page.getByRole("button", { name: "Open Buzz" }).click();
+  await expect(page).toHaveURL(/\/agents$/);
+  await expect(page.getByRole("heading", { name: "Agents" })).toBeVisible();
+  expect(ownerPubkey).toMatch(/^[0-9a-f]{64}$/);
+
+  await page.reload();
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+  await page.getByRole("button", { name: "Unlock with passkey" }).click();
+  await expect(page.getByRole("heading", { name: "Agents" })).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
 });
 
 test("invite requires age and legal consent before opening Buzz", async ({

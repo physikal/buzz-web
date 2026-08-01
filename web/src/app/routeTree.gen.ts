@@ -10,6 +10,7 @@ import { Route as agentsRouteImport } from "./routes/agents";
 import { Route as indexRouteImport } from "./routes/index";
 import { Route as reposDotrepoIdRouteImport } from "./routes/repos.$repoId";
 import { Route as inviteDotcodeRouteImport } from "./routes/invite.$code";
+import { Route as agentsDotsetupRouteImport } from "./routes/agents.setup";
 import { Route as reposDotrepoIdDotblobDotsplatRouteImport } from "./routes/repos.$repoId.blob.$";
 
 const reposRoute = reposRouteImport.update({
@@ -37,6 +38,11 @@ const inviteDotcodeRoute = inviteDotcodeRouteImport.update({
   path: "/invite/$code",
   getParentRoute: () => rootRouteImport,
 } as any);
+const agentsDotsetupRoute = agentsDotsetupRouteImport.update({
+  id: "/agents/setup",
+  path: "/agents/setup",
+  getParentRoute: () => rootRouteImport,
+} as any);
 const reposDotrepoIdDotblobDotsplatRoute =
   reposDotrepoIdDotblobDotsplatRouteImport.update({
     id: "/repos/$repoId/blob/$",
@@ -48,6 +54,7 @@ export interface FileRoutesByFullPath {
   "/": typeof indexRoute;
   "/agents": typeof agentsRoute;
   "/repos": typeof reposRoute;
+  "/agents/setup": typeof agentsDotsetupRoute;
   "/invite/$code": typeof inviteDotcodeRoute;
   "/repos/$repoId": typeof reposDotrepoIdRoute;
   "/repos/$repoId/blob/$": typeof reposDotrepoIdDotblobDotsplatRoute;
@@ -56,6 +63,7 @@ export interface FileRoutesByTo {
   "/": typeof indexRoute;
   "/agents": typeof agentsRoute;
   "/repos": typeof reposRoute;
+  "/agents/setup": typeof agentsDotsetupRoute;
   "/invite/$code": typeof inviteDotcodeRoute;
   "/repos/$repoId": typeof reposDotrepoIdRoute;
   "/repos/$repoId/blob/$": typeof reposDotrepoIdDotblobDotsplatRoute;
@@ -65,6 +73,7 @@ export interface FileRoutesById {
   "/": typeof indexRoute;
   "/agents": typeof agentsRoute;
   "/repos": typeof reposRoute;
+  "/agents/setup": typeof agentsDotsetupRoute;
   "/invite/$code": typeof inviteDotcodeRoute;
   "/repos/$repoId": typeof reposDotrepoIdRoute;
   "/repos/$repoId/blob/$": typeof reposDotrepoIdDotblobDotsplatRoute;
@@ -75,6 +84,7 @@ export interface FileRouteTypes {
     | "/"
     | "/agents"
     | "/repos"
+    | "/agents/setup"
     | "/invite/$code"
     | "/repos/$repoId"
     | "/repos/$repoId/blob/$";
@@ -83,6 +93,7 @@ export interface FileRouteTypes {
     | "/"
     | "/agents"
     | "/repos"
+    | "/agents/setup"
     | "/invite/$code"
     | "/repos/$repoId"
     | "/repos/$repoId/blob/$";
@@ -91,6 +102,7 @@ export interface FileRouteTypes {
     | "/"
     | "/agents"
     | "/repos"
+    | "/agents/setup"
     | "/invite/$code"
     | "/repos/$repoId"
     | "/repos/$repoId/blob/$";
@@ -100,6 +112,7 @@ export interface RootRouteChildren {
   indexRoute: typeof indexRoute;
   agentsRoute: typeof agentsRoute;
   reposRoute: typeof reposRoute;
+  agentsDotsetupRoute: typeof agentsDotsetupRoute;
   inviteDotcodeRoute: typeof inviteDotcodeRoute;
   reposDotrepoIdRoute: typeof reposDotrepoIdRoute;
   reposDotrepoIdDotblobDotsplatRoute: typeof reposDotrepoIdDotblobDotsplatRoute;
@@ -142,6 +155,13 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof inviteDotcodeRouteImport;
       parentRoute: typeof rootRouteImport;
     };
+    "/agents/setup": {
+      id: "/agents/setup";
+      path: "/agents/setup";
+      fullPath: "/agents/setup";
+      preLoaderRoute: typeof agentsDotsetupRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
     "/repos/$repoId/blob/$": {
       id: "/repos/$repoId/blob/$";
       path: "/repos/$repoId/blob/$";
@@ -156,6 +176,7 @@ const rootRouteChildren: RootRouteChildren = {
   indexRoute: indexRoute,
   agentsRoute: agentsRoute,
   reposRoute: reposRoute,
+  agentsDotsetupRoute: agentsDotsetupRoute,
   inviteDotcodeRoute: inviteDotcodeRoute,
   reposDotrepoIdRoute: reposDotrepoIdRoute,
   reposDotrepoIdDotblobDotsplatRoute: reposDotrepoIdDotblobDotsplatRoute,

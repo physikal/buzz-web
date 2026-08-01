@@ -165,6 +165,15 @@ pub struct Config {
     /// with the `owner` role on first startup.
     pub relay_owner_pubkey: Option<String>,
 
+    /// SHA-256 hash of the one-time browser owner-claim token.
+    ///
+    /// When present, a membership-gated relay may start without a configured
+    /// owner so the browser can atomically claim the deployment.
+    pub owner_claim_token_hash: Option<[u8; 32]>,
+
+    /// Unix timestamp after which the browser owner claim is rejected.
+    pub owner_claim_expires_at: Option<u64>,
+
     /// Canonical HTTP origin of the deployment-global operator API.
     ///
     /// Every operator NIP-98 `u` tag is verified against this origin, independent
@@ -590,6 +599,40 @@ impl Config {
                 }
             });
 
+        let owner_claim_token_hash = std::env::var("BUZZ_OWNER_CLAIM_TOKEN_HASH")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .map(|value| {
+                let decoded = hex::decode(value.trim()).map_err(|_| {
+                    ConfigError::InvalidValue(
+                        "BUZZ_OWNER_CLAIM_TOKEN_HASH must be 64 hexadecimal characters".into(),
+                    )
+                })?;
+                decoded.try_into().map_err(|_| {
+                    ConfigError::InvalidValue(
+                        "BUZZ_OWNER_CLAIM_TOKEN_HASH must be 64 hexadecimal characters".into(),
+                    )
+                })
+            })
+            .transpose()?;
+        let owner_claim_expires_at = std::env::var("BUZZ_OWNER_CLAIM_EXPIRES_AT")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .map(|value| {
+                value.trim().parse::<u64>().map_err(|_| {
+                    ConfigError::InvalidValue(
+                        "BUZZ_OWNER_CLAIM_EXPIRES_AT must be a Unix timestamp".into(),
+                    )
+                })
+            })
+            .transpose()?;
+        if owner_claim_token_hash.is_some() != owner_claim_expires_at.is_some() {
+            return Err(ConfigError::InvalidValue(
+                "BUZZ_OWNER_CLAIM_TOKEN_HASH and BUZZ_OWNER_CLAIM_EXPIRES_AT must be configured together"
+                    .into(),
+            ));
+        }
+
         // Note: intentionally not prefixed with BUZZ_ — same relay-identity
         // config family as RELAY_OWNER_PUBKEY. Comma-separated 64-char hex
         // pubkeys. Unlike RELAY_OWNER_PUBKEY (warn-and-ignore), an invalid
@@ -958,6 +1001,8 @@ impl Config {
             mesh,
             mesh_demo_echo,
             relay_owner_pubkey,
+            owner_claim_token_hash,
+            owner_claim_expires_at,
             relay_operator_api_origin,
             relay_operator_pubkeys,
             allow_nip_oa_auth,
@@ -1022,6 +1067,11 @@ mod tests {
             config.relay_owner_pubkey.is_none(),
             "relay_owner_pubkey should default to None"
         );
+        assert!(
+            config.owner_claim_token_hash.is_none(),
+            "owner_claim_token_hash should default to None"
+        );
+        assert!(config.owner_claim_expires_at.is_none());
         assert!(
             config.relay_operator_pubkeys.is_empty(),
             "relay_operator_pubkeys should default empty (provisioning disabled)"

@@ -1,0 +1,211 @@
+/// <reference lib="webworker" />
+
+import { nip19 } from "nostr-tools";
+import { finalizeEvent, getPublicKey } from "nostr-tools/pure";
+
+import { decodeBase64Url, encodeBase64Url, randomBytes } from "./encoding";
+
+type UnsignedEvent = {
+  kind: number;
+  created_at: number;
+  tags: string[][];
+  content: string;
+};
+
+type Wrapper = {
+  kdf_salt: string;
+  nonce: string;
+  ciphertext: string;
+};
+
+type WorkerRequest =
+  | {
+      id: number;
+      action: "create" | "import";
+      nsec?: string;
+      passkeyMaterial: ArrayBuffer;
+      passkeyKdfSalt: string;
+      recoveryMaterial: ArrayBuffer;
+      recoveryKdfSalt: string;
+    }
+  | {
+      id: number;
+      action: "unlock";
+      material: ArrayBuffer;
+      expectedPubkey: string;
+      wrapper: Wrapper;
+    }
+  | {
+      id: number;
+      action: "wrap";
+      material: ArrayBuffer;
+      kdfSalt: string;
+    }
+  | { id: number; action: "sign"; event: UnsignedEvent }
+  | { id: number; action: "public-key" | "lock" };
+
+let secretKey: Uint8Array<ArrayBuffer> | null = null;
+
+function setSecret(next: Uint8Array<ArrayBuffer>): void {
+  secretKey?.fill(0);
+  secretKey = new Uint8Array(next);
+}
+
+function requireSecret(): Uint8Array<ArrayBuffer> {
+  if (!secretKey) throw new Error("The owner vault is locked.");
+  return secretKey;
+}
+
+function parseSecret(value: string): Uint8Array<ArrayBuffer> {
+  const trimmed = value.trim();
+  if (/^[0-9a-fA-F]{64}$/.test(trimmed)) {
+    return Uint8Array.from(
+      trimmed.match(/.{2}/g)?.map((pair) => Number.parseInt(pair, 16)) ?? [],
+    );
+  }
+  const decoded = nip19.decode(trimmed);
+  if (decoded.type !== "nsec" || !(decoded.data instanceof Uint8Array)) {
+    throw new Error("Enter a valid nsec owner key.");
+  }
+  return new Uint8Array(decoded.data);
+}
+
+async function deriveWrappingKey(
+  material: ArrayBuffer,
+  salt: Uint8Array<ArrayBuffer>,
+): Promise<CryptoKey> {
+  const input = await crypto.subtle.importKey("raw", material, "HKDF", false, [
+    "deriveKey",
+  ]);
+  return crypto.subtle.deriveKey(
+    {
+      name: "HKDF",
+      hash: "SHA-256",
+      salt,
+      info: new TextEncoder().encode("Buzz owner vault wrapping key v1"),
+    },
+    input,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt", "decrypt"],
+  );
+}
+
+function additionalData(pubkey: string): Uint8Array<ArrayBuffer> {
+  return new TextEncoder().encode(`buzz-owner-vault-v1\0${pubkey}`);
+}
+
+async function wrapSecret(
+  material: ArrayBuffer,
+  kdfSalt: Uint8Array<ArrayBuffer>,
+): Promise<Wrapper> {
+  const current = requireSecret();
+  const pubkey = getPublicKey(current);
+  const nonce = randomBytes(12);
+  const key = await deriveWrappingKey(material, kdfSalt);
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv: nonce, additionalData: additionalData(pubkey) },
+    key,
+    current,
+  );
+  return {
+    kdf_salt: encodeBase64Url(kdfSalt),
+    nonce: encodeBase64Url(nonce),
+    ciphertext: encodeBase64Url(ciphertext),
+  };
+}
+
+async function unlockSecret(
+  material: ArrayBuffer,
+  expectedPubkey: string,
+  wrapper: Wrapper,
+): Promise<void> {
+  const key = await deriveWrappingKey(
+    material,
+    decodeBase64Url(wrapper.kdf_salt),
+  );
+  let plaintext: ArrayBuffer;
+  try {
+    plaintext = await crypto.subtle.decrypt(
+      {
+        name: "AES-GCM",
+        iv: decodeBase64Url(wrapper.nonce),
+        additionalData: additionalData(expectedPubkey),
+      },
+      key,
+      decodeBase64Url(wrapper.ciphertext),
+    );
+  } catch {
+    throw new Error(
+      "This passkey or recovery code cannot unlock the owner vault.",
+    );
+  }
+  const candidate = new Uint8Array(plaintext);
+  if (candidate.length !== 32 || getPublicKey(candidate) !== expectedPubkey) {
+    candidate.fill(0);
+    throw new Error("The owner vault did not match this Buzz server.");
+  }
+  setSecret(candidate);
+  candidate.fill(0);
+}
+
+self.onmessage = async (message: MessageEvent<WorkerRequest>) => {
+  const request = message.data;
+  try {
+    let result: unknown;
+    switch (request.action) {
+      case "create":
+      case "import": {
+        const candidate =
+          request.action === "create"
+            ? randomBytes(32)
+            : parseSecret(request.nsec ?? "");
+        setSecret(candidate);
+        candidate.fill(0);
+        const pubkey = getPublicKey(requireSecret());
+        const credential = await wrapSecret(
+          request.passkeyMaterial,
+          decodeBase64Url(request.passkeyKdfSalt),
+        );
+        const recovery = await wrapSecret(
+          request.recoveryMaterial,
+          decodeBase64Url(request.recoveryKdfSalt),
+        );
+        result = { pubkey, credential, recovery };
+        break;
+      }
+      case "unlock":
+        await unlockSecret(
+          request.material,
+          request.expectedPubkey,
+          request.wrapper,
+        );
+        result = { pubkey: request.expectedPubkey };
+        break;
+      case "wrap":
+        result = await wrapSecret(
+          request.material,
+          decodeBase64Url(request.kdfSalt),
+        );
+        break;
+      case "sign":
+        result = finalizeEvent(request.event, requireSecret());
+        break;
+      case "public-key":
+        result = { pubkey: getPublicKey(requireSecret()) };
+        break;
+      case "lock":
+        secretKey?.fill(0);
+        secretKey = null;
+        result = { locked: true };
+        break;
+    }
+    self.postMessage({ id: request.id, ok: true, result });
+  } catch (cause) {
+    self.postMessage({
+      id: request.id,
+      ok: false,
+      error: cause instanceof Error ? cause.message : "Owner signer failed.",
+    });
+  }
+};

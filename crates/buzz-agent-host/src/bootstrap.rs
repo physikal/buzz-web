@@ -1,9 +1,15 @@
 //! One-shot stable secret generation for the container deployment.
 
-use std::{fs, io::Write, path::Path};
+use std::{
+    fs,
+    io::Write,
+    path::Path,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use anyhow::Context;
-use nostr::{Keys, ToBech32};
+use nostr::Keys;
+use sha2::{Digest, Sha256};
 
 fn main() -> anyhow::Result<()> {
     let service_dir = std::env::args()
@@ -27,25 +33,53 @@ fn main() -> anyhow::Result<()> {
         ensure_random_hex(Path::new(&service_dir).join(name))?;
     }
 
+    // Preserve existing deployments that already use the desktop/NIP-07 owner
+    // key. Fresh web deployments claim ownership in the browser instead, so
+    // the server never creates or handles their Nostr secret.
     let owner_secret_path = Path::new(&owner_dir).join("owner_nsec");
-    let (owner_keys, owner_created) = if owner_secret_path.exists() {
+    if owner_secret_path.exists() {
         let secret = fs::read_to_string(&owner_secret_path)
             .with_context(|| format!("read {}", owner_secret_path.display()))?;
-        (Keys::parse(secret.trim())?, false)
-    } else {
-        let keys = Keys::generate();
-        write_new_secret(&owner_secret_path, &keys.secret_key().to_bech32()?)?;
-        (keys, true)
-    };
-    let owner_public_path = Path::new(&service_dir).join("owner_pubkey");
-    write_replace_secret(&owner_public_path, &owner_keys.public_key().to_hex())?;
-
-    if owner_created {
-        println!("BUZZ_OWNER_NSEC={}", owner_keys.secret_key().to_bech32()?);
-        println!("Import this key into a NIP-07 signer, then protect the bootstrap logs.");
-    } else {
-        println!("Buzz secrets already exist; no keys were rotated.");
+        let owner_keys = Keys::parse(secret.trim())?;
+        write_replace_secret(
+            &Path::new(&service_dir).join("owner_pubkey"),
+            &owner_keys.public_key().to_hex(),
+        )?;
     }
+
+    let claim_token_path = Path::new(&owner_dir).join("owner_claim_token");
+    let claim_issued_path = Path::new(&owner_dir).join("owner_claim_issued_at");
+    let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+    let previous_issued_at = fs::read_to_string(&claim_issued_path)
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok());
+    let claim_issued_at = if claim_token_path.exists()
+        && previous_issued_at.is_some_and(|issued| now < issued.saturating_add(86_400))
+    {
+        previous_issued_at.expect("checked as some")
+    } else {
+        write_replace_secret(&claim_token_path, &hex::encode(rand::random::<[u8; 32]>()))?;
+        write_replace_secret(&claim_issued_path, &now.to_string())?;
+        now
+    };
+    let claim_token = fs::read_to_string(&claim_token_path)
+        .with_context(|| format!("read {}", claim_token_path.display()))?;
+    let claim_token = claim_token.trim();
+    let claim_hash = hex::encode(Sha256::digest(claim_token.as_bytes()));
+    write_replace_secret(
+        &Path::new(&service_dir).join("owner_claim_token_hash"),
+        &claim_hash,
+    )?;
+    write_replace_secret(
+        &Path::new(&service_dir).join("owner_claim_expires_at"),
+        &claim_issued_at.saturating_add(86_400).to_string(),
+    )?;
+
+    let domain = std::env::var("BUZZ_DOMAIN").unwrap_or_else(|_| "<BUZZ_DOMAIN>".into());
+    println!("BUZZ_OWNER_SETUP_URL=https://{domain}/agents/setup#{claim_token}");
+    println!(
+        "Open this one-time URL to create the owner passkey, then protect the bootstrap logs."
+    );
     Ok(())
 }
 

@@ -1,34 +1,127 @@
-import { ExternalLink, KeyRound, ShieldCheck } from "lucide-react";
-import { useState } from "react";
+import { KeyRound, LifeBuoy, ShieldCheck } from "lucide-react";
+import { useEffect, useState } from "react";
 
 import buzzAppIcon from "@/assets/app-icon@3x.png";
+import { decodeBase64Url } from "@/features/owner-vault/lib/encoding";
 import {
-  getNip07PublicKey,
-  hasNip07Provider,
-  Nip07UnavailableError,
-} from "@/shared/lib/nostr-signer";
+  addOwnerCredential,
+  getOwnerVaultStatus,
+  getPasskeyWrapper,
+  getRecoveryWrapper,
+  type OwnerVaultStatus,
+} from "@/features/owner-vault/lib/owner-vault-api";
+import {
+  createVaultPasskey,
+  unlockVaultPasskey,
+} from "@/features/owner-vault/lib/passkey";
+import {
+  getUnlockedOwnerPublicKey,
+  hasUnlockedOwnerVault,
+  unlockOwnerVault,
+  wrapOwnerVault,
+} from "@/features/owner-vault/lib/vault-worker-client";
+import { getBrowserOwnerPublicKey } from "@/shared/lib/nostr-signer";
 import { Button } from "@/shared/ui/button";
+import { Input } from "@/shared/ui/input";
 
 export function OwnerConnection({
   onConnected,
 }: {
   onConnected: (pubkey: string) => void;
 }) {
-  const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<OwnerVaultStatus | null>(null);
+  const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState(false);
+  const [showRecovery, setShowRecovery] = useState(false);
+  const [recoveryCode, setRecoveryCode] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
-  async function connect() {
+  useEffect(() => {
+    if (hasUnlockedOwnerVault()) {
+      getUnlockedOwnerPublicKey()
+        .then(onConnected)
+        .catch(() => undefined);
+      setLoading(false);
+      return;
+    }
+    getOwnerVaultStatus()
+      .then(setStatus)
+      .catch((cause) => {
+        setError(
+          cause instanceof Error ? cause.message : "Could not connect to Buzz.",
+        );
+      })
+      .finally(() => setLoading(false));
+  }, [onConnected]);
+
+  async function unlock() {
     setPending(true);
     setError(null);
     try {
-      onConnected(await getNip07PublicKey());
+      const passkey = await unlockVaultPasskey();
+      const wrapper = await getPasskeyWrapper(passkey.credentialId);
+      const pubkey = await unlockOwnerVault({
+        material: passkey.material,
+        expectedPubkey: wrapper.owner_pubkey,
+        wrapper,
+      });
+      onConnected(pubkey);
     } catch (cause) {
       setError(
-        cause instanceof Nip07UnavailableError
-          ? "No Nostr signer was found. Install a signer below, import your owner key, then reload Buzz."
-          : cause instanceof Error
-            ? cause.message
-            : "Could not connect the owner key.",
+        cause instanceof Error
+          ? cause.message
+          : "Could not unlock the owner vault.",
+      );
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function recover() {
+    setPending(true);
+    setError(null);
+    try {
+      const encoded = recoveryCode.trim().replace(/^buzz-recovery-v1_/, "");
+      const recoverySecret = decodeBase64Url(encoded);
+      if (recoverySecret.length !== 32)
+        throw new Error("Invalid recovery code.");
+      const recovery = await getRecoveryWrapper();
+      const pubkey = await unlockOwnerVault({
+        material: recoverySecret.buffer,
+        expectedPubkey: recovery.owner_pubkey,
+        wrapper: recovery,
+      });
+
+      const passkey = await createVaultPasskey();
+      const wrapper = await wrapOwnerVault(passkey.material, passkey.kdfSalt);
+      await addOwnerCredential({
+        credential_id: passkey.credentialId,
+        label: "Recovered passkey",
+        prf_input: passkey.prfInput,
+        ...wrapper,
+      });
+      onConnected(pubkey);
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Could not recover the owner vault.",
+      );
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function connectExternalSigner() {
+    setPending(true);
+    setError(null);
+    try {
+      onConnected(await getBrowserOwnerPublicKey());
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Could not connect the owner key.",
       );
     } finally {
       setPending(false);
@@ -46,46 +139,98 @@ export function OwnerConnection({
         </div>
         <h1 className="mt-6 text-2xl font-semibold">Connect to Buzz</h1>
         <p className="mt-2 text-sm leading-6 text-muted-foreground">
-          Use the owner key for this relay to manage its server-hosted agents.
+          Unlock the owner key to manage this server&apos;s centralized agents.
         </p>
-        <Button className="mt-6 w-full" disabled={pending} onClick={connect}>
-          <KeyRound />
-          {pending ? "Waiting for signer…" : "Connect owner key"}
-        </Button>
+
+        {loading ? (
+          <p className="mt-6 text-sm text-muted-foreground">Checking server…</p>
+        ) : status?.vault_ready ? (
+          !showRecovery ? (
+            <>
+              <Button
+                className="mt-6 w-full"
+                disabled={pending}
+                onClick={unlock}
+              >
+                <KeyRound />
+                {pending ? "Waiting for passkey…" : "Unlock with passkey"}
+              </Button>
+              <Button
+                className="mt-2 w-full"
+                disabled={pending}
+                variant="ghost"
+                onClick={() => setShowRecovery(true)}
+              >
+                <LifeBuoy />
+                Use recovery code
+              </Button>
+            </>
+          ) : (
+            <div className="mt-6 text-left">
+              <label
+                className="text-sm font-medium"
+                htmlFor="owner-recovery-code"
+              >
+                Recovery code
+              </label>
+              <Input
+                autoComplete="off"
+                className="mt-2 font-mono"
+                id="owner-recovery-code"
+                placeholder="buzz-recovery-v1_…"
+                spellCheck={false}
+                type="password"
+                value={recoveryCode}
+                onChange={(event) => setRecoveryCode(event.target.value)}
+              />
+              <Button
+                className="mt-3 w-full"
+                disabled={pending || recoveryCode.trim().length === 0}
+                onClick={recover}
+              >
+                <KeyRound />
+                {pending
+                  ? "Creating replacement passkey…"
+                  : "Recover and create passkey"}
+              </Button>
+              <Button
+                className="mt-2 w-full"
+                disabled={pending}
+                variant="ghost"
+                onClick={() => setShowRecovery(false)}
+              >
+                Back
+              </Button>
+            </div>
+          )
+        ) : (
+          <div className="mt-6 rounded-md border border-border bg-muted/40 px-3 py-3 text-left text-sm leading-6">
+            <p>
+              {status?.claimed
+                ? "This relay uses a legacy owner key. Open the owner setup URL from the latest bootstrap log to protect it with a passkey."
+                : "Open the one-time owner setup URL from the Dokploy bootstrap log."}
+            </p>
+            {status?.claimed ? (
+              <Button
+                className="mt-3 w-full"
+                disabled={pending}
+                variant="outline"
+                onClick={connectExternalSigner}
+              >
+                <KeyRound />
+                Use existing browser signer
+              </Button>
+            ) : null}
+          </div>
+        )}
+
         <div className="mt-4 flex items-start gap-2 text-left text-xs leading-5 text-muted-foreground">
           <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />
           <p>
-            Your private key stays in your signer. Buzz receives signed
-            approval, never the key itself.
+            The relay stores only an encrypted vault. Unlocking happens through
+            your device&apos;s passkey provider.
           </p>
         </div>
-        {!hasNip07Provider() ? (
-          <div className="mt-4 rounded-md border border-border bg-muted/40 px-3 py-3 text-left text-xs leading-5 text-muted-foreground">
-            <p>
-              Install the open-source Alby signer from the official browser
-              store, then verify the publisher is <strong>Alby</strong> before
-              importing your owner key.
-            </p>
-            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-2 font-medium">
-              <a
-                className="inline-flex items-center gap-1 text-foreground underline underline-offset-4"
-                href="https://chromewebstore.google.com/detail/alby/iokeahhehimjnekafflcihljlcjccdbe"
-                rel="noreferrer"
-                target="_blank"
-              >
-                Chrome, Edge, or Brave <ExternalLink className="h-3 w-3" />
-              </a>
-              <a
-                className="inline-flex items-center gap-1 text-foreground underline underline-offset-4"
-                href="https://addons.mozilla.org/firefox/addon/alby/"
-                rel="noreferrer"
-                target="_blank"
-              >
-                Firefox <ExternalLink className="h-3 w-3" />
-              </a>
-            </div>
-          </div>
-        ) : null}
         {error ? (
           <p className="mt-4 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-left text-sm text-destructive">
             {error}

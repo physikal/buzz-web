@@ -3,6 +3,11 @@ import {
   generateSecretKey,
   getPublicKey,
 } from "nostr-tools/pure";
+import {
+  getUnlockedOwnerPublicKey,
+  hasUnlockedOwnerVault,
+  signWithOwnerVault,
+} from "@/features/owner-vault/lib/vault-worker-client";
 
 export type UnsignedNostrEvent = {
   kind: number;
@@ -59,6 +64,12 @@ export async function getNip07PublicKey(): Promise<string> {
   return pubkey;
 }
 
+/** Return the active first-party vault key, falling back to NIP-07. */
+export async function getBrowserOwnerPublicKey(): Promise<string> {
+  if (hasUnlockedOwnerVault()) return getUnlockedOwnerPublicKey();
+  return getNip07PublicKey();
+}
+
 function sameUnsignedEvent(
   expected: UnsignedNostrEvent,
   actual: SignedNostrEvent,
@@ -89,6 +100,20 @@ export async function signNostrEvent(
     created_at: template.created_at ?? Math.floor(Date.now() / 1000),
   };
   const provider = typeof window === "undefined" ? undefined : window.nostr;
+
+  if (hasUnlockedOwnerVault()) {
+    const expectedPubkey = await getUnlockedOwnerPublicKey();
+    const signed = await signWithOwnerVault(unsigned);
+    if (
+      signed.pubkey !== expectedPubkey ||
+      !sameUnsignedEvent(unsigned, signed) ||
+      typeof signed.id !== "string" ||
+      typeof signed.sig !== "string"
+    ) {
+      throw new Error("The owner vault returned an invalid signed event.");
+    }
+    return signed;
+  }
 
   if (provider) {
     const expectedPubkey = await provider.getPublicKey();

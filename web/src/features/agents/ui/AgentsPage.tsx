@@ -4,6 +4,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import buzzAppIcon from "@/assets/app-icon@3x.png";
+import { lockOwnerVault } from "@/features/owner-vault/lib/vault-worker-client";
 import { truncatePubkey } from "@/shared/lib/pubkey";
 import {
   createAgent,
@@ -18,8 +19,6 @@ import { AddAgentToChannelDialog } from "./AddAgentToChannelDialog";
 import { AgentCard } from "./AgentCard";
 import { AgentCreateDialog } from "./AgentCreateDialog";
 import { OwnerConnection } from "./OwnerConnection";
-
-const OWNER_SESSION_KEY = "buzz-web-owner-pubkey";
 
 const PREVIEW_AGENTS: ManagedAgent[] = [
   {
@@ -84,9 +83,7 @@ export function AgentsPage() {
     previewMode === "create-agent" ||
     previewMode === "add-agent-to-channel";
   const [ownerPubkey, setOwnerPubkey] = useState<string | null>(() =>
-    preview
-      ? PREVIEW_AGENTS[0].owner_pubkey
-      : sessionStorage.getItem(OWNER_SESSION_KEY),
+    preview ? PREVIEW_AGENTS[0].owner_pubkey : null,
   );
   const [createOpen, setCreateOpen] = useState(previewMode === "create-agent");
 
@@ -94,7 +91,6 @@ export function AgentsPage() {
     return (
       <OwnerConnection
         onConnected={(pubkey) => {
-          sessionStorage.setItem(OWNER_SESSION_KEY, pubkey);
           setOwnerPubkey(pubkey);
         }}
       />
@@ -108,7 +104,7 @@ export function AgentsPage() {
       createOpen={createOpen}
       onCreateOpenChange={setCreateOpen}
       onDisconnect={() => {
-        sessionStorage.removeItem(OWNER_SESSION_KEY);
+        void lockOwnerVault();
         setOwnerPubkey(null);
       }}
     />

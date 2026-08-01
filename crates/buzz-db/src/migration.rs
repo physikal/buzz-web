@@ -502,12 +502,21 @@ mod tests {
             && constraint.columns == ["delivered_at", "id"]
     }
 
+    fn is_allowed_global_sandbox_uid_exception(constraint: &ConstraintLint) -> bool {
+        constraint.table == "managed_agent_hosts"
+            && constraint.kind == ConstraintKind::Unique
+            && constraint.columns == ["sandbox_uid"]
+    }
+
     fn scoped_constraint_violations(sql: &str) -> Vec<ConstraintLint> {
         let scoped_tables = scoped_tables(sql);
         scoped_constraint_lints(sql, &scoped_tables)
             .into_iter()
             .filter(|constraint| {
                 if is_allowed_partition_primary_key_exception(constraint) {
+                    return false;
+                }
+                if is_allowed_global_sandbox_uid_exception(constraint) {
                     return false;
                 }
                 constraint.columns.first().map(String::as_str) != Some("community_id")
@@ -561,7 +570,7 @@ mod tests {
         let mut migrations: Vec<_> = MIGRATOR.iter().collect();
         migrations.sort_by_key(|migration| migration.version);
 
-        assert_eq!(migrations.len(), 26);
+        assert_eq!(migrations.len(), 28);
         assert_eq!(migrations[0].version, 1);
         assert_eq!(&*migrations[0].description, "initial schema");
         assert!(migrations[0]
@@ -919,6 +928,19 @@ mod tests {
         assert!(heartbeat.contains("epoch"));
         assert!(heartbeat.contains("INSERT INTO replica_heartbeat (id) VALUES (1)"));
         assert!(heartbeat.contains("_operator_global_tables"));
+
+        assert_eq!(migrations[26].version, 27);
+        assert!(migrations[26]
+            .sql
+            .as_str()
+            .contains("CREATE TABLE managed_agent_hosts"));
+
+        assert_eq!(migrations[27].version, 28);
+        let owner_vault = migrations[27].sql.as_str();
+        assert!(owner_vault.contains("CREATE TABLE owner_web_vaults"));
+        assert!(owner_vault.contains("CREATE TABLE owner_web_credentials"));
+        assert!(owner_vault.contains("PRIMARY KEY (community_id, credential_id)"));
+        assert!(owner_vault.contains("octet_length(recovery_ciphertext) = 48"));
     }
 
     #[test]

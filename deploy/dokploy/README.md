@@ -2,13 +2,9 @@
 
 This Compose application runs the Buzz relay, browser client, centralized agent
 host, Postgres, Redis, and private object storage. The relay and agent host use
-separate images and processes. The agent host has no Redis, S3, or relay signing
-credentials. The supervisor drops every agent child to an unprivileged Unix
-identity and private data directory that cannot traverse the host-only
-credential mount or another agent's directory; children also inherit none of
-the supervisor's database or envelope environment variables. See
+separate images and processes. See
 [`docs/buzz-web-security.md`](../../docs/buzz-web-security.md) for the complete
-trust-boundary review and residual risks.
+trust-boundary review.
 
 ## Deploy
 
@@ -16,41 +12,55 @@ trust-boundary review and residual risks.
 2. Set the Compose path to `deploy/dokploy/compose.yml`.
 3. Add `BUZZ_DOMAIN` in Dokploy's Environment screen.
 4. Add a Dokploy domain for service `relay`, container port `3000`, with HTTPS.
-5. Deploy, then open the completed `bootstrap` service log once. Copy the
-   `BUZZ_OWNER_NSEC` value into a NIP-07 browser signer and clear/protect the
-   bootstrap log according to your log-retention policy.
-6. Visit `https://<BUZZ_DOMAIN>/agents`, choose **Connect owner key**, and approve
-   the signer request.
+5. Deploy and open the completed `bootstrap` service log.
+6. Open the printed `BUZZ_OWNER_SETUP_URL` within 24 hours.
+7. Choose **Create owner passkey**, approve the browser's native passkey prompt,
+   and store the one-time recovery code away from the server.
+
+The browser generates the Nostr owner key. The bootstrap container generates
+only a high-entropy setup token and gives the relay its SHA-256 hash. A successful
+claim consumes the setup capability by creating the sole owner vault and owner
+membership in one database transaction. Re-running bootstrap rotates an expired
+unclaimed link without rotating deployment service credentials.
 
 ## Browser sign-in
 
-Browsers do not include a Nostr signer by default. Install a NIP-07 signer
-extension in the browser used for administration, create a signer account by
-importing the generated `BUZZ_OWNER_NSEC`, and keep that account selected while
-using the owner console. The web application never asks for, receives, or stores
-the private key. **Connect owner key** requests only the public key, and the
-signer asks for approval when the console signs an authenticated management
-request.
+Visit `https://<BUZZ_DOMAIN>/agents` and choose **Unlock with passkey**. The
+browser obtains a credential-bound PRF value after Touch ID, Face ID, Windows
+Hello, a device PIN, or a supported security key. That value unwraps the Nostr
+owner key inside a dedicated signing worker. The plaintext key exists only in
+browser memory and automatically locks after 15 minutes without signing or when
+the page closes.
 
-The owner console recommends the open-source
-[Alby browser extension](https://github.com/getAlby/lightning-browser-extension)
-and links directly to its official
-[Chromium](https://chromewebstore.google.com/detail/alby/iokeahhehimjnekafflcihljlcjccdbe)
-and [Firefox](https://addons.mozilla.org/firefox/addon/alby/) store listings.
-Verify that the store publisher is **Alby** before importing the owner key. This
-is a reviewed default, not a guarantee about future extension releases; keep
-automatic updates enabled and continue reviewing signature prompts.
+The first beta targets current Chrome, Edge, and Brave releases with WebAuthn
+PRF support. Buzz feature-detects PRF and fails setup instead of silently using a
+weaker password vault. WebAuthn support alone is not sufficient; the selected
+passkey provider must return a PRF result.
 
-The owner public key is remembered in that browser session so a refresh returns
-to the Agents page. The private key remains in the signer. A different computer
-can administer the same centralized agents after installing a compatible signer
-and importing the same owner key; it does not launch a second copy of any agent.
+Passkey providers may synchronize the credential to another computer. When
+that provider does not synchronize the PRF capability, choose **Use recovery
+code** on the other computer. Buzz decrypts the existing owner key locally,
+creates a new passkey, and uploads a new encrypted wrapper authenticated by the
+owner's normal NIP-98 signature. It does not launch another agent host; every
+browser controls the same centralized agents.
 
-All other credentials are generated with the operating system CSPRNG and kept
-in named volumes. Re-deploying does not rotate them. Back up the named data and
-secret volumes together. The owner private-key volume is mounted only by the
-one-shot bootstrap service; neither the relay nor the agent host can read it.
+Changing `BUZZ_DOMAIN` changes the WebAuthn relying-party identity. Keep the
+recovery code before changing domains, then use it to enroll a passkey on the
+new domain after the deployment data has moved.
 
-GitHub pushes to `main` publish `:main` and `:agent-main`; point production at
-the matching immutable `:sha-<commit>` and `:agent-sha-<commit>` tags after the
-first validation deploy.
+## Existing deployments
+
+Bootstrap preserves an existing `owner_nsec` volume and continues configuring
+its public key as the relay owner. Its next deployment log prints an owner setup
+URL. Open that URL, paste the existing owner `nsec` once, and create a passkey
+vault. The key is delivered to the local signing worker and is not included in
+the claim request. A NIP-07 signer remains available as a compatibility fallback
+until this enrollment is completed.
+
+All service credentials are generated with the operating-system CSPRNG and kept
+in named volumes. Re-deploying does not rotate them. Back up the Postgres and
+service-secret volumes together, and keep the owner recovery code in a separate
+password manager or offline location.
+
+GitHub pushes to `main` publish `:main` and `:agent-main`; use matching immutable
+`:sha-<commit>` and `:agent-sha-<commit>` tags after validating a deployment.

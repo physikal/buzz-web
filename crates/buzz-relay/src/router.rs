@@ -110,6 +110,15 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             post(api::invites::accept_policy),
         )
         .route("/api/invites/claim", post(api::invites::claim_invite))
+        // Browser owner bootstrap and passkey-wrapped local vault.
+        .route("/api/owner/status", get(api::owner_vault::status))
+        .route("/api/owner/claim", post(api::owner_vault::claim))
+        .route("/api/owner/vault/unlock", post(api::owner_vault::unlock))
+        .route("/api/owner/vault/recovery", get(api::owner_vault::recovery))
+        .route(
+            "/api/owner/credentials",
+            post(api::owner_vault::add_credential),
+        )
         // Server-owned agent control plane. Every handler performs owner auth;
         // the separate buzz-agent-host service owns process execution.
         .route(
@@ -206,7 +215,8 @@ pub fn build_router(state: Arc<AppState>) -> Router {
 }
 
 async fn add_security_headers(request: Request<Body>, next: middleware::Next) -> Response {
-    let is_agent_api = request.uri().path().starts_with("/api/agents");
+    let is_private_api = request.uri().path().starts_with("/api/agents")
+        || request.uri().path().starts_with("/api/owner");
     let mut response = next.run(request).await;
     let headers = response.headers_mut();
     headers.insert(
@@ -227,9 +237,11 @@ async fn add_security_headers(request: Request<Body>, next: middleware::Next) ->
     headers.insert("referrer-policy", HeaderValue::from_static("no-referrer"));
     headers.insert(
         "permissions-policy",
-        HeaderValue::from_static("camera=(), geolocation=(), payment=(), usb=()"),
+        HeaderValue::from_static(
+            "camera=(), geolocation=(), payment=(), usb=(), publickey-credentials-create=(self), publickey-credentials-get=(self)",
+        ),
     );
-    if is_agent_api {
+    if is_private_api {
         headers.insert(
             "cache-control",
             HeaderValue::from_static("no-store, private"),

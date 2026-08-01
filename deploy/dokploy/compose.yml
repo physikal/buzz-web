@@ -11,6 +11,8 @@ services:
     image: ${BUZZ_AGENT_IMAGE:-ghcr.io/physikal/buzz-web:agent-main}
     user: "0:0"
     entrypoint: ["/bin/sh", "-ec"]
+    environment:
+      BUZZ_DOMAIN: ${BUZZ_DOMAIN:?set BUZZ_DOMAIN}
     command:
       - |
         /usr/local/bin/buzz-agent-bootstrap /staging /run/buzz-owner
@@ -47,7 +49,11 @@ services:
       - |
         export DATABASE_URL="postgres://buzz:$$(cat /run/buzz-relay-secrets/postgres_password)@postgres:5432/buzz"
         export REDIS_URL="redis://:$$(cat /run/buzz-relay-secrets/redis_password)@redis:6379"
-        export RELAY_OWNER_PUBKEY="$$(cat /run/buzz-relay-secrets/owner_pubkey)"
+        if [[ -f /run/buzz-relay-secrets/owner_pubkey ]]; then
+          export RELAY_OWNER_PUBKEY="$$(cat /run/buzz-relay-secrets/owner_pubkey)"
+        fi
+        export BUZZ_OWNER_CLAIM_TOKEN_HASH="$$(cat /run/buzz-relay-secrets/owner_claim_token_hash)"
+        export BUZZ_OWNER_CLAIM_EXPIRES_AT="$$(cat /run/buzz-relay-secrets/owner_claim_expires_at)"
         export BUZZ_RELAY_PRIVATE_KEY="$$(cat /run/buzz-relay-secrets/relay_private_key)"
         export BUZZ_GIT_HOOK_HMAC_SECRET="$$(cat /run/buzz-relay-secrets/git_hook_hmac_secret)"
         export BUZZ_AGENT_SECRET_KEY="$$(cat /run/buzz-relay-secrets/agent_envelope_key)"

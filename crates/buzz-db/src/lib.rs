@@ -33,6 +33,8 @@ pub mod managed_agent_host;
 pub mod migration;
 /// Community moderation: reports, bans/timeouts, audit actions.
 pub mod moderation;
+/// Passkey-wrapped owner vault persistence.
+pub mod owner_web_vault;
 /// Monthly table partition management.
 pub mod partition;
 /// Buzz product-feedback sidecar persistence.
@@ -4199,6 +4201,52 @@ impl Db {
     /// Ensures the owner pubkey exists with role `"owner"` in `community`. Called at startup.
     pub async fn bootstrap_owner(&self, community: CommunityId, owner_pubkey: &str) -> Result<()> {
         relay_members::bootstrap_owner(&self.pool, community, owner_pubkey).await
+    }
+
+    /// Return the current owner and browser-vault state for a community.
+    pub async fn owner_web_vault_status(
+        &self,
+        community: CommunityId,
+    ) -> Result<owner_web_vault::OwnerWebVaultStatus> {
+        owner_web_vault::status(&self.pool, community).await
+    }
+
+    /// Atomically claim or enroll the browser owner vault.
+    pub async fn claim_owner_web_vault(
+        &self,
+        community: CommunityId,
+        owner_pubkey: &str,
+        recovery: owner_web_vault::NewOwnerWebWrapper<'_>,
+        credential: owner_web_vault::NewOwnerWebCredential<'_>,
+    ) -> Result<owner_web_vault::ClaimOwnerWebVaultResult> {
+        owner_web_vault::claim(&self.pool, community, owner_pubkey, recovery, credential).await
+    }
+
+    /// Add another passkey wrapper for the existing browser vault.
+    pub async fn add_owner_web_credential(
+        &self,
+        community: CommunityId,
+        owner_pubkey: &str,
+        credential: owner_web_vault::NewOwnerWebCredential<'_>,
+    ) -> Result<bool> {
+        owner_web_vault::add_credential(&self.pool, community, owner_pubkey, credential).await
+    }
+
+    /// Load a passkey wrapper by its opaque WebAuthn credential identifier.
+    pub async fn owner_web_credential(
+        &self,
+        community: CommunityId,
+        credential_id: &[u8],
+    ) -> Result<Option<owner_web_vault::OwnerWebCredential>> {
+        owner_web_vault::credential(&self.pool, community, credential_id).await
+    }
+
+    /// Load the recovery-code wrapper for a browser owner vault.
+    pub async fn owner_web_recovery(
+        &self,
+        community: CommunityId,
+    ) -> Result<Option<owner_web_vault::OwnerWebRecovery>> {
+        owner_web_vault::recovery(&self.pool, community).await
     }
 
     /// Atomically transfers ownership of `community` to `new_owner_pubkey`,

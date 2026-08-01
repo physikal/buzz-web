@@ -225,13 +225,17 @@ async fn main() -> anyhow::Result<()> {
     // config.rs already strips invalid values with a warning; catch the resulting
     // None here so we fail fast with a clear message rather than starting a relay
     // that no one can administer.
-    if config.require_relay_membership && config.relay_owner_pubkey.is_none() {
+    if config.require_relay_membership
+        && config.relay_owner_pubkey.is_none()
+        && config.owner_claim_token_hash.is_none()
+    {
         error!(
-            "BUZZ_REQUIRE_RELAY_MEMBERSHIP=true but RELAY_OWNER_PUBKEY is not set or invalid. \
-             Set RELAY_OWNER_PUBKEY to a valid 64-char hex pubkey."
+            "BUZZ_REQUIRE_RELAY_MEMBERSHIP=true but neither RELAY_OWNER_PUBKEY nor a browser \
+             owner claim is configured."
         );
         return Err(anyhow::anyhow!(
-            "RELAY_OWNER_PUBKEY required when BUZZ_REQUIRE_RELAY_MEMBERSHIP=true"
+            "RELAY_OWNER_PUBKEY or BUZZ_OWNER_CLAIM_TOKEN_HASH is required when \
+             BUZZ_REQUIRE_RELAY_MEMBERSHIP=true"
         ));
     }
 
