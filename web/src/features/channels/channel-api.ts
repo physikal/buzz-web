@@ -61,6 +61,11 @@ export type UserProfile = {
   about: string | null;
 };
 
+export type ChannelMember = {
+  pubkey: string;
+  role: "owner" | "admin" | "member" | "guest" | "bot";
+};
+
 const STARTER_NAMESPACE = "3ce33bea-8f09-5f1b-9c85-8a7d2659e6b0";
 const STARTER_CHANNELS = [
   {
@@ -502,6 +507,65 @@ export async function listProfiles(pubkeys: string[]): Promise<UserProfile[]> {
       about: typeof profile.about === "string" ? profile.about : null,
     };
   });
+}
+
+export async function listChannelMembers(
+  channelId: string,
+): Promise<ChannelMember[]> {
+  const events = await queryEvents(
+    relayWsUrl(),
+    { kinds: [39002], "#d": [channelId], limit: 1 },
+    { requireNip07: true },
+  );
+  const event = events.sort((a, b) => b.created_at - a.created_at)[0];
+  return (event?.tags ?? []).flatMap((tag) => {
+    if (tag[0] !== "p" || !/^[0-9a-f]{64}$/i.test(tag[1] ?? "")) return [];
+    const rawRole = tag[3];
+    const role = ["owner", "admin", "member", "guest", "bot"].includes(rawRole)
+      ? (rawRole as ChannelMember["role"])
+      : "member";
+    return [{ pubkey: tag[1].toLowerCase(), role }];
+  });
+}
+
+export async function addChannelMember(
+  channelId: string,
+  pubkey: string,
+  role: Exclude<ChannelMember["role"], "owner"> = "member",
+): Promise<void> {
+  if (!/^[0-9a-f]{64}$/i.test(pubkey))
+    throw new Error("Enter a 64-character public key.");
+  await submitEvent({
+    kind: 9000,
+    content: "",
+    tags: [
+      ["h", channelId],
+      ["p", pubkey.toLowerCase()],
+      ...(role === "member" ? [] : [["role", role]]),
+    ],
+  });
+}
+
+export async function removeChannelMember(
+  channelId: string,
+  pubkey: string,
+): Promise<void> {
+  await submitEvent({
+    kind: 9001,
+    content: "",
+    tags: [
+      ["h", channelId],
+      ["p", pubkey.toLowerCase()],
+    ],
+  });
+}
+
+export function changeChannelMemberRole(
+  channelId: string,
+  pubkey: string,
+  role: Exclude<ChannelMember["role"], "owner">,
+): Promise<void> {
+  return addChannelMember(channelId, pubkey, role);
 }
 
 export type UploadedMedia = {

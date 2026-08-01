@@ -267,7 +267,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
                     content: "",
                     tags: [
                       ["d", "44444444-4444-4444-8444-444444444444"],
-                      ["p", ownerPubkey],
+                      ["p", ownerPubkey, "", "owner"],
                     ],
                   },
                   signer,
@@ -388,6 +388,24 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
       ),
     )
     .toBe(true);
+  await page.getByRole("button", { name: "Channel settings" }).click();
+  await expect(page.getByText("Members 1")).toBeVisible();
+  await page.getByLabel("New channel member").fill("aa".repeat(32));
+  await page.getByLabel("New member role").selectOption("admin");
+  await page.getByRole("button", { name: "Add channel member" }).click();
+  await expect
+    .poll(() =>
+      submittedEvents.some(
+        (event) =>
+          event.kind === 9000 &&
+          event.tags.some(
+            (tag) => tag[0] === "p" && tag[1] === "aa".repeat(32),
+          ) &&
+          event.tags.some((tag) => tag[0] === "role" && tag[1] === "admin"),
+      ),
+    )
+    .toBe(true);
+  await page.getByRole("button", { name: "Close" }).click();
 
   await page.getByRole("link", { name: "Settings" }).click();
   await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();

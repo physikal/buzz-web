@@ -1,5 +1,3 @@
-import { nip19 } from "nostr-tools";
-
 import {
   listProfiles,
   type UserProfile,
@@ -8,6 +6,7 @@ import { makeNip98AuthHeader } from "@/shared/lib/nip98";
 import { queryEvents } from "@/shared/lib/nostr-client";
 import { submitEvent } from "@/shared/lib/relay-events";
 import { relayHttpBaseUrl, relayWsUrl } from "@/shared/lib/relay-url";
+import { parsePubkey } from "@/shared/lib/pubkey";
 
 export type CommunityRole = "owner" | "admin" | "member";
 
@@ -28,19 +27,7 @@ function isRole(value: string | undefined): value is CommunityRole {
 }
 
 export function parseMemberPubkey(value: string): string | null {
-  const trimmed = value.trim().toLowerCase();
-  if (/^[0-9a-f]{64}$/.test(trimmed)) return trimmed;
-  try {
-    const decoded = nip19.decode(trimmed);
-    if (decoded.type !== "npub") return null;
-    return typeof decoded.data === "string"
-      ? decoded.data.toLowerCase()
-      : Array.from(decoded.data as Uint8Array)
-          .map((byte) => byte.toString(16).padStart(2, "0"))
-          .join("");
-  } catch {
-    return null;
-  }
+  return parsePubkey(value);
 }
 
 export async function getCommunityMembership(

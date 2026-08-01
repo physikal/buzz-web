@@ -1,10 +1,11 @@
 import { MessageCircle, Search, Settings, X } from "lucide-react";
 import { type FormEvent, useState } from "react";
 
-import { truncatePubkey } from "@/shared/lib/pubkey";
+import { parsePubkey, truncatePubkey } from "@/shared/lib/pubkey";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import type { Channel } from "../channel-api";
+import { ChannelMembersSection } from "./ChannelMembersSection";
 
 function DialogFrame({
   open,
@@ -65,10 +66,13 @@ export function NewDmDialog({
   onSubmit: (pubkeys: string[]) => Promise<void>;
 }) {
   const [value, setValue] = useState("");
-  const pubkeys = value
+  const entries = value
     .split(/[\s,]+/)
     .map((item) => item.trim())
     .filter(Boolean);
+  const pubkeys = entries
+    .map(parsePubkey)
+    .filter((pubkey): pubkey is string => Boolean(pubkey));
   return (
     <DialogFrame
       open={open}
@@ -102,7 +106,12 @@ export function NewDmDialog({
           <Button onClick={onClose} type="button" variant="outline">
             Cancel
           </Button>
-          <Button disabled={pending || !pubkeys.length} type="submit">
+          <Button
+            disabled={
+              pending || !pubkeys.length || pubkeys.length !== entries.length
+            }
+            type="submit"
+          >
             {pending ? "Opening…" : "Open conversation"}
           </Button>
         </div>
@@ -191,6 +200,7 @@ export function ChannelSettingsDialog({
   open,
   channel,
   pending,
+  ownerPubkey,
   onClose,
   onSave,
   onLeave,
@@ -200,6 +210,7 @@ export function ChannelSettingsDialog({
   open: boolean;
   channel: Channel | null;
   pending: boolean;
+  ownerPubkey: string;
   onClose: () => void;
   onSave: (input: {
     name: string;
@@ -218,6 +229,7 @@ export function ChannelSettingsDialog({
         open,
         channel,
         pending,
+        ownerPubkey,
         onClose,
         onSave,
         onLeave,
@@ -232,6 +244,7 @@ function ChannelSettingsForm({
   open,
   channel,
   pending,
+  ownerPubkey,
   onClose,
   onSave,
   onLeave,
@@ -241,6 +254,7 @@ function ChannelSettingsForm({
   open: boolean;
   channel: Channel;
   pending: boolean;
+  ownerPubkey: string;
   onClose: () => void;
   onSave: (input: {
     name: string;
@@ -301,6 +315,7 @@ function ChannelSettingsForm({
           </Button>
         </div>
       </form>
+      <ChannelMembersSection channel={channel} ownerPubkey={ownerPubkey} />
       <div className="mt-6 flex flex-wrap gap-2 border-t pt-4">
         <Button onClick={onLeave} variant="outline">
           Leave

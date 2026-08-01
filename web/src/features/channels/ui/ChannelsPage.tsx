@@ -576,6 +576,7 @@ function ChannelsWorkspace({
       <ChannelSettingsDialog
         channel={selected}
         open={settingsOpen}
+        ownerPubkey={ownerPubkey}
         pending={settingsMutation.isPending || removeChannelMutation.isPending}
         onArchive={() => removeChannelMutation.mutate("archive")}
         onClose={() => setSettingsOpen(false)}
