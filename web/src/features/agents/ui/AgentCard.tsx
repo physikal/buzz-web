@@ -1,4 +1,5 @@
 import {
+  Activity,
   AlertTriangle,
   Bot,
   Brain,
@@ -30,6 +31,7 @@ export function AgentCard({
   onAuthenticate,
   onDelete,
   onEdit,
+  onViewActivity,
   onViewMemory,
   onSetRunning,
 }: {
@@ -39,6 +41,7 @@ export function AgentCard({
   onAuthenticate: () => void;
   onDelete: () => void;
   onEdit: () => void;
+  onViewActivity: () => void;
   onViewMemory: () => void;
   onSetRunning: (running: boolean) => void;
 }) {
@@ -124,6 +127,17 @@ export function AgentCard({
               type="button"
             >
               <Brain className="h-4 w-4" /> View memory
+            </button>
+            <button
+              className="flex h-9 w-full items-center gap-2 rounded px-2 text-sm hover:bg-accent"
+              disabled={pending}
+              onClick={() => {
+                setMenuOpen(false);
+                onViewActivity();
+              }}
+              type="button"
+            >
+              <Activity className="h-4 w-4" /> View activity
             </button>
             {agent.credential_mode === "subscription" ? (
               <button

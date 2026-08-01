@@ -559,6 +559,49 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
               ]),
             );
           }
+          if (filters.includes("24200") && ownerPubkey) {
+            const conversationKey = nip44.utils.getConversationKey(
+              agentSecret,
+              ownerPubkey,
+            );
+            const content = nip44.encrypt(
+              JSON.stringify({
+                seq: 1,
+                timestamp: new Date().toISOString(),
+                kind: "acp_write",
+                agentIndex: 0,
+                channelId: "44444444-4444-4444-8444-444444444444",
+                sessionId: "session-1",
+                turnId: "turn-1",
+                payload: {
+                  jsonrpc: "2.0",
+                  method: "tools/call",
+                  params: { name: "shell" },
+                },
+              }),
+              conversationKey,
+            );
+            conversationKey.fill(0);
+            socket.send(
+              JSON.stringify([
+                "EVENT",
+                subscriptionId,
+                finalizeEvent(
+                  {
+                    kind: 24200,
+                    created_at: Math.floor(Date.now() / 1000),
+                    content,
+                    tags: [
+                      ["p", ownerPubkey],
+                      ["agent", agentPubkey],
+                      ["frame", "telemetry"],
+                    ],
+                  },
+                  agentSecret,
+                ),
+              ]),
+            );
+          }
           if (filters.includes('"kinds":[0]')) {
             socket.send(
               JSON.stringify([
@@ -1002,6 +1045,18 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   ).toBeVisible();
   await page
     .getByRole("dialog", { name: "Review lead memory" })
+    .getByRole("button", { name: "Close" })
+    .click();
+  await reviewAgentCard
+    .getByRole("button", { name: "Review lead actions" })
+    .click();
+  await reviewAgentCard.getByRole("button", { name: "View activity" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Review lead activity" }),
+  ).toBeVisible();
+  await expect(page.getByText(/tools\/call/)).toBeVisible();
+  await page
+    .getByRole("dialog", { name: "Review lead activity" })
     .getByRole("button", { name: "Close" })
     .click();
   await page.getByRole("link", { name: "Settings" }).click();

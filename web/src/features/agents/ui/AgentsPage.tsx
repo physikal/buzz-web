@@ -31,6 +31,7 @@ import {
 import { Button } from "@/shared/ui/button";
 import { AddAgentToChannelDialog } from "./AddAgentToChannelDialog";
 import { AgentAuthDialog } from "./AgentAuthDialog";
+import { AgentActivityDialog } from "./AgentActivityDialog";
 import { AgentCard } from "./AgentCard";
 import {
   type AgentCreateDefaults,
@@ -163,6 +164,7 @@ function AgentsWorkspace({
   const [agentToInspect, setAgentToInspect] = useState<ManagedAgent | null>(
     null,
   );
+  const [agentActivity, setAgentActivity] = useState<ManagedAgent | null>(null);
   const [personaToDeploy, setPersonaToDeploy] = useState<AgentPersona | null>(
     null,
   );
@@ -332,6 +334,7 @@ function AgentsWorkspace({
                     onAuthenticate={() => setAgentToAuthenticate(agent)}
                     onDelete={() => deleteMutation.mutate(agent.id)}
                     onEdit={() => setAgentToEdit(agent)}
+                    onViewActivity={() => setAgentActivity(agent)}
                     onViewMemory={() => setAgentToInspect(agent)}
                     onSetRunning={(running) =>
                       stateMutation.mutate({ id: agent.id, running })
@@ -419,6 +422,11 @@ function AgentsWorkspace({
         agent={agentToInspect}
         ownerPubkey={ownerPubkey}
         onClose={() => setAgentToInspect(null)}
+      />
+      <AgentActivityDialog
+        agent={agentActivity}
+        ownerPubkey={ownerPubkey}
+        onClose={() => setAgentActivity(null)}
       />
     </div>
   );
