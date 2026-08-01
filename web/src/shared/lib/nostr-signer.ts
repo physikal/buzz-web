@@ -188,6 +188,22 @@ export async function nip44DecryptFromPeer(
   return provider.nip44.decrypt(peerPubkey, ciphertext);
 }
 
+export async function nip44EncryptToPeer(
+  peerPubkey: string,
+  plaintext: string,
+): Promise<string> {
+  if (!/^[0-9a-f]{64}$/u.test(peerPubkey))
+    throw new Error("The peer public key is invalid.");
+  if (new TextEncoder().encode(plaintext).length > 64 * 1024)
+    throw new Error("Encrypted content is too large.");
+  if (hasUnlockedOwnerVault())
+    return nip44EncryptWithOwnerVault(plaintext, peerPubkey);
+  const provider = typeof window === "undefined" ? undefined : window.nostr;
+  if (!provider?.nip44)
+    throw new Error("This browser signer does not support NIP-44 encryption.");
+  return provider.nip44.encrypt(peerPubkey, plaintext);
+}
+
 export async function deriveAgentMemoryAddress(
   agentPubkey: string,
   slug: string,

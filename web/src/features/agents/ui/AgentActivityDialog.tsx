@@ -1,8 +1,13 @@
-import { Activity, RefreshCw, X } from "lucide-react";
+import { Activity, OctagonX, RefreshCw, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 
 import { subscribeEvents, type NostrEvent } from "@/shared/lib/nostr-client";
-import { nip44DecryptFromPeer } from "@/shared/lib/nostr-signer";
+import {
+  nip44DecryptFromPeer,
+  nip44EncryptToPeer,
+} from "@/shared/lib/nostr-signer";
+import { submitEvent } from "@/shared/lib/relay-events";
 import { relayWsUrl } from "@/shared/lib/relay-url";
 import { Button } from "@/shared/ui/button";
 import type { ManagedAgent } from "../agent-api";
@@ -38,6 +43,7 @@ export function AgentActivityDialog({
   const [generation, setGeneration] = useState(0);
   const [frames, setFrames] = useState<ObserverFrame[]>([]);
   const [status, setStatus] = useState<ConnectionState>("connecting");
+  const [cancelling, setCancelling] = useState(false);
   const seen = useRef(new Set<string>());
   // generation intentionally restarts the ephemeral subscription on demand.
   // biome-ignore lint/correctness/useExhaustiveDependencies: explicit reconnect trigger
@@ -81,6 +87,37 @@ export function AgentActivityDialog({
     };
   }, [agent, generation, ownerPubkey]);
   if (!agent) return null;
+  const activeAgent = agent;
+  const activeChannelId = [...frames]
+    .reverse()
+    .find((frame) => frame.channelId)?.channelId;
+  async function cancelTurn() {
+    if (!activeChannelId) return;
+    setCancelling(true);
+    try {
+      const content = await nip44EncryptToPeer(
+        activeAgent.agent_pubkey,
+        JSON.stringify({ type: "cancel_turn", channelId: activeChannelId }),
+      );
+      await submitEvent({
+        kind: 24200,
+        tags: [
+          ["p", activeAgent.agent_pubkey],
+          ["agent", activeAgent.agent_pubkey],
+          ["frame", "control"],
+          ["h", activeChannelId],
+        ],
+        content,
+      });
+      toast.success("Cancel request sent");
+    } catch (error) {
+      toast.error("Could not cancel turn", {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    } finally {
+      setCancelling(false);
+    }
+  }
   return (
     <div
       aria-label={`${agent.name} activity`}
@@ -105,6 +142,16 @@ export function AgentActivityDialog({
             </p>
           </div>
           <div className="flex gap-1">
+            <Button
+              aria-label="Cancel active turn"
+              disabled={!activeChannelId || cancelling}
+              onClick={() => void cancelTurn()}
+              size="icon"
+              title="Cancel active turn"
+              variant="ghost"
+            >
+              <OctagonX />
+            </Button>
             <Button
               aria-label="Reconnect activity"
               onClick={() => setGeneration((value) => value + 1)}

@@ -1055,6 +1055,27 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     page.getByRole("heading", { name: "Review lead activity" }),
   ).toBeVisible();
   await expect(page.getByText(/tools\/call/)).toBeVisible();
+  await page.getByRole("button", { name: "Cancel active turn" }).click();
+  await expect
+    .poll(() => {
+      const control = submittedEvents.find(
+        (event) =>
+          event.kind === 24200 &&
+          event.tags.some((tag) => tag[0] === "frame" && tag[1] === "control"),
+      );
+      return (
+        control?.tags.some(
+          (tag) => tag[0] === "p" && tag[1] === agentPubkey,
+        ) === true &&
+        control.tags.some(
+          (tag) =>
+            tag[0] === "h" && tag[1] === "44444444-4444-4444-8444-444444444444",
+        ) &&
+        !control.content.includes("cancel_turn") &&
+        !control.content.includes("44444444-4444-4444-8444-444444444444")
+      );
+    })
+    .toBe(true);
   await page
     .getByRole("dialog", { name: "Review lead activity" })
     .getByRole("button", { name: "Close" })

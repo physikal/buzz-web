@@ -46,6 +46,12 @@ type WorkerRequest =
   | { id: number; action: "nip44-encrypt"; plaintext: string }
   | {
       id: number;
+      action: "nip44-encrypt-peer";
+      plaintext: string;
+      peerPubkey: string;
+    }
+  | {
+      id: number;
       action: "nip44-decrypt-peer";
       ciphertext: string;
       peerPubkey: string;
@@ -234,6 +240,20 @@ self.onmessage = async (message: MessageEvent<WorkerRequest>) => {
         const conversationKey = nip44.utils.getConversationKey(
           current,
           getPublicKey(current),
+        );
+        try {
+          result = nip44.encrypt(request.plaintext, conversationKey);
+        } finally {
+          conversationKey.fill(0);
+        }
+        break;
+      }
+      case "nip44-encrypt-peer": {
+        if (new TextEncoder().encode(request.plaintext).length > 64 * 1024)
+          throw new Error("NIP-44 plaintext is too large.");
+        const conversationKey = nip44.utils.getConversationKey(
+          requireSecret(),
+          requirePeerPubkey(request.peerPubkey),
         );
         try {
           result = nip44.encrypt(request.plaintext, conversationKey);

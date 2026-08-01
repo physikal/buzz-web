@@ -146,10 +146,12 @@ export async function signWithOwnerVault(
 
 export async function nip44EncryptWithOwnerVault(
   plaintext: string,
+  peerPubkey?: string,
 ): Promise<string> {
   const ciphertext = await request<string>({
-    action: "nip44-encrypt",
+    action: peerPubkey ? "nip44-encrypt-peer" : "nip44-encrypt",
     plaintext,
+    ...(peerPubkey ? { peerPubkey } : {}),
   });
   armAutoLock();
   return ciphertext;
