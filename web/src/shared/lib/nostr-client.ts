@@ -6,6 +6,7 @@
  */
 
 import { makeAuthEvent } from "nostr-tools/nip42";
+import { verifyEvent } from "nostr-tools/pure";
 import {
   type SignedNostrEvent,
   signNostrEvent,
@@ -25,6 +26,16 @@ export interface NostrFilter {
 export type NostrEvent = SignedNostrEvent;
 
 const QUERY_TIMEOUT_MS = 10_000;
+
+function validNostrEvent(value: unknown): value is NostrEvent {
+  try {
+    return Boolean(
+      value && typeof value === "object" && verifyEvent(value as NostrEvent),
+    );
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Open a WebSocket to `wsUrl`, authenticate via NIP-42 if challenged,
@@ -138,7 +149,7 @@ export function queryEvents(
       }
 
       if (type === "EVENT" && data[1] === subId && data[2]) {
-        events.push(data[2] as NostrEvent);
+        if (validNostrEvent(data[2])) events.push(data[2]);
       } else if (type === "EOSE" && data[1] === subId) {
         if (!settled) {
           settled = true;
@@ -251,7 +262,7 @@ export function subscribeEvents(
         return;
       }
       if (frame[0] === "EVENT" && frame[1] === subId && frame[2]) {
-        onEvent(frame[2] as NostrEvent);
+        if (validNostrEvent(frame[2])) onEvent(frame[2]);
         return;
       }
       if (frame[0] === "EOSE" && frame[1] === subId) {

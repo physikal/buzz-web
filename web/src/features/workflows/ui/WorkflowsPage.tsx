@@ -15,6 +15,7 @@ import {
   Trash2,
   Workflow as WorkflowIcon,
   X,
+  Zap,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -561,6 +562,7 @@ function WorkflowNav({
       <nav className="mt-4 space-y-1 text-sm">
         <Nav to="/" icon={<BookMarked />} label="Repositories" />
         <Nav to="/channels" icon={<MessageSquare />} label="Channels" />
+        <Nav to="/pulse" icon={<Zap />} label="Pulse" />
         <Nav to="/projects" icon={<FolderKanban />} label="Projects" />
         <Nav to="/workflows" icon={<GitFork />} label="Workflows" active />
         <Nav to="/agents" icon={<Bot />} label="Agents" />
@@ -584,7 +586,14 @@ function Nav({
   label,
   active = false,
 }: {
-  to: "/" | "/channels" | "/projects" | "/workflows" | "/agents" | "/settings";
+  to:
+    | "/"
+    | "/channels"
+    | "/pulse"
+    | "/projects"
+    | "/workflows"
+    | "/agents"
+    | "/settings";
   icon: React.ReactNode;
   label: string;
   active?: boolean;

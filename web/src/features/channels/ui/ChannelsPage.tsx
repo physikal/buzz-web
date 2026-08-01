@@ -14,6 +14,7 @@ import {
   Plus,
   Search,
   Settings,
+  Zap,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -671,6 +672,7 @@ function PrimarySidebar({
           icon={<MessageSquare />}
           label="Channels"
         />
+        <SidebarLink href="/pulse" icon={<Zap />} label="Pulse" />
         <SidebarLink
           href="/projects"
           icon={<FolderKanban />}
@@ -705,6 +707,7 @@ function SidebarLink({
   href:
     | "/"
     | "/channels"
+    | "/pulse"
     | "/projects"
     | "/workflows"
     | "/agents"

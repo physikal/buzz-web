@@ -11,6 +11,7 @@ import {
   Settings,
   Trash2,
   X,
+  Zap,
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -327,6 +328,7 @@ function ProjectNav({
       <nav className="mt-4 space-y-1 text-sm">
         <Nav to="/" icon={<BookMarked />} label="Repositories" />
         <Nav to="/channels" icon={<MessageSquare />} label="Channels" />
+        <Nav to="/pulse" icon={<Zap />} label="Pulse" />
         <Nav to="/projects" icon={<FolderKanban />} label="Projects" active />
         <Nav to="/workflows" icon={<GitFork />} label="Workflows" />
         <Nav to="/agents" icon={<Bot />} label="Agents" />
@@ -349,7 +351,14 @@ function Nav({
   label,
   active,
 }: {
-  to: "/" | "/channels" | "/projects" | "/workflows" | "/agents" | "/settings";
+  to:
+    | "/"
+    | "/channels"
+    | "/pulse"
+    | "/projects"
+    | "/workflows"
+    | "/agents"
+    | "/settings";
   icon: React.ReactNode;
   label: string;
   active?: boolean;

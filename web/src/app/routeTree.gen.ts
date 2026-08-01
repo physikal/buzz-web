@@ -8,6 +8,7 @@ import { Route as rootRouteImport } from "./routes/root";
 import { Route as workflowsRouteImport } from "./routes/workflows";
 import { Route as settingsRouteImport } from "./routes/settings";
 import { Route as reposRouteImport } from "./routes/repos";
+import { Route as pulseRouteImport } from "./routes/pulse";
 import { Route as projectsRouteImport } from "./routes/projects";
 import { Route as channelsRouteImport } from "./routes/channels";
 import { Route as agentsRouteImport } from "./routes/agents";
@@ -31,6 +32,11 @@ const settingsRoute = settingsRouteImport.update({
 const reposRoute = reposRouteImport.update({
   id: "/repos",
   path: "/repos",
+  getParentRoute: () => rootRouteImport,
+} as any);
+const pulseRoute = pulseRouteImport.update({
+  id: "/pulse",
+  path: "/pulse",
   getParentRoute: () => rootRouteImport,
 } as any);
 const projectsRoute = projectsRouteImport.update({
@@ -85,6 +91,7 @@ export interface FileRoutesByFullPath {
   "/agents": typeof agentsRoute;
   "/channels": typeof channelsRoute;
   "/projects": typeof projectsRoute;
+  "/pulse": typeof pulseRoute;
   "/repos": typeof reposRoute;
   "/settings": typeof settingsRoute;
   "/workflows": typeof workflowsRoute;
@@ -99,6 +106,7 @@ export interface FileRoutesByTo {
   "/agents": typeof agentsRoute;
   "/channels": typeof channelsRoute;
   "/projects": typeof projectsRoute;
+  "/pulse": typeof pulseRoute;
   "/repos": typeof reposRoute;
   "/settings": typeof settingsRoute;
   "/workflows": typeof workflowsRoute;
@@ -114,6 +122,7 @@ export interface FileRoutesById {
   "/agents": typeof agentsRoute;
   "/channels": typeof channelsRoute;
   "/projects": typeof projectsRoute;
+  "/pulse": typeof pulseRoute;
   "/repos": typeof reposRoute;
   "/settings": typeof settingsRoute;
   "/workflows": typeof workflowsRoute;
@@ -130,6 +139,7 @@ export interface FileRouteTypes {
     | "/agents"
     | "/channels"
     | "/projects"
+    | "/pulse"
     | "/repos"
     | "/settings"
     | "/workflows"
@@ -144,6 +154,7 @@ export interface FileRouteTypes {
     | "/agents"
     | "/channels"
     | "/projects"
+    | "/pulse"
     | "/repos"
     | "/settings"
     | "/workflows"
@@ -158,6 +169,7 @@ export interface FileRouteTypes {
     | "/agents"
     | "/channels"
     | "/projects"
+    | "/pulse"
     | "/repos"
     | "/settings"
     | "/workflows"
@@ -173,6 +185,7 @@ export interface RootRouteChildren {
   agentsRoute: typeof agentsRoute;
   channelsRoute: typeof channelsRoute;
   projectsRoute: typeof projectsRoute;
+  pulseRoute: typeof pulseRoute;
   reposRoute: typeof reposRoute;
   settingsRoute: typeof settingsRoute;
   workflowsRoute: typeof workflowsRoute;
@@ -204,6 +217,13 @@ declare module "@tanstack/react-router" {
       path: "/repos";
       fullPath: "/repos";
       preLoaderRoute: typeof reposRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/pulse": {
+      id: "/pulse";
+      path: "/pulse";
+      fullPath: "/pulse";
+      preLoaderRoute: typeof pulseRouteImport;
       parentRoute: typeof rootRouteImport;
     };
     "/projects": {
@@ -277,6 +297,7 @@ const rootRouteChildren: RootRouteChildren = {
   agentsRoute: agentsRoute,
   channelsRoute: channelsRoute,
   projectsRoute: projectsRoute,
+  pulseRoute: pulseRoute,
   reposRoute: reposRoute,
   settingsRoute: settingsRoute,
   workflowsRoute: workflowsRoute,

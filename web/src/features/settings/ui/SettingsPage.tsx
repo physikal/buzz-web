@@ -14,6 +14,7 @@ import {
   Smile,
   Ticket,
   UserRound,
+  Zap,
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -82,6 +83,7 @@ function SettingsWorkspace({
         <nav className="mt-4 space-y-1 text-sm">
           <Nav href="/" icon={<BookMarked />} label="Repositories" />
           <Nav href="/channels" icon={<MessageSquare />} label="Channels" />
+          <Nav href="/pulse" icon={<Zap />} label="Pulse" />
           <Nav href="/projects" icon={<FolderKanban />} label="Projects" />
           <Nav href="/workflows" icon={<GitFork />} label="Workflows" />
           <Nav href="/agents" icon={<Bot />} label="Agents" />
@@ -423,6 +425,7 @@ function Nav({
   href:
     | "/"
     | "/channels"
+    | "/pulse"
     | "/projects"
     | "/workflows"
     | "/agents"

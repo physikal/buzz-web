@@ -10,6 +10,7 @@ import {
   Plus,
   RefreshCw,
   Settings,
+  Zap,
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -242,6 +243,9 @@ function AgentsWorkspace({
           </Link>
           <Link to="/channels" className="block">
             <SidebarItem icon={<MessageSquare />} label="Channels" />
+          </Link>
+          <Link to="/pulse" className="block">
+            <SidebarItem icon={<Zap />} label="Pulse" />
           </Link>
           <Link to="/projects" className="block">
             <SidebarItem icon={<FolderKanban />} label="Projects" />

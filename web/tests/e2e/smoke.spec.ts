@@ -34,6 +34,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
 
   const token = "42".repeat(32);
   let ownerPubkey = "";
+  let pulseNoteEventId = "";
   const submittedEvents: Array<{
     id: string;
     pubkey: string;
@@ -245,7 +246,10 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
         accepted: true,
         message:
           event.kind === 30620
-            ? 'response:{"workflow_id":"55555555-5555-4555-8555-555555555555","webhook_secret":"webhook-test-secret"}'
+            ? `response:${JSON.stringify({
+                workflow_id: event.tags.find((tag) => tag[0] === "d")?.[1],
+                webhook_secret: "webhook-test-secret",
+              })}`
             : undefined,
       }),
     });
@@ -396,23 +400,69 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
             );
           }
           if (filters.includes("30620")) {
+            for (const workflow of submittedEvents.filter(
+              (event) => event.kind === 30620,
+            ))
+              socket.send(JSON.stringify(["EVENT", subscriptionId, workflow]));
+          }
+          if (filters.includes('"kinds":[1]')) {
+            const pulseNote = finalizeEvent(
+              {
+                kind: 1,
+                created_at: createdAt,
+                content: "Relay-native Pulse update",
+                tags: [],
+              },
+              signer,
+            );
+            pulseNoteEventId = pulseNote.id;
+            socket.send(JSON.stringify(["EVENT", subscriptionId, pulseNote]));
             socket.send(
               JSON.stringify([
                 "EVENT",
                 subscriptionId,
                 {
-                  id: "67".repeat(32),
-                  pubkey: ownerPubkey,
-                  sig: "68".repeat(64),
-                  kind: 30620,
-                  created_at: createdAt,
-                  content:
-                    "name: Notify release\ndescription: Posts after a release\ntrigger:\n  on: message_posted\nsteps:\n  - id: step_1\n    action: send_message\n    text: Release received\n",
-                  tags: [
-                    ["d", "66666666-6666-4666-8666-666666666666"],
-                    ["h", "44444444-4444-4444-8444-444444444444"],
-                  ],
+                  ...pulseNote,
+                  id: "71".repeat(32),
+                  content: "Forged relay frame",
                 },
+              ]),
+            );
+          }
+          if (filters.includes("10100")) {
+            socket.send(
+              JSON.stringify([
+                "EVENT",
+                subscriptionId,
+                finalizeEvent(
+                  {
+                    kind: 10100,
+                    created_at: createdAt,
+                    content: JSON.stringify({ name: "Relay agent" }),
+                    tags: [],
+                  },
+                  signer,
+                ),
+              ]),
+            );
+          }
+          if (filters.includes('"kinds":[0]')) {
+            socket.send(
+              JSON.stringify([
+                "EVENT",
+                subscriptionId,
+                finalizeEvent(
+                  {
+                    kind: 0,
+                    created_at: createdAt,
+                    content: JSON.stringify({
+                      display_name: "Relay agent",
+                      about: "Posts build updates",
+                    }),
+                    tags: [],
+                  },
+                  signer,
+                ),
               ]),
             );
           }
@@ -584,23 +634,6 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     .toBe(true);
   await page.getByRole("link", { name: "Workflows" }).click();
   await expect(page.getByRole("heading", { name: "Workflows" })).toBeVisible();
-  await expect(
-    page.getByRole("heading", { name: "Notify release" }),
-  ).toBeVisible();
-  await page.getByRole("button", { name: "Trigger workflow" }).click();
-  await expect
-    .poll(() =>
-      submittedEvents.some(
-        (event) =>
-          event.kind === 46020 &&
-          event.tags.some(
-            (tag) =>
-              tag[0] === "d" &&
-              tag[1] === "66666666-6666-4666-8666-666666666666",
-          ),
-      ),
-    )
-    .toBe(true);
   await page.getByRole("button", { name: "Create workflow" }).click();
   await page.getByLabel("Workflow name").fill("Incoming webhook");
   await page.getByLabel("Workflow trigger").selectOption("webhook");
@@ -626,6 +659,80 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     )
     .toBe(true);
   await page.getByRole("button", { name: "Done" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Incoming webhook" }).first(),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Trigger workflow" }).first().click();
+  await expect
+    .poll(() => {
+      const workflowId = submittedEvents
+        .find((event) => event.kind === 30620)
+        ?.tags.find((tag) => tag[0] === "d")?.[1];
+      return submittedEvents.some(
+        (event) =>
+          event.kind === 46020 &&
+          event.tags.some((tag) => tag[0] === "d" && tag[1] === workflowId),
+      );
+    })
+    .toBe(true);
+  await page.getByRole("link", { name: "Pulse" }).click();
+  await expect(page.getByRole("heading", { name: "Pulse" })).toBeVisible();
+  await expect(page.getByText("Relay-native Pulse update")).toBeVisible();
+  await expect(page.getByText("Forged relay frame")).toHaveCount(0);
+  await page.getByLabel("Create Pulse note").fill("Published from Buzz Web");
+  await page.getByRole("button", { name: "Post" }).click();
+  await expect
+    .poll(() =>
+      submittedEvents.some(
+        (event) =>
+          event.kind === 1 &&
+          event.content === "Published from Buzz Web" &&
+          !event.tags.some((tag) => tag[0] === "h"),
+      ),
+    )
+    .toBe(true);
+  const pulseNote = page.locator("article").filter({
+    hasText: "Relay-native Pulse update",
+  });
+  await pulseNote.getByRole("button", { name: "Like" }).click();
+  await expect
+    .poll(() =>
+      submittedEvents.some(
+        (event) =>
+          event.kind === 7 &&
+          event.content === "+" &&
+          event.tags.some(
+            (tag) => tag[0] === "e" && tag[1] === pulseNoteEventId,
+          ),
+      ),
+    )
+    .toBe(true);
+  await pulseNote.getByRole("button", { name: "Reply" }).click();
+  await pulseNote.getByLabel("Reply to Relay agent").fill("Web reply");
+  await pulseNote.getByRole("button", { name: "Post reply" }).click();
+  await expect
+    .poll(() =>
+      submittedEvents.some(
+        (event) =>
+          event.kind === 1 &&
+          event.content === "Web reply" &&
+          event.tags.some(
+            (tag) => tag[0] === "e" && tag[1] === pulseNoteEventId,
+          ) &&
+          event.tags.some((tag) => tag[0] === "p"),
+      ),
+    )
+    .toBe(true);
+  await pulseNote.getByRole("button", { name: "Share" }).click();
+  await expect
+    .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+    .toMatch(/^nostr:nevent/);
+  await page.getByRole("tab", { name: "Following" }).click();
+  await expect(
+    page.getByText("Follow people to see their updates here."),
+  ).toBeVisible();
+  await page.getByRole("tab", { name: /Agents/ }).click();
+  await expect(page.getByText("Relay-native Pulse update")).toBeVisible();
   await page.getByRole("link", { name: "Channels" }).click();
   await expect(page.getByRole("heading", { name: "general" })).toBeVisible();
 
