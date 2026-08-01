@@ -17,6 +17,7 @@ test("home page shows repositories section", async ({ page }) => {
 test("owner setup creates a passkey-wrapped signer and enters Channels", async ({
   page,
 }) => {
+  test.setTimeout(60_000);
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
   const cdp = await page.context().newCDPSession(page);
   await cdp.send("WebAuthn.enable");

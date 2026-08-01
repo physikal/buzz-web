@@ -1,6 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { lazy } from "react";
 
-import { ChannelsPage } from "@/features/channels/ui/ChannelsPage";
+const ChannelsPage = lazy(async () => {
+  const module = await import("@/features/channels/ui/ChannelsPage");
+  return { default: module.ChannelsPage };
+});
 
 type ChannelsSearch = {
   channel?: string;

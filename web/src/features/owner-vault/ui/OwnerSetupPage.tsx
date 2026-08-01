@@ -10,17 +10,8 @@ import { claimOwnerVault, getOwnerVaultStatus } from "../lib/owner-vault-api";
 import { createVaultPasskey } from "../lib/passkey";
 import { createOwnerVault, lockOwnerVault } from "../lib/vault-worker-client";
 
-function takeClaimToken(): string {
-  const token = window.location.hash.slice(1).trim();
-  if (token) {
-    window.history.replaceState(null, "", window.location.pathname);
-  }
-  return token;
-}
-
-export function OwnerSetupPage() {
+export function OwnerSetupPage({ claimToken }: { claimToken: string }) {
   const navigate = useNavigate();
-  const [token] = useState(takeClaimToken);
   const [ownerPubkey, setOwnerPubkey] = useState<string | null>(null);
   const [vaultReady, setVaultReady] = useState(false);
   const [claimEnabled, setClaimEnabled] = useState(false);
@@ -53,7 +44,7 @@ export function OwnerSetupPage() {
     setPending(true);
     setError(null);
     try {
-      if (!/^[0-9a-fA-F]{64}$/.test(token)) {
+      if (!/^[0-9a-fA-F]{64}$/.test(claimToken)) {
         throw new Error(
           "Open the complete owner setup URL from the bootstrap log.",
         );
@@ -70,7 +61,7 @@ export function OwnerSetupPage() {
         recoveryKdfSalt,
       });
       await claimOwnerVault({
-        token,
+        token: claimToken,
         credential: {
           credential_id: passkey.credentialId,
           label: "Primary passkey",
@@ -206,7 +197,7 @@ export function OwnerSetupPage() {
             disabled={
               pending ||
               !claimEnabled ||
-              !/^[0-9a-fA-F]{64}$/.test(token) ||
+              !/^[0-9a-fA-F]{64}$/.test(claimToken) ||
               (ownerPubkey !== null && existingNsec.trim().length === 0)
             }
             onClick={setUpOwner}

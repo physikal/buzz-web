@@ -1,6 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { lazy } from "react";
 
-import { WorkflowsPage } from "@/features/workflows/ui/WorkflowsPage";
+const WorkflowsPage = lazy(async () => {
+  const module = await import("@/features/workflows/ui/WorkflowsPage");
+  return { default: module.WorkflowsPage };
+});
 
 export const Route = createFileRoute("/workflows")({
   component: WorkflowsPage,

@@ -1,5 +1,5 @@
 import { Outlet, createRootRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 
 import { ReminderNotifier } from "@/features/reminders/ui/ReminderNotifier";
 
@@ -30,7 +30,15 @@ function RootLayout() {
     <div className="flex min-h-dvh flex-col">
       <ReminderNotifier ownerPubkey={ownerPubkey} />
       <main className="flex flex-1 flex-col">
-        <Outlet />
+        <Suspense
+          fallback={
+            <div className="flex min-h-dvh items-center justify-center text-sm text-muted-foreground">
+              Loading…
+            </div>
+          }
+        >
+          <Outlet />
+        </Suspense>
       </main>
     </div>
   );

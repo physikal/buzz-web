@@ -1,5 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { lazy } from "react";
 
-import { PulsePage } from "@/features/pulse/ui/PulsePage";
+const PulsePage = lazy(async () => {
+  const module = await import("@/features/pulse/ui/PulsePage");
+  return { default: module.PulsePage };
+});
 
 export const Route = createFileRoute("/pulse")({ component: PulsePage });
