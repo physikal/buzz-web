@@ -34,6 +34,11 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
 
   const token = "42".repeat(32);
   let ownerPubkey = "";
+  const submittedEvents: Array<{
+    kind: number;
+    content: string;
+    tags: string[][];
+  }> = [];
   let claimedCredential: {
     credential_id: string;
     prf_input: string;
@@ -160,6 +165,13 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     });
   });
   await page.route("**/events", async (route) => {
+    submittedEvents.push(
+      JSON.parse(route.request().postData() ?? "{}") as {
+        kind: number;
+        content: string;
+        tags: string[][];
+      },
+    );
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -253,6 +265,26 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
               ]),
             );
           }
+          if (filters.includes("30030")) {
+            socket.send(
+              JSON.stringify([
+                "EVENT",
+                subscriptionId,
+                finalizeEvent(
+                  {
+                    kind: 30030,
+                    created_at: createdAt,
+                    content: "",
+                    tags: [
+                      ["d", "buzz:custom-emoji"],
+                      ["emoji", "shipit", "https://example.com/shipit.png"],
+                    ],
+                  },
+                  signer,
+                ),
+              ]),
+            );
+          }
           socket.send(JSON.stringify(["EOSE", subscriptionId]));
         }
       });
@@ -277,6 +309,27 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await expect(page.getByText("Welcome to Buzz Web.")).toBeVisible();
   await expect(page.getByLabel("Message #general")).toBeVisible();
   expect(ownerPubkey).toMatch(/^[0-9a-f]{64}$/);
+  const welcomeMessage = page.locator("article").filter({
+    hasText: "Welcome to Buzz Web.",
+  });
+  await welcomeMessage.hover();
+  await welcomeMessage.getByRole("button", { name: "Add reaction" }).click();
+  await page.getByRole("button", { name: "React with :shipit:" }).click();
+  await expect
+    .poll(() =>
+      submittedEvents.some(
+        (event) =>
+          event.kind === 7 &&
+          event.content === ":shipit:" &&
+          event.tags.some(
+            (tag) =>
+              tag[0] === "emoji" &&
+              tag[1] === "shipit" &&
+              tag[2] === "https://example.com/shipit.png",
+          ),
+      ),
+    )
+    .toBe(true);
 
   await page.getByRole("link", { name: "Settings" }).click();
   await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
@@ -292,6 +345,11 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await page.getByRole("button", { name: "Copy link" }).click();
   await expect(page.getByRole("button", { name: "Copied" })).toBeVisible();
   await page.getByRole("button", { name: "Close" }).click();
+  await page.getByRole("button", { name: "Custom emoji" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Custom emoji" }),
+  ).toBeVisible();
+  await expect(page.getByText(":shipit:")).toBeVisible();
   await page.getByRole("link", { name: "Channels" }).click();
   await expect(page.getByRole("heading", { name: "general" })).toBeVisible();
 

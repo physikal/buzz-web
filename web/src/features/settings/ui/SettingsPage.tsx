@@ -8,6 +8,7 @@ import {
   LogOut,
   MessageSquare,
   MonitorCog,
+  Smile,
   Ticket,
   UserRound,
 } from "lucide-react";
@@ -22,6 +23,7 @@ import { ThemeToggle } from "@/shared/theme/ThemeToggle";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { CommunityMembersPanel } from "./CommunityMembersPanel";
+import { CustomEmojiPanel } from "./CustomEmojiPanel";
 import {
   getOwnerProfile,
   type ProfileInput,
@@ -31,7 +33,12 @@ import {
   writeNotificationSettings,
 } from "../settings-api";
 
-type Section = "profile" | "notifications" | "appearance" | "community-members";
+type Section =
+  | "profile"
+  | "notifications"
+  | "appearance"
+  | "community-members"
+  | "custom-emoji";
 
 export function SettingsPage() {
   const [ownerPubkey, setOwnerPubkey] = useState<string | null>(null);
@@ -95,6 +102,9 @@ function SettingsWorkspace({
           {section === "community-members" ? (
             <CommunityMembersPanel ownerPubkey={ownerPubkey} />
           ) : null}
+          {section === "custom-emoji" ? (
+            <CustomEmojiPanel ownerPubkey={ownerPubkey} />
+          ) : null}
         </div>
       </main>
     </div>
@@ -113,6 +123,7 @@ function SettingsNav({
     ["notifications", "Notifications", <Bell key="notifications" />],
     ["appearance", "Appearance", <MonitorCog key="appearance" />],
     ["community-members", "Invites", <Ticket key="community-members" />],
+    ["custom-emoji", "Custom emoji", <Smile key="custom-emoji" />],
   ];
   return (
     <nav className="space-y-1">

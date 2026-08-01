@@ -13,6 +13,7 @@ import remarkGfm from "remark-gfm";
 import { relativeTime } from "@/shared/lib/relative-time";
 import { truncatePubkey } from "@/shared/lib/pubkey";
 import { Button } from "@/shared/ui/button";
+import type { CustomEmoji } from "@/features/settings/custom-emoji-api";
 import type {
   Channel,
   ChannelMessage,
@@ -29,6 +30,7 @@ export type MessageActions = {
     message: ChannelMessage,
     emoji: string,
     ownEventId: string | null,
+    customEmojiUrl?: string,
   ) => void;
 };
 
@@ -40,6 +42,7 @@ export function MessageTimeline({
   agentNames,
   loading,
   selectedMessageId,
+  customEmoji,
   actions,
 }: {
   channel: Channel;
@@ -49,6 +52,7 @@ export function MessageTimeline({
   agentNames: Map<string, string>;
   loading: boolean;
   selectedMessageId?: string | null;
+  customEmoji: CustomEmoji[];
   actions: MessageActions;
 }) {
   const repliesByRoot = useMemo(() => {
@@ -91,6 +95,7 @@ export function MessageTimeline({
           agentNames={agentNames}
           forum={channel.channelType === "forum"}
           highlighted={selectedMessageId === message.id}
+          customEmoji={customEmoji}
           key={message.id}
           message={message}
           ownerPubkey={ownerPubkey}
@@ -110,6 +115,7 @@ function MessageRow({
   replyCount,
   forum,
   highlighted,
+  customEmoji,
   actions,
 }: {
   message: ChannelMessage;
@@ -119,6 +125,7 @@ function MessageRow({
   replyCount: number;
   forum: boolean;
   highlighted: boolean;
+  customEmoji: CustomEmoji[];
   actions: MessageActions;
 }) {
   const [editing, setEditing] = useState(false);
@@ -196,8 +203,27 @@ function MessageRow({
         ) : (
           <>
             <div className="prose prose-sm mt-1 max-w-none break-words text-foreground dark:prose-invert prose-p:my-1 prose-pre:max-w-full prose-pre:overflow-x-auto">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                {renderSystemContent(message)}
+              <ReactMarkdown
+                components={{
+                  img: ({ alt, title, ...props }) => (
+                    <img
+                      {...props}
+                      alt={alt ?? ""}
+                      className={
+                        title === "buzz-custom-emoji"
+                          ? "not-prose mx-0.5 inline h-5 w-5 object-contain align-text-bottom"
+                          : undefined
+                      }
+                      title={title}
+                    />
+                  ),
+                }}
+                remarkPlugins={[remarkGfm]}
+              >
+                {expandCustomEmojiMarkdown(
+                  renderSystemContent(message),
+                  customEmoji,
+                )}
               </ReactMarkdown>
             </div>
             <Attachments attachments={message.attachments} />
@@ -215,7 +241,8 @@ function MessageRow({
                 }
                 type="button"
               >
-                {reaction.emoji} {reaction.count}
+                <ReactionEmoji emoji={reaction.emoji} palette={customEmoji} />
+                {reaction.count}
               </button>
             ))}
           </div>
@@ -250,7 +277,7 @@ function MessageRow({
               <SmilePlus />
             </Button>
             {reactionOpen ? (
-              <div className="absolute right-0 top-9 z-20 flex rounded-md border bg-popover p-1 shadow-lg">
+              <div className="absolute right-0 top-9 z-20 flex max-w-72 flex-wrap rounded-md border bg-popover p-1 shadow-lg">
                 {["👍", "❤️", "😂", "🎉", "👀"].map((emoji) => (
                   <button
                     className="rounded p-1.5 text-base hover:bg-muted"
@@ -262,6 +289,29 @@ function MessageRow({
                     type="button"
                   >
                     {emoji}
+                  </button>
+                ))}
+                {customEmoji.map((emoji) => (
+                  <button
+                    aria-label={`React with :${emoji.shortcode}:`}
+                    className="rounded p-1.5 hover:bg-muted"
+                    key={emoji.shortcode}
+                    onClick={() => {
+                      actions.onReact(
+                        message,
+                        `:${emoji.shortcode}:`,
+                        null,
+                        emoji.url,
+                      );
+                      setReactionOpen(false);
+                    }}
+                    type="button"
+                  >
+                    <img
+                      alt=""
+                      className="h-5 w-5 object-contain"
+                      src={emoji.url}
+                    />
                   </button>
                 ))}
               </div>
@@ -301,6 +351,26 @@ function renderSystemContent(message: ChannelMessage): string {
   } catch {
     return message.content;
   }
+}
+
+function expandCustomEmojiMarkdown(
+  content: string,
+  palette: CustomEmoji[],
+): string {
+  if (!palette.length || !content.includes(":")) return content;
+  const byName = new Map(palette.map((emoji) => [emoji.shortcode, emoji.url]));
+  return content
+    .split(/(```[\s\S]*?```|`[^`\n]*`)/g)
+    .map((part, index) => {
+      if (index % 2 === 1) return part;
+      return part.replace(/:([a-z0-9_-]+):/gi, (match, rawName: string) => {
+        const url = byName.get(rawName.toLowerCase());
+        if (!url) return match;
+        const safeUrl = url.replace(/\(/g, "%28").replace(/\)/g, "%29");
+        return `![${match}](${safeUrl} "buzz-custom-emoji")`;
+      });
+    })
+    .join("");
 }
 
 function Attachments({ attachments }: { attachments: MediaAttachment[] }) {
@@ -376,6 +446,7 @@ export function ThreadPanel({
   agentNames,
   pending,
   actions,
+  customEmoji,
   onClose,
   onSubmit,
 }: {
@@ -387,6 +458,7 @@ export function ThreadPanel({
   agentNames: Map<string, string>;
   pending: boolean;
   actions: MessageActions;
+  customEmoji: CustomEmoji[];
   onClose: () => void;
   onSubmit: (payload: ComposerPayload) => Promise<void>;
 }) {
@@ -413,6 +485,7 @@ export function ThreadPanel({
         {[root, ...replies].map((message) => (
           <MessageRow
             actions={actions}
+            customEmoji={customEmoji}
             agentNames={agentNames}
             forum={false}
             highlighted={false}
@@ -432,6 +505,29 @@ export function ThreadPanel({
       />
     </aside>
   );
+}
+
+function ReactionEmoji({
+  emoji,
+  palette,
+}: {
+  emoji: string;
+  palette: CustomEmoji[];
+}) {
+  if (emoji.startsWith(":") && emoji.endsWith(":")) {
+    const custom = palette.find(
+      (item) => item.shortcode === emoji.slice(1, -1),
+    );
+    if (custom)
+      return (
+        <img
+          alt={emoji}
+          className="mr-1 inline h-4 w-4 object-contain"
+          src={custom.url}
+        />
+      );
+  }
+  return <span className="mr-1">{emoji}</span>;
 }
 
 function CenteredMessage({ children }: { children: React.ReactNode }) {

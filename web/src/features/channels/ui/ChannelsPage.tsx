@@ -20,6 +20,7 @@ import buzzAppIcon from "@/assets/app-icon@3x.png";
 import { listAgents } from "@/features/agents/agent-api";
 import { OwnerConnection } from "@/features/agents/ui/OwnerConnection";
 import { lockOwnerVault } from "@/features/owner-vault/lib/vault-worker-client";
+import { getCustomEmoji } from "@/features/settings/custom-emoji-api";
 import { subscribeEvents } from "@/shared/lib/nostr-client";
 import { truncatePubkey } from "@/shared/lib/pubkey";
 import { relayWsUrl } from "@/shared/lib/relay-url";
@@ -100,6 +101,12 @@ function ChannelsWorkspace({
     staleTime: 10_000,
     retry: false,
   });
+  const customEmojiQuery = useQuery({
+    queryKey: ["custom-emoji", ownerPubkey],
+    queryFn: () => getCustomEmoji(ownerPubkey),
+    staleTime: 30_000,
+    retry: false,
+  });
   const channels = channelsQuery.data ?? [];
   const selected =
     channels.find((channel) => channel.id === selectedId) ??
@@ -147,6 +154,19 @@ function ChannelsWorkspace({
     );
     return subscription.close;
   }, [handleLiveChannelEvent, reactionEventIds, selectedChannelId]);
+  useEffect(() => {
+    const subscription = subscribeEvents(
+      relayWsUrl(),
+      { kinds: [30030], "#d": ["buzz:custom-emoji"] },
+      () => {
+        void queryClient.invalidateQueries({
+          queryKey: ["custom-emoji", ownerPubkey],
+        });
+      },
+      { requireNip07: true },
+    );
+    return subscription.close;
+  }, [ownerPubkey, queryClient]);
 
   useEffect(() => {
     if (!selectedId && channels[0]) setSelectedId(channels[0].id);
@@ -254,12 +274,16 @@ function ChannelsWorkspace({
       eventId,
       emoji,
       ownEventId,
+      customEmojiUrl,
     }: {
       eventId: string;
       emoji: string;
       ownEventId: string | null;
+      customEmojiUrl?: string;
     }) =>
-      ownEventId ? removeReaction(ownEventId) : addReaction(eventId, emoji),
+      ownEventId
+        ? removeReaction(ownEventId)
+        : addReaction(eventId, emoji, customEmojiUrl),
     onSuccess: refreshSelected,
     onError: mutationError("Could not update reaction"),
   });
@@ -351,8 +375,13 @@ function ChannelsWorkspace({
         eventId: message.id,
       });
     },
-    onReact: (message, emoji, ownEventId) =>
-      reactionMutation.mutate({ eventId: message.id, emoji, ownEventId }),
+    onReact: (message, emoji, ownEventId, customEmojiUrl) =>
+      reactionMutation.mutate({
+        eventId: message.id,
+        emoji,
+        ownEventId,
+        customEmojiUrl,
+      }),
   };
   const threadRoot =
     messages.find((message) => message.id === threadRootId) ?? null;
@@ -449,6 +478,7 @@ function ChannelsWorkspace({
               actions={actions}
               agentNames={agentNames}
               channel={selected}
+              customEmoji={customEmojiQuery.data?.community ?? []}
               loading={messagesQuery.isLoading}
               messages={messages}
               ownerPubkey={ownerPubkey}
@@ -483,6 +513,7 @@ function ChannelsWorkspace({
           actions={actions}
           agentNames={agentNames}
           channel={selected}
+          customEmoji={customEmojiQuery.data?.community ?? []}
           messages={messages}
           onClose={() => setThreadRootId(null)}
           ownerPubkey={ownerPubkey}

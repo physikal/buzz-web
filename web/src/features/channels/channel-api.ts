@@ -439,8 +439,20 @@ export async function deleteMessage(
 export async function addReaction(
   eventId: string,
   emoji: string,
+  customEmojiUrl?: string,
 ): Promise<void> {
-  await submitEvent({ kind: 7, content: emoji, tags: [["e", eventId]] });
+  const shortcode =
+    emoji.startsWith(":") && emoji.endsWith(":") ? emoji.slice(1, -1) : null;
+  await submitEvent({
+    kind: 7,
+    content: emoji,
+    tags: [
+      ["e", eventId],
+      ...(shortcode && customEmojiUrl
+        ? [["emoji", shortcode, customEmojiUrl]]
+        : []),
+    ],
+  });
 }
 
 export async function removeReaction(reactionEventId: string): Promise<void> {
