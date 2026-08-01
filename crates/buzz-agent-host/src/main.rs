@@ -7,6 +7,8 @@ use tokio::{process::Command, task::JoinSet};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
+mod auth_control;
+
 const LEASE_SECONDS: i64 = 15;
 const RENEW_INTERVAL: Duration = Duration::from_secs(5);
 
@@ -41,6 +43,26 @@ async fn main() -> anyhow::Result<()> {
         ..DbConfig::default()
     })
     .await?;
+    let control_bind = std::env::var("BUZZ_AGENT_HOST_CONTROL_BIND")
+        .unwrap_or_else(|_| "0.0.0.0:8090".into())
+        .parse()?;
+    let control_db = db.clone();
+    let control_dir = data_dir.clone();
+    let control_path = runtime_path.clone();
+    let control_token = buzz_agent_host::derive_control_token(&envelope_key);
+    tokio::spawn(async move {
+        if let Err(error) = auth_control::serve(
+            control_bind,
+            control_db,
+            control_token,
+            control_dir,
+            control_path,
+        )
+        .await
+        {
+            error!(%error, "agent authentication control port stopped");
+        }
+    });
     let runner_id = Uuid::new_v4();
     let mut tasks = JoinSet::new();
     info!(%runner_id, max_agents, "agent host ready");

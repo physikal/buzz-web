@@ -2,6 +2,7 @@ import { AlertTriangle, ChevronDown, Eye, EyeOff, X } from "lucide-react";
 import { type FormEvent, useMemo, useState } from "react";
 
 import type {
+  AgentCredentialMode,
   AgentRuntime,
   CreateAgentInput,
   RespondToMode,
@@ -35,6 +36,8 @@ export function AgentCreateDialog({
   const [provider, setProvider] = useState("anthropic");
   const [model, setModel] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const [credentialMode, setCredentialMode] =
+    useState<AgentCredentialMode>("api-key");
   const [showApiKey, setShowApiKey] = useState(false);
   const [respondTo, setRespondTo] = useState<RespondToMode>("owner-only");
   const [allowlistText, setAllowlistText] = useState("");
@@ -53,7 +56,7 @@ export function AgentCreateDialog({
   const canSubmit =
     name.trim().length > 0 &&
     (!usesProvider || (provider.length > 0 && model.trim().length > 0)) &&
-    apiKey.length > 0 &&
+    (credentialMode === "subscription" || apiKey.length > 0) &&
     (respondTo !== "allowlist" || (allowlist.length > 0 && allowlistValid));
 
   if (!open) return null;
@@ -66,13 +69,13 @@ export function AgentCreateDialog({
       secrets.BUZZ_AGENT_PROVIDER = provider;
       secrets.BUZZ_AGENT_MODEL = model.trim();
     }
-    if (runtime === "buzz-agent") {
+    if (credentialMode === "api-key" && runtime === "buzz-agent") {
       secrets[
         provider === "anthropic" ? "ANTHROPIC_API_KEY" : "OPENAI_COMPAT_API_KEY"
       ] = apiKey;
-    } else if (runtime === "codex") {
+    } else if (credentialMode === "api-key" && runtime === "codex") {
       secrets.OPENAI_API_KEY = apiKey;
-    } else if (runtime === "claude") {
+    } else if (credentialMode === "api-key" && runtime === "claude") {
       secrets.ANTHROPIC_API_KEY = apiKey;
     }
     await onSubmit({
@@ -83,6 +86,7 @@ export function AgentCreateDialog({
       respond_to: respondTo,
       respond_to_allowlist: respondTo === "allowlist" ? allowlist : [],
       secrets,
+      credential_mode: credentialMode,
     });
   }
 
@@ -101,7 +105,9 @@ export function AgentCreateDialog({
           <div>
             <h2 className="text-lg font-semibold">Create agent</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Create an agent and start it immediately.
+              {credentialMode === "subscription"
+                ? "Create an agent, connect your subscription, and start it."
+                : "Create an agent and start it immediately."}
             </p>
           </div>
           <Button
@@ -161,7 +167,13 @@ export function AgentCreateDialog({
               <Field label="Harness">
                 <Select
                   disabled={pending}
-                  onChange={(value) => setRuntime(value as AgentRuntime)}
+                  onChange={(value) => {
+                    const next = value as AgentRuntime;
+                    setRuntime(next);
+                    setCredentialMode(
+                      next === "buzz-agent" ? "api-key" : "subscription",
+                    );
+                  }}
                   value={runtime}
                   options={RUNTIMES}
                 />
@@ -181,41 +193,66 @@ export function AgentCreateDialog({
                 </Field>
               ) : null}
 
-              <Field
-                label={
-                  runtime === "claude" ||
-                  (runtime === "buzz-agent" && provider === "anthropic")
-                    ? "Anthropic API key"
-                    : "OpenAI API key"
-                }
-                required
-              >
-                <div
-                  className={`${FIELD_SHELL} flex min-h-11 items-center gap-2 px-3`}
+              {!usesProvider ? (
+                <Field label="Authentication">
+                  <div className="grid grid-cols-2 rounded-md border bg-muted/40 p-1">
+                    {(
+                      [
+                        ["subscription", "Subscription"],
+                        ["api-key", "API key"],
+                      ] as const
+                    ).map(([value, label]) => (
+                      <button
+                        className={`h-9 rounded text-sm font-medium ${credentialMode === value ? "bg-background shadow-xs" : "text-muted-foreground"}`}
+                        disabled={pending}
+                        key={value}
+                        onClick={() => setCredentialMode(value)}
+                        type="button"
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </Field>
+              ) : null}
+
+              {credentialMode === "api-key" ? (
+                <Field
+                  label={
+                    runtime === "claude" ||
+                    (runtime === "buzz-agent" && provider === "anthropic")
+                      ? "Anthropic API key"
+                      : "OpenAI API key"
+                  }
+                  required
                 >
-                  <Input
-                    autoComplete="off"
-                    className="h-8 flex-1 border-0 px-0 shadow-none focus-visible:ring-0"
-                    disabled={pending}
-                    onChange={(event) => setApiKey(event.target.value)}
-                    placeholder="Paste API key…"
-                    type={showApiKey ? "text" : "password"}
-                    value={apiKey}
-                  />
-                  <button
-                    aria-label={showApiKey ? "Hide API key" : "Show API key"}
-                    className="text-muted-foreground hover:text-foreground"
-                    onClick={() => setShowApiKey((shown) => !shown)}
-                    type="button"
+                  <div
+                    className={`${FIELD_SHELL} flex min-h-11 items-center gap-2 px-3`}
                   >
-                    {showApiKey ? (
-                      <EyeOff className="h-4 w-4" />
-                    ) : (
-                      <Eye className="h-4 w-4" />
-                    )}
-                  </button>
-                </div>
-              </Field>
+                    <Input
+                      autoComplete="off"
+                      className="h-8 flex-1 border-0 px-0 shadow-none focus-visible:ring-0"
+                      disabled={pending}
+                      onChange={(event) => setApiKey(event.target.value)}
+                      placeholder="Paste API key…"
+                      type={showApiKey ? "text" : "password"}
+                      value={apiKey}
+                    />
+                    <button
+                      aria-label={showApiKey ? "Hide API key" : "Show API key"}
+                      className="text-muted-foreground hover:text-foreground"
+                      onClick={() => setShowApiKey((shown) => !shown)}
+                      type="button"
+                    >
+                      {showApiKey ? (
+                        <EyeOff className="h-4 w-4" />
+                      ) : (
+                        <Eye className="h-4 w-4" />
+                      )}
+                    </button>
+                  </div>
+                </Field>
+              ) : null}
 
               <Field label="Model" required={usesProvider}>
                 <div

@@ -100,13 +100,27 @@ export function OwnerSetupPage() {
         </div>
         <h1 className="mt-5 text-2xl font-semibold">Owner passkey created</h1>
         <p className="mt-2 text-sm leading-6 text-muted-foreground">
-          Store this recovery code separately from the server. It is the only
-          fallback if every owner passkey is lost.
+          Store this vault unlock code in a password manager or separately from
+          the server. It also works on browsers whose passkey provider does not
+          support encrypted vaults.
         </p>
         <div className="mt-5 rounded-md border border-border bg-muted/40 p-3 text-left">
-          <code className="block break-all text-sm leading-6">
-            {recoveryCode}
-          </code>
+          <input
+            autoComplete="username"
+            name="username"
+            readOnly
+            type="hidden"
+            value={`owner@${window.location.hostname}`}
+          />
+          <input
+            aria-label="Vault unlock code"
+            autoComplete="new-password"
+            className="block w-full break-all bg-transparent font-mono text-sm leading-6 outline-none"
+            name="password"
+            readOnly
+            type="password"
+            value={recoveryCode}
+          />
           <Button
             className="mt-3 w-full"
             type="button"
@@ -127,12 +141,12 @@ export function OwnerSetupPage() {
             type="checkbox"
             onChange={(event) => setRecoverySaved(event.target.checked)}
           />
-          <span>I saved this recovery code somewhere secure.</span>
+          <span>I saved this vault unlock code somewhere secure.</span>
         </label>
         <Button
           className="mt-5 w-full"
           disabled={!recoverySaved}
-          onClick={() => navigate({ to: "/agents" })}
+          onClick={() => navigate({ to: "/channels" })}
         >
           Open Buzz
         </Button>
@@ -144,8 +158,7 @@ export function OwnerSetupPage() {
     <SetupShell>
       <h1 className="mt-6 text-2xl font-semibold">Set up this Buzz server</h1>
       <p className="mt-2 text-sm leading-6 text-muted-foreground">
-        Create an owner passkey using your device&apos;s built-in secure
-        sign-in.
+        Create an owner passkey using a compatible secure sign-in provider.
       </p>
 
       {loading ? (
@@ -157,7 +170,7 @@ export function OwnerSetupPage() {
           </p>
           <Button
             className="mt-4 w-full"
-            onClick={() => navigate({ to: "/agents" })}
+            onClick={() => navigate({ to: "/channels" })}
           >
             Continue to Buzz
           </Button>

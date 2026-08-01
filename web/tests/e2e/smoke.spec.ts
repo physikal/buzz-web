@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { expect, test } from "@playwright/test";
-import { verifyEvent } from "nostr-tools/pure";
+import { finalizeEvent, verifyEvent } from "nostr-tools/pure";
 
 test("home page loads with Buzz branding", async ({ page }) => {
   await page.goto("/");
@@ -14,7 +14,7 @@ test("home page shows repositories section", async ({ page }) => {
   await expect(page.getByText("Repositories")).toBeVisible();
 });
 
-test("owner setup creates a passkey-wrapped signer and enters Agents", async ({
+test("owner setup creates a passkey-wrapped signer and enters Channels", async ({
   page,
 }) => {
   const cdp = await page.context().newCDPSession(page);
@@ -130,6 +130,88 @@ test("owner setup creates a passkey-wrapped signer and enters Agents", async ({
       body: JSON.stringify({ agents: [] }),
     });
   });
+  await page.route("**/events", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ accepted: true }),
+    });
+  });
+  await page.routeWebSocket(
+    /ws:\/\/(?:127\.0\.0\.1|localhost):4173\/?$/,
+    (socket) => {
+      socket.onMessage((message) => {
+        const frame = JSON.parse(String(message)) as unknown[];
+        if (frame[0] === "REQ" && typeof frame[1] === "string") {
+          const subscriptionId = frame[1];
+          const filters = JSON.stringify(frame.slice(2));
+          const signer = new Uint8Array(32);
+          signer[31] = 1;
+          const createdAt = Math.floor(Date.now() / 1000) - 60;
+          if (filters.includes("39000")) {
+            socket.send(
+              JSON.stringify([
+                "EVENT",
+                subscriptionId,
+                finalizeEvent(
+                  {
+                    kind: 39000,
+                    created_at: createdAt,
+                    content: "",
+                    tags: [
+                      ["d", "44444444-4444-4444-8444-444444444444"],
+                      ["name", "general"],
+                      ["about", "General conversation and community updates."],
+                      ["t", "stream"],
+                    ],
+                  },
+                  signer,
+                ),
+              ]),
+            );
+          }
+          if (filters.includes("39002")) {
+            socket.send(
+              JSON.stringify([
+                "EVENT",
+                subscriptionId,
+                finalizeEvent(
+                  {
+                    kind: 39002,
+                    created_at: createdAt,
+                    content: "",
+                    tags: [
+                      ["d", "44444444-4444-4444-8444-444444444444"],
+                      ["p", ownerPubkey],
+                    ],
+                  },
+                  signer,
+                ),
+              ]),
+            );
+          }
+          if (filters.includes("40008")) {
+            socket.send(
+              JSON.stringify([
+                "EVENT",
+                subscriptionId,
+                finalizeEvent(
+                  {
+                    kind: 9,
+                    created_at: createdAt,
+                    content: "Welcome to Buzz Web.",
+                    tags: [["h", "44444444-4444-4444-8444-444444444444"]],
+                  },
+                  signer,
+                ),
+              ]),
+            );
+          }
+          socket.send(JSON.stringify(["EOSE", subscriptionId]));
+        }
+      });
+    },
+  );
 
   await page.goto(`http://localhost:4173/agents/setup#${token}`);
   await expect(page).toHaveURL(/\/agents\/setup$/);
@@ -137,11 +219,17 @@ test("owner setup creates a passkey-wrapped signer and enters Agents", async ({
   await expect(
     page.getByRole("heading", { name: "Owner passkey created" }),
   ).toBeVisible();
-  await expect(page.locator("code")).toContainText("buzz-recovery-v1_");
-  await page.getByLabel("I saved this recovery code somewhere secure.").check();
+  await expect(
+    page.getByLabel("Vault unlock code", { exact: true }),
+  ).toHaveValue(/^buzz-recovery-v1_/);
+  await page
+    .getByLabel("I saved this vault unlock code somewhere secure.")
+    .check();
   await page.getByRole("button", { name: "Open Buzz" }).click();
-  await expect(page).toHaveURL(/\/agents$/);
-  await expect(page.getByRole("heading", { name: "Agents" })).toBeVisible();
+  await expect(page).toHaveURL(/\/channels$/);
+  await expect(page.getByRole("heading", { name: "general" })).toBeVisible();
+  await expect(page.getByText("Welcome to Buzz Web.")).toBeVisible();
+  await expect(page.getByLabel("Message #general")).toBeVisible();
   expect(ownerPubkey).toMatch(/^[0-9a-f]{64}$/);
 
   await page.reload();
@@ -152,7 +240,7 @@ test("owner setup creates a passkey-wrapped signer and enters Agents", async ({
     ),
   ).toBe(true);
   await page.getByRole("button", { name: "Unlock with passkey" }).click();
-  await expect(page.getByRole("heading", { name: "Agents" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "general" })).toBeVisible();
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= window.innerWidth,

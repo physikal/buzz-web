@@ -1,24 +1,19 @@
-import { KeyRound, LifeBuoy, ShieldCheck } from "lucide-react";
+import { KeyRound, LockKeyhole, ShieldCheck } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import buzzAppIcon from "@/assets/app-icon@3x.png";
 import { decodeBase64Url } from "@/features/owner-vault/lib/encoding";
 import {
-  addOwnerCredential,
   getOwnerVaultStatus,
   getPasskeyWrapper,
   getRecoveryWrapper,
   type OwnerVaultStatus,
 } from "@/features/owner-vault/lib/owner-vault-api";
-import {
-  createVaultPasskey,
-  unlockVaultPasskey,
-} from "@/features/owner-vault/lib/passkey";
+import { unlockVaultPasskey } from "@/features/owner-vault/lib/passkey";
 import {
   getUnlockedOwnerPublicKey,
   hasUnlockedOwnerVault,
   unlockOwnerVault,
-  wrapOwnerVault,
 } from "@/features/owner-vault/lib/vault-worker-client";
 import { getBrowserOwnerPublicKey } from "@/shared/lib/nostr-signer";
 import { Button } from "@/shared/ui/button";
@@ -77,7 +72,7 @@ export function OwnerConnection({
     }
   }
 
-  async function recover() {
+  async function unlockWithRecovery() {
     setPending(true);
     setError(null);
     try {
@@ -90,15 +85,6 @@ export function OwnerConnection({
         material: recoverySecret.buffer,
         expectedPubkey: recovery.owner_pubkey,
         wrapper: recovery,
-      });
-
-      const passkey = await createVaultPasskey();
-      const wrapper = await wrapOwnerVault(passkey.material, passkey.kdfSalt);
-      await addOwnerCredential({
-        credential_id: passkey.credentialId,
-        label: "Recovered passkey",
-        prf_input: passkey.prfInput,
-        ...wrapper,
       });
       onConnected(pubkey);
     } catch (cause) {
@@ -161,22 +147,36 @@ export function OwnerConnection({
                 variant="ghost"
                 onClick={() => setShowRecovery(true)}
               >
-                <LifeBuoy />
-                Use recovery code
+                <LockKeyhole />
+                Use password manager or recovery code
               </Button>
             </>
           ) : (
-            <div className="mt-6 text-left">
+            <form
+              className="mt-6 text-left"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void unlockWithRecovery();
+              }}
+            >
               <label
                 className="text-sm font-medium"
                 htmlFor="owner-recovery-code"
               >
-                Recovery code
+                Vault unlock code
               </label>
+              <input
+                autoComplete="username"
+                name="username"
+                readOnly
+                type="hidden"
+                value={`owner@${window.location.hostname}`}
+              />
               <Input
-                autoComplete="off"
+                autoComplete="current-password"
                 className="mt-2 font-mono"
                 id="owner-recovery-code"
+                name="password"
                 placeholder="buzz-recovery-v1_…"
                 spellCheck={false}
                 type="password"
@@ -186,22 +186,21 @@ export function OwnerConnection({
               <Button
                 className="mt-3 w-full"
                 disabled={pending || recoveryCode.trim().length === 0}
-                onClick={recover}
+                type="submit"
               >
                 <KeyRound />
-                {pending
-                  ? "Creating replacement passkey…"
-                  : "Recover and create passkey"}
+                {pending ? "Unlocking…" : "Unlock Buzz"}
               </Button>
               <Button
                 className="mt-2 w-full"
                 disabled={pending}
                 variant="ghost"
                 onClick={() => setShowRecovery(false)}
+                type="button"
               >
                 Back
               </Button>
-            </div>
+            </form>
           )
         ) : (
           <div className="mt-6 rounded-md border border-border bg-muted/40 px-3 py-3 text-left text-sm leading-6">
@@ -227,8 +226,8 @@ export function OwnerConnection({
         <div className="mt-4 flex items-start gap-2 text-left text-xs leading-5 text-muted-foreground">
           <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />
           <p>
-            The relay stores only an encrypted vault. Unlocking happens through
-            your device&apos;s passkey provider.
+            The relay stores only an encrypted vault. Unlock with a PRF passkey
+            or the high-entropy code saved in your password manager.
           </p>
         </div>
         {error ? (

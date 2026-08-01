@@ -9,8 +9,8 @@ use axum::{
     response::Json,
 };
 use buzz_agent_host::{
-    allowed_secret_env_name, encrypt_secret, parse_envelope_key, runtime_command,
-    AgentSecretPayload,
+    allowed_secret_env_name, derive_control_token, encrypt_secret, parse_envelope_key,
+    runtime_command, AgentSecretPayload,
 };
 use buzz_core::TenantContext;
 use nostr::{Keys, ToBech32};
@@ -43,10 +43,16 @@ pub struct CreateAgentRequest {
     respond_to_allowlist: Vec<String>,
     #[serde(default)]
     secrets: BTreeMap<String, String>,
+    #[serde(default = "default_credential_mode")]
+    credential_mode: String,
 }
 
 fn default_respond_to() -> String {
     "owner-only".into()
+}
+
+fn default_credential_mode() -> String {
+    "api-key".into()
 }
 
 pub(crate) async fn authorize_owner(
@@ -125,6 +131,7 @@ pub async fn create_agent(
         respond_to,
         respond_to_allowlist,
         secrets,
+        credential_mode,
     } = input;
 
     let envelope_key = std::env::var("BUZZ_AGENT_SECRET_KEY")
@@ -178,6 +185,12 @@ pub async fn create_agent(
                 system_prompt: system_prompt.trim(),
                 runtime: &runtime,
                 model: model.as_deref().map(str::trim),
+                credential_mode: &credential_mode,
+                desired_state: if credential_mode == "subscription" {
+                    "stopped"
+                } else {
+                    "running"
+                },
                 respond_to: &respond_to,
                 respond_to_allowlist: &respond_to_allowlist,
                 secret_nonce: &encrypted.nonce,
@@ -193,6 +206,161 @@ pub async fn create_agent(
             )
         })?;
     Ok((StatusCode::CREATED, Json(json!({ "agent": record }))))
+}
+
+/// Return subscription-login status from the private agent-host control port.
+pub async fn auth_status(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let path = format!("/api/agents/{id}/auth");
+    let (tenant, owner) = authorize_owner(&state, &headers, "GET", &path, None, false).await?;
+    require_owned_subscription_agent(&state, tenant.community(), &owner.to_hex(), id).await?;
+    proxy_agent_host("GET", *tenant.community().as_uuid(), id, None).await
+}
+
+/// Start the fixed vendor subscription-login command for one stopped agent.
+pub async fn start_auth(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let path = format!("/api/agents/{id}/auth/start");
+    let (tenant, owner) =
+        authorize_owner(&state, &headers, "POST", &path, Some(&body), true).await?;
+    require_owned_subscription_agent(&state, tenant.community(), &owner.to_hex(), id).await?;
+    proxy_agent_host("POST", *tenant.community().as_uuid(), id, None).await
+}
+
+/// Forward a short OAuth confirmation code directly to the ephemeral CLI stdin.
+pub async fn auth_input(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let path = format!("/api/agents/{id}/auth/input");
+    let (tenant, owner) =
+        authorize_owner(&state, &headers, "POST", &path, Some(&body), true).await?;
+    require_owned_subscription_agent(&state, tenant.community(), &owner.to_hex(), id).await?;
+    let input: AuthInput = serde_json::from_slice(&body)
+        .map_err(|_| api_error(StatusCode::BAD_REQUEST, "invalid request body"))?;
+    if input.value.is_empty() || input.value.len() > 4096 || input.value.contains(['\r', '\n']) {
+        return Err(api_error(
+            StatusCode::BAD_REQUEST,
+            "invalid authentication input",
+        ));
+    }
+    proxy_agent_host(
+        "INPUT",
+        *tenant.community().as_uuid(),
+        id,
+        Some(json!({ "value": input.value })),
+    )
+    .await
+}
+
+/// Cancel an in-progress vendor login command.
+pub async fn cancel_auth(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let path = format!("/api/agents/{id}/auth");
+    let (tenant, owner) =
+        authorize_owner(&state, &headers, "DELETE", &path, Some(&body), true).await?;
+    require_owned_subscription_agent(&state, tenant.community(), &owner.to_hex(), id).await?;
+    proxy_agent_host("DELETE", *tenant.community().as_uuid(), id, None).await
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AuthInput {
+    value: String,
+}
+
+async fn require_owned_subscription_agent(
+    state: &AppState,
+    community: buzz_core::CommunityId,
+    owner_pubkey: &str,
+    id: Uuid,
+) -> Result<(), (StatusCode, Json<Value>)> {
+    let record = state
+        .db
+        .get_owned_managed_agent_host(community, owner_pubkey, id)
+        .await
+        .map_err(|error| {
+            tracing::error!(%error, "managed-agent auth lookup failed");
+            api_error(StatusCode::INTERNAL_SERVER_ERROR, "internal server error")
+        })?
+        .ok_or_else(|| api_error(StatusCode::NOT_FOUND, "agent not found"))?;
+    if record.credential_mode != "subscription" {
+        return Err(api_error(
+            StatusCode::CONFLICT,
+            "agent is configured to use an API key",
+        ));
+    }
+    Ok(())
+}
+
+async fn proxy_agent_host(
+    action: &str,
+    community: Uuid,
+    id: Uuid,
+    body: Option<Value>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let envelope_key = std::env::var("BUZZ_AGENT_SECRET_KEY")
+        .ok()
+        .and_then(|value| parse_envelope_key(&value).ok())
+        .ok_or_else(|| {
+            api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "agent hosting is not configured",
+            )
+        })?;
+    let base = std::env::var("BUZZ_AGENT_HOST_CONTROL_URL")
+        .unwrap_or_else(|_| "http://agent-host:8090".into());
+    let suffix = if action == "INPUT" { "/input" } else { "" };
+    let url = format!(
+        "{}/v1/agents/{community}/{id}/auth{suffix}",
+        base.trim_end_matches('/')
+    );
+    let client = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(3))
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|_| api_error(StatusCode::SERVICE_UNAVAILABLE, "agent host is unavailable"))?;
+    let mut request = match action {
+        "GET" => client.get(url),
+        "POST" | "INPUT" => client.post(url),
+        "DELETE" => client.delete(url),
+        _ => unreachable!("fixed internal action"),
+    }
+    .bearer_auth(derive_control_token(&envelope_key));
+    if let Some(body) = body {
+        request = request.json(&body);
+    }
+    let response = request.send().await.map_err(|error| {
+        tracing::warn!(%error, "agent host control request failed");
+        api_error(StatusCode::SERVICE_UNAVAILABLE, "agent host is unavailable")
+    })?;
+    let status =
+        StatusCode::from_u16(response.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+    let payload = response
+        .json::<Value>()
+        .await
+        .unwrap_or_else(|_| json!({ "error": "agent host returned an invalid response" }));
+    if !status.is_success() {
+        let message = payload
+            .get("error")
+            .and_then(Value::as_str)
+            .unwrap_or("agent authentication failed");
+        return Err(api_error(status, message));
+    }
+    Ok(Json(payload))
 }
 
 /// Request a stopped agent to start on the server-owned runner.
@@ -226,6 +394,26 @@ async fn set_state(
     let path = format!("/api/agents/{id}/{action}");
     let (tenant, owner) =
         authorize_owner(&state, &headers, "POST", &path, Some(&body), true).await?;
+    if desired_state == "running" {
+        let record = state
+            .db
+            .get_owned_managed_agent_host(tenant.community(), &owner.to_hex(), id)
+            .await
+            .map_err(|error| {
+                tracing::error!(%error, "managed-agent start lookup failed");
+                api_error(StatusCode::INTERNAL_SERVER_ERROR, "internal server error")
+            })?
+            .ok_or_else(|| api_error(StatusCode::NOT_FOUND, "agent not found"))?;
+        if record.credential_mode == "subscription" {
+            let status = proxy_agent_host("GET", *tenant.community().as_uuid(), id, None).await?;
+            if status.0.get("connected").and_then(Value::as_bool) != Some(true) {
+                return Err(api_error(
+                    StatusCode::CONFLICT,
+                    "connect the agent subscription before starting it",
+                ));
+            }
+        }
+    }
     let record = state
         .db
         .set_managed_agent_desired_state(tenant.community(), &owner.to_hex(), id, desired_state)
@@ -278,6 +466,15 @@ fn validate_create(input: &CreateAgentRequest) -> Result<(), (StatusCode, Json<V
     }
     if runtime_command(&input.runtime).is_none() {
         return Err(api_error(StatusCode::BAD_REQUEST, "unsupported runtime"));
+    }
+    if !matches!(input.credential_mode.as_str(), "api-key" | "subscription")
+        || (input.credential_mode == "subscription"
+            && (input.runtime == "buzz-agent" || !input.secrets.is_empty()))
+    {
+        return Err(api_error(
+            StatusCode::BAD_REQUEST,
+            "invalid credential mode",
+        ));
     }
     if input
         .model
@@ -335,6 +532,7 @@ mod tests {
             respond_to: "owner-only".into(),
             respond_to_allowlist: vec![],
             secrets: BTreeMap::new(),
+            credential_mode: "api-key".into(),
         }
     }
 
@@ -351,6 +549,22 @@ mod tests {
         request
             .secrets
             .insert("DATABASE_URL".into(), "stolen".into());
+        assert!(validate_create(&request).is_err());
+    }
+
+    #[test]
+    fn subscription_login_is_limited_to_vendor_harnesses_without_api_secrets() {
+        let mut request = valid_request();
+        request.credential_mode = "subscription".into();
+        assert!(validate_create(&request).is_ok());
+
+        request.runtime = "buzz-agent".into();
+        assert!(validate_create(&request).is_err());
+
+        request.runtime = "codex".into();
+        request
+            .secrets
+            .insert("OPENAI_API_KEY".into(), "mixed-mode".into());
         assert!(validate_create(&request).is_err());
     }
 }

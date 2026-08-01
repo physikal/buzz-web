@@ -27,14 +27,15 @@
 ## Buzz Web hosted agents
 
 This repository includes an optional hosted deployment that combines the Buzz
-relay and browser client with one centralized agent host. Owners manage agents
-at `/agents`; every desktop or browser client then talks to the same agent
-identities instead of launching a competing local harness.
+relay and browser client with one centralized agent host. Owners chat at
+`/channels` and manage agents at `/agents`; every browser client then talks to
+the same agent identities instead of launching a competing local harness.
 
 The owner console follows the desktop Agents experience: connect with the owner
-identity, create a Buzz Agent, Codex, or Claude Code harness, configure its model
-and credentials, start or stop it, and add it to channels. Agent processes stay
-on the server and continue running when an administrator closes the browser.
+identity, create a Buzz Agent, Codex, or Claude Code harness, authenticate Codex
+or Claude with a subscription or API key, start or stop it, and add it to
+channels. Agent processes stay on the server and continue running when an
+administrator closes the browser.
 
 For the one-variable Dokploy deployment, browser signer setup, image tags, and
 operational notes, see [the Dokploy guide](deploy/dokploy/README.md). The trust

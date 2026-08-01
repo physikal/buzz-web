@@ -1,5 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bot, BookMarked, LogOut, Plus, RefreshCw } from "lucide-react";
+import {
+  Bot,
+  BookMarked,
+  LogOut,
+  MessageSquare,
+  Plus,
+  RefreshCw,
+} from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -16,6 +23,7 @@ import {
 } from "../agent-api";
 import { Button } from "@/shared/ui/button";
 import { AddAgentToChannelDialog } from "./AddAgentToChannelDialog";
+import { AgentAuthDialog } from "./AgentAuthDialog";
 import { AgentCard } from "./AgentCard";
 import { AgentCreateDialog } from "./AgentCreateDialog";
 import { OwnerConnection } from "./OwnerConnection";
@@ -30,6 +38,7 @@ const PREVIEW_AGENTS: ManagedAgent[] = [
     system_prompt: "Review changes and keep the project moving.",
     runtime: "buzz-agent",
     model: "claude-sonnet-4-6",
+    credential_mode: "api-key",
     respond_to: "owner-only",
     respond_to_allowlist: [],
     desired_state: "running",
@@ -47,6 +56,7 @@ const PREVIEW_AGENTS: ManagedAgent[] = [
     system_prompt: "Draft release notes from merged changes.",
     runtime: "codex",
     model: null,
+    credential_mode: "subscription",
     respond_to: "owner-only",
     respond_to_allowlist: [],
     desired_state: "stopped",
@@ -132,6 +142,8 @@ function AgentsWorkspace({
         ? PREVIEW_AGENTS[0]
         : null,
     );
+  const [agentToAuthenticate, setAgentToAuthenticate] =
+    useState<ManagedAgent | null>(null);
   const agentsQuery = useQuery({
     queryKey: ["managed-agents", ownerPubkey],
     queryFn: () => (preview ? Promise.resolve(PREVIEW_AGENTS) : listAgents()),
@@ -146,7 +158,14 @@ function AgentsWorkspace({
         (current = []) => [...current, agent],
       );
       onCreateOpenChange(false);
-      toast.success(`${agent.name} is starting`);
+      if (agent.credential_mode === "subscription") {
+        setAgentToAuthenticate(agent);
+        toast.success(`${agent.name} created`, {
+          description: "Connect its subscription to start the agent.",
+        });
+      } else {
+        toast.success(`${agent.name} is starting`);
+      }
     },
     onError: (error) =>
       toast.error("Could not create agent", { description: error.message }),
@@ -200,6 +219,9 @@ function AgentsWorkspace({
         <nav className="mt-4 space-y-1 text-sm">
           <a href="/" className="block">
             <SidebarItem icon={<BookMarked />} label="Repositories" />
+          </a>
+          <a href="/channels" className="block">
+            <SidebarItem icon={<MessageSquare />} label="Channels" />
           </a>
           <SidebarItem active icon={<Bot />} label="Agents" />
         </nav>
@@ -258,6 +280,7 @@ function AgentsWorkspace({
                   key={agent.id}
                   pending={pending || preview}
                   onAddToChannel={() => setAgentToAddToChannel(agent)}
+                  onAuthenticate={() => setAgentToAuthenticate(agent)}
                   onDelete={() => deleteMutation.mutate(agent.id)}
                   onSetRunning={(running) =>
                     stateMutation.mutate({ id: agent.id, running })
@@ -299,6 +322,16 @@ function AgentsWorkspace({
         onClose={() => setAgentToAddToChannel(null)}
         open={agentToAddToChannel !== null}
         previewChannels={preview ? PREVIEW_CHANNELS : undefined}
+      />
+      <AgentAuthDialog
+        agent={agentToAuthenticate}
+        key={agentToAuthenticate?.id ?? "agent-auth"}
+        onAuthenticated={async (agent) => {
+          await stateMutation.mutateAsync({ id: agent.id, running: true });
+          setAgentToAuthenticate(null);
+          toast.success(`${agent.name} is starting`);
+        }}
+        onClose={() => setAgentToAuthenticate(null)}
       />
     </div>
   );

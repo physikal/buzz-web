@@ -2,6 +2,7 @@ import {
   AlertTriangle,
   Bot,
   EllipsisVertical,
+  KeyRound,
   MessageSquarePlus,
   OctagonX,
   Play,
@@ -24,12 +25,14 @@ export function AgentCard({
   agent,
   pending,
   onAddToChannel,
+  onAuthenticate,
   onDelete,
   onSetRunning,
 }: {
   agent: ManagedAgent;
   pending: boolean;
   onAddToChannel: () => void;
+  onAuthenticate: () => void;
   onDelete: () => void;
   onSetRunning: (running: boolean) => void;
 }) {
@@ -55,7 +58,11 @@ export function AgentCard({
                   aria-label={`Start ${agent.name}`}
                   className="absolute inset-0 flex items-center justify-center rounded-full bg-black/0 text-transparent transition-colors hover:bg-black/45 hover:text-white"
                   disabled={pending}
-                  onClick={() => onSetRunning(true)}
+                  onClick={() =>
+                    agent.credential_mode === "subscription"
+                      ? onAuthenticate()
+                      : onSetRunning(true)
+                  }
                   type="button"
                 >
                   <Play className="h-8 w-8 fill-current" />
@@ -90,6 +97,19 @@ export function AgentCard({
             >
               <MessageSquarePlus className="h-4 w-4" /> Add to channel
             </button>
+            {agent.credential_mode === "subscription" ? (
+              <button
+                className="flex h-9 w-full items-center gap-2 rounded px-2 text-sm hover:bg-accent"
+                disabled={pending || active}
+                onClick={() => {
+                  setMenuOpen(false);
+                  onAuthenticate();
+                }}
+                type="button"
+              >
+                <KeyRound className="h-4 w-4" /> Connect subscription
+              </button>
+            ) : null}
             {agent.desired_state === "running" && active ? (
               <button
                 className="flex h-9 w-full items-center gap-2 rounded px-2 text-sm hover:bg-accent"

@@ -884,6 +884,7 @@ name = "buzz-agent-host"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "axum",
  "buzz-core",
  "buzz-db",
  "chacha20poly1305",
@@ -894,6 +895,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.0",
+ "subtle",
  "tokio",
  "tracing",
  "tracing-subscriber",

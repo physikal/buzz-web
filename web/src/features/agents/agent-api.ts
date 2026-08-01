@@ -3,6 +3,7 @@ import { relayHttpBaseUrl } from "@/shared/lib/relay-url";
 
 export type AgentRuntime = "buzz-agent" | "codex" | "claude";
 export type RespondToMode = "owner-only" | "allowlist" | "anyone";
+export type AgentCredentialMode = "api-key" | "subscription";
 
 export type ManagedAgent = {
   id: string;
@@ -12,6 +13,7 @@ export type ManagedAgent = {
   system_prompt: string;
   runtime: AgentRuntime;
   model: string | null;
+  credential_mode: AgentCredentialMode;
   respond_to: RespondToMode;
   respond_to_allowlist: string[];
   desired_state: "running" | "stopped";
@@ -35,6 +37,15 @@ export type CreateAgentInput = {
   respond_to: RespondToMode;
   respond_to_allowlist: string[];
   secrets: Record<string, string>;
+  credential_mode: AgentCredentialMode;
+};
+
+export type AgentAuthStatus = {
+  state: "disconnected" | "waiting" | "connected" | "failed" | "cancelled";
+  connected: boolean;
+  needs_input: boolean;
+  output: string;
+  error: string | null;
 };
 
 async function signedRequest<T>(path: string, init?: RequestInit): Promise<T> {
@@ -96,4 +107,34 @@ export async function deleteAgent(id: string): Promise<void> {
     method: "DELETE",
     body: "",
   });
+}
+
+export async function getAgentAuthStatus(id: string): Promise<AgentAuthStatus> {
+  return signedRequest<AgentAuthStatus>(
+    `/api/agents/${encodeURIComponent(id)}/auth`,
+  );
+}
+
+export async function startAgentAuth(id: string): Promise<AgentAuthStatus> {
+  return signedRequest<AgentAuthStatus>(
+    `/api/agents/${encodeURIComponent(id)}/auth/start`,
+    { method: "POST", body: "" },
+  );
+}
+
+export async function sendAgentAuthInput(
+  id: string,
+  value: string,
+): Promise<AgentAuthStatus> {
+  return signedRequest<AgentAuthStatus>(
+    `/api/agents/${encodeURIComponent(id)}/auth/input`,
+    { method: "POST", body: JSON.stringify({ value }) },
+  );
+}
+
+export async function cancelAgentAuth(id: string): Promise<AgentAuthStatus> {
+  return signedRequest<AgentAuthStatus>(
+    `/api/agents/${encodeURIComponent(id)}/auth`,
+    { method: "DELETE", body: "" },
+  );
 }

@@ -14,8 +14,9 @@ trust-boundary review.
 4. Add a Dokploy domain for service `relay`, container port `3000`, with HTTPS.
 5. Deploy and open the completed `bootstrap` service log.
 6. Open the printed `BUZZ_OWNER_SETUP_URL` within 24 hours.
-7. Choose **Create owner passkey**, approve the browser's native passkey prompt,
-   and store the one-time recovery code away from the server.
+7. Choose **Create owner passkey**, approve the browser's passkey prompt, and
+   store the one-time vault unlock code in a password manager or away from the
+   server.
 
 The browser generates the Nostr owner key. The bootstrap container generates
 only a high-entropy setup token and gives the relay its SHA-256 hash. A successful
@@ -25,7 +26,7 @@ unclaimed link without rotating deployment service credentials.
 
 ## Browser sign-in
 
-Visit `https://<BUZZ_DOMAIN>/agents` and choose **Unlock with passkey**. The
+Visit `https://<BUZZ_DOMAIN>/channels` and choose **Unlock with passkey**. The
 browser obtains a credential-bound PRF value after Touch ID, Face ID, Windows
 Hello, a device PIN, or a supported security key. That value unwraps the Nostr
 owner key inside a dedicated signing worker. The plaintext key exists only in
@@ -37,12 +38,25 @@ PRF support. Buzz feature-detects PRF and fails setup instead of silently using 
 weaker password vault. WebAuthn support alone is not sufficient; the selected
 passkey provider must return a PRF result.
 
-Passkey providers may synchronize the credential to another computer. When
-that provider does not synchronize the PRF capability, choose **Use recovery
-code** on the other computer. Buzz decrypts the existing owner key locally,
-creates a new passkey, and uploads a new encrypted wrapper authenticated by the
-owner's normal NIP-98 signature. It does not launch another agent host; every
-browser controls the same centralized agents.
+Passkey providers may synchronize the credential to another computer. When a
+provider, including Bitwarden's current browser-extension passkey provider,
+does not return a PRF value to relying sites, choose **Use password manager or
+recovery code**. Buzz decrypts the existing owner key locally using the
+256-bit code; it does not send that code or the plaintext key to the relay.
+Every browser still controls the same centralized channels and agents.
+
+## Channels and subscription agents
+
+The first owner visit creates the same `general` and `welcome-everyone`
+channels as Buzz Desktop. Use `/channels` to create rooms, send messages, and
+mention centrally hosted agents after adding them to a channel.
+
+For Codex or Claude Code, **Subscription** is the default authentication mode.
+Create the agent, open the vendor sign-in link, enter the displayed device code
+or paste Claude's confirmation code, and Buzz starts the agent after the vendor
+CLI reports success. The login command runs as that agent's dedicated UID and
+writes credentials only to its mode-`0700` data directory. API-key mode remains
+available for both harnesses.
 
 Changing `BUZZ_DOMAIN` changes the WebAuthn relying-party identity. Keep the
 recovery code before changing domains, then use it to enroll a passkey on the

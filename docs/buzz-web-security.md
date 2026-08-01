@@ -36,6 +36,19 @@ runtime and does not give an agent process access to Docker.
   Redis credentials, and the envelope key cannot be supplied by the browser.
 - Runtime commands come from a fixed server-side catalog. No API value is
   interpreted as a command, argument list, image name, or host path.
+- Codex and Claude subscription login uses a separate private control port on
+  the agent host. Public requests still require an owner-signed NIP-98 event;
+  relay-to-host requests also require a domain-separated token derived from the
+  deployment envelope key. The host accepts only fixed vendor login commands,
+  only while the target agent is fully stopped, and runs them as that agent's
+  dedicated UID with an empty environment.
+- The agent host is not attached to the public edge network. Its control port
+  is reachable only on the internal backend network, while a separate egress
+  network provides the outbound access required by agent and vendor CLIs.
+- Login output and confirmation input are capped, stripped of terminal control
+  sequences, held only in process memory, and never written to the relay
+  database or logs. Login sessions expire after 15 minutes. The resulting
+  vendor credential files live only in the agent's mode-`0700` data directory.
 - Each agent runs under a stable, unique Unix UID with a mode `0700` data
   directory. The supervisor uses fenced, short-lived database leases; a stale
   runner terminates when it can no longer renew its lease. During a host pause
@@ -62,9 +75,10 @@ runtime and does not give an agent process access to Docker.
 2. Open the bootstrap setup URL promptly, store the recovery code separately,
    then delete or restrict the bootstrap logs. Anyone who obtains the unexpired
    token before the first claim can become owner.
-3. Treat the recovery code like the owner key. It is deliberately sufficient to
-   decrypt the vault and enroll a replacement passkey. Do not store it in
-   Dokploy, the Buzz database, or the same backup set as the encrypted vault.
+3. Treat the vault unlock code like the owner key. It is deliberately sufficient
+   to decrypt the vault and may be stored in a separate password manager for
+   cross-device access. Do not store it in Dokploy, the Buzz database, or the
+   same backup set as the encrypted vault.
 4. Keep `respond_to` set to `owner-only` unless broader access is intentional.
    A permitted author can ask an agent to exercise whatever repository,
    network, and provider access that particular harness has.
@@ -93,9 +107,24 @@ login phishing resistance relative to manually pasting an `nsec`. PRF support
 still varies by browser and authenticator. Buzz fails closed when PRF is absent
 instead of storing the key under a weaker password-only scheme.
 
+Password-manager unlock is not a non-PRF passkey fallback disguised as the same
+mechanism. It uses the separately generated 256-bit vault code as encryption
+material, so the relay still cannot decrypt the owner key. A password manager
+that can store passkeys but does not expose WebAuthn PRF can sync and autofill
+that code without requiring server-side key escrow.
+
 Agent UIDs isolate processes and data from each other and from host credentials,
 but all agents in one `agent-host` container still share a Linux kernel and
 network namespace. This is comparable to desktop agents running as local
 processes, not to VM-grade isolation. A future high-assurance deployment can
 place each leased agent in its own container or microVM without changing the
 control-plane API or database lease model.
+
+Subscription credentials are different from API-key configuration at rest.
+API keys remain encrypted in Postgres until process launch; vendor CLI login
+tokens must persist in the per-agent data volume so the official Codex or Claude
+CLI can refresh and reuse them. Container root or a compromise of that agent
+process can read its own subscription credentials, just as a desktop harness
+can read credentials in its user profile. The UID boundary prevents another
+non-root agent process from reading them, but it is not protection against a
+compromised container host.

@@ -4042,6 +4042,25 @@ impl Db {
         managed_agent_host::list_owned(&self.pool, community, owner_pubkey).await
     }
 
+    /// Load one centralized agent belonging to `owner_pubkey`.
+    pub async fn get_owned_managed_agent_host(
+        &self,
+        community: CommunityId,
+        owner_pubkey: &str,
+        id: Uuid,
+    ) -> Result<Option<managed_agent_host::ManagedAgentHostRecord>> {
+        managed_agent_host::get_owned(&self.pool, community, owner_pubkey, id).await
+    }
+
+    /// Load one centralized agent for the internal host control service.
+    pub async fn get_managed_agent_host(
+        &self,
+        community: CommunityId,
+        id: Uuid,
+    ) -> Result<Option<managed_agent_host::ManagedAgentHostRecord>> {
+        managed_agent_host::get(&self.pool, community, id).await
+    }
+
     /// Change the requested runtime state for an owned agent.
     pub async fn set_managed_agent_desired_state(
         &self,

@@ -6,6 +6,7 @@
 
 import { Route as rootRouteImport } from "./routes/root";
 import { Route as reposRouteImport } from "./routes/repos";
+import { Route as channelsRouteImport } from "./routes/channels";
 import { Route as agentsRouteImport } from "./routes/agents";
 import { Route as indexRouteImport } from "./routes/index";
 import { Route as reposDotrepoIdRouteImport } from "./routes/repos.$repoId";
@@ -16,6 +17,11 @@ import { Route as reposDotrepoIdDotblobDotsplatRouteImport } from "./routes/repo
 const reposRoute = reposRouteImport.update({
   id: "/repos",
   path: "/repos",
+  getParentRoute: () => rootRouteImport,
+} as any);
+const channelsRoute = channelsRouteImport.update({
+  id: "/channels",
+  path: "/channels",
   getParentRoute: () => rootRouteImport,
 } as any);
 const agentsRoute = agentsRouteImport.update({
@@ -53,6 +59,7 @@ const reposDotrepoIdDotblobDotsplatRoute =
 export interface FileRoutesByFullPath {
   "/": typeof indexRoute;
   "/agents": typeof agentsRoute;
+  "/channels": typeof channelsRoute;
   "/repos": typeof reposRoute;
   "/agents/setup": typeof agentsDotsetupRoute;
   "/invite/$code": typeof inviteDotcodeRoute;
@@ -62,6 +69,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   "/": typeof indexRoute;
   "/agents": typeof agentsRoute;
+  "/channels": typeof channelsRoute;
   "/repos": typeof reposRoute;
   "/agents/setup": typeof agentsDotsetupRoute;
   "/invite/$code": typeof inviteDotcodeRoute;
@@ -72,6 +80,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport;
   "/": typeof indexRoute;
   "/agents": typeof agentsRoute;
+  "/channels": typeof channelsRoute;
   "/repos": typeof reposRoute;
   "/agents/setup": typeof agentsDotsetupRoute;
   "/invite/$code": typeof inviteDotcodeRoute;
@@ -83,6 +92,7 @@ export interface FileRouteTypes {
   fullPaths:
     | "/"
     | "/agents"
+    | "/channels"
     | "/repos"
     | "/agents/setup"
     | "/invite/$code"
@@ -92,6 +102,7 @@ export interface FileRouteTypes {
   to:
     | "/"
     | "/agents"
+    | "/channels"
     | "/repos"
     | "/agents/setup"
     | "/invite/$code"
@@ -101,6 +112,7 @@ export interface FileRouteTypes {
     | "__root__"
     | "/"
     | "/agents"
+    | "/channels"
     | "/repos"
     | "/agents/setup"
     | "/invite/$code"
@@ -111,6 +123,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   indexRoute: typeof indexRoute;
   agentsRoute: typeof agentsRoute;
+  channelsRoute: typeof channelsRoute;
   reposRoute: typeof reposRoute;
   agentsDotsetupRoute: typeof agentsDotsetupRoute;
   inviteDotcodeRoute: typeof inviteDotcodeRoute;
@@ -125,6 +138,13 @@ declare module "@tanstack/react-router" {
       path: "/repos";
       fullPath: "/repos";
       preLoaderRoute: typeof reposRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/channels": {
+      id: "/channels";
+      path: "/channels";
+      fullPath: "/channels";
+      preLoaderRoute: typeof channelsRouteImport;
       parentRoute: typeof rootRouteImport;
     };
     "/agents": {
@@ -175,6 +195,7 @@ declare module "@tanstack/react-router" {
 const rootRouteChildren: RootRouteChildren = {
   indexRoute: indexRoute,
   agentsRoute: agentsRoute,
+  channelsRoute: channelsRoute,
   reposRoute: reposRoute,
   agentsDotsetupRoute: agentsDotsetupRoute,
   inviteDotcodeRoute: inviteDotcodeRoute,

@@ -48,7 +48,7 @@ services:
     command:
       - |
         export DATABASE_URL="postgres://buzz:$$(cat /run/buzz-relay-secrets/postgres_password)@postgres:5432/buzz"
-        export REDIS_URL="redis://:$$(cat /run/buzz-relay-secrets/redis_password)@redis:6379"
+        export REDIS_URL="redis://default:$$(cat /run/buzz-relay-secrets/redis_password)@redis:6379"
         if [[ -f /run/buzz-relay-secrets/owner_pubkey ]]; then
           export RELAY_OWNER_PUBKEY="$$(cat /run/buzz-relay-secrets/owner_pubkey)"
         fi
@@ -77,6 +77,7 @@ services:
       BUZZ_S3_BUCKET: buzz-media
       BUZZ_GIT_REPO_PATH: /data/git
       BUZZ_SERVE_GIT_WEB_GUI: "true"
+      BUZZ_AGENT_HOST_CONTROL_URL: http://agent-host:8090
       RUST_LOG: buzz_relay=info,buzz_db=info,buzz_agent_host=info
     volumes:
       - buzz-relay-secrets:/run/buzz-relay-secrets:ro
@@ -118,6 +119,7 @@ services:
     environment:
       BUZZ_RELAY_URL: wss://${BUZZ_DOMAIN:?set BUZZ_DOMAIN}
       BUZZ_AGENT_DATA_DIR: /data/agents
+      BUZZ_AGENT_HOST_CONTROL_BIND: 0.0.0.0:8090
       BUZZ_AGENT_HOST_MAX_AGENTS: ${BUZZ_AGENT_HOST_MAX_AGENTS:-8}
       RUST_LOG: buzz_agent_host=info
     volumes:
@@ -134,7 +136,7 @@ services:
         condition: service_healthy
       relay:
         condition: service_healthy
-    networks: [edge, backend]
+    networks: [backend, egress]
 
   postgres:
     image: postgres:17-alpine
@@ -227,3 +229,4 @@ networks:
   edge:
   backend:
     internal: true
+  egress:

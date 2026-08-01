@@ -131,6 +131,12 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         )
         .route("/api/agents/{id}/start", post(api::agents::start_agent))
         .route("/api/agents/{id}/stop", post(api::agents::stop_agent))
+        .route(
+            "/api/agents/{id}/auth",
+            get(api::agents::auth_status).delete(api::agents::cancel_auth),
+        )
+        .route("/api/agents/{id}/auth/start", post(api::agents::start_auth))
+        .route("/api/agents/{id}/auth/input", post(api::agents::auth_input))
         // Moderation queue reads (NIP-98 auth + mod-authz gate, L6)
         .route("/moderation/reports", get(api::bridge::moderation_reports))
         .route("/moderation/audit", get(api::bridge::moderation_audit))
@@ -279,6 +285,7 @@ fn is_invite_landing_path(path: &str) -> bool {
 
 fn should_serve_spa(path: &str, serve_git_web_gui: bool) -> bool {
     is_invite_landing_path(path)
+        || path == "/channels"
         || path == "/agents"
         || path.starts_with("/agents/")
         || (serve_git_web_gui && is_git_web_gui_path(path))

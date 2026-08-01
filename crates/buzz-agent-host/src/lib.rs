@@ -8,6 +8,7 @@ use chacha20poly1305::{
     ChaCha20Poly1305, KeyInit, Nonce,
 };
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 use zeroize::{Zeroize, Zeroizing};
 
@@ -45,6 +46,23 @@ pub fn parse_envelope_key(value: &str) -> anyhow::Result<[u8; 32]> {
     bytes
         .try_into()
         .map_err(|_| anyhow::anyhow!("BUZZ_AGENT_SECRET_KEY must be exactly 32 bytes of hex"))
+}
+
+/// Derive a domain-separated bearer token for the private host control port.
+pub fn derive_control_token(key: &[u8; 32]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(b"buzz-agent-host-control:v1\0");
+    hasher.update(key);
+    hex::encode(hasher.finalize())
+}
+
+/// Fixed vendor CLI command used for subscription authentication.
+pub fn subscription_auth_command(runtime: &str) -> Option<(&'static str, &'static [&'static str])> {
+    match runtime {
+        "codex" => Some(("codex", &["login", "--device-auth"])),
+        "claude" => Some(("claude", &["auth", "login", "--claudeai"])),
+        _ => None,
+    }
 }
 
 fn aad(community_id: Uuid, agent_id: Uuid) -> String {

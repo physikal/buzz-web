@@ -21,6 +21,7 @@ path = "src/bootstrap.rs"
 
 [dependencies]
 anyhow = { workspace = true }
+axum = { workspace = true }
 buzz-core = { workspace = true }
 buzz-db = { workspace = true }
 chacha20poly1305 = { workspace = true }
@@ -30,6 +31,7 @@ rand = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
+subtle = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }

@@ -29,6 +29,8 @@ pub struct ManagedAgentHostRecord {
     pub runtime: String,
     /// Optional model override.
     pub model: Option<String>,
+    /// Provider credential source used by this runtime.
+    pub credential_mode: String,
     /// Inbound author gate.
     pub respond_to: String,
     /// Pubkeys accepted by the allowlist gate.
@@ -76,6 +78,10 @@ pub struct NewManagedAgentHost<'a> {
     pub runtime: &'a str,
     /// Model override.
     pub model: Option<&'a str>,
+    /// Provider credential source.
+    pub credential_mode: &'a str,
+    /// Initial requested runner state.
+    pub desired_state: &'a str,
     /// Inbound author gate.
     pub respond_to: &'a str,
     /// Inbound allowlist.
@@ -98,6 +104,7 @@ fn row_to_record(row: &sqlx::postgres::PgRow) -> Result<ManagedAgentHostRecord> 
         system_prompt: row.try_get("system_prompt")?,
         runtime: row.try_get("runtime")?,
         model: row.try_get("model")?,
+        credential_mode: row.try_get("credential_mode")?,
         respond_to: row.try_get("respond_to")?,
         respond_to_allowlist: serde_json::from_value(allowlist)?,
         desired_state: row.try_get("desired_state")?,
@@ -150,10 +157,10 @@ pub async fn create(
 
     let row = sqlx::query(
         "INSERT INTO managed_agent_hosts \
-         (community_id, id, owner_pubkey, agent_pubkey, name, system_prompt, runtime, model, respond_to, \
-          respond_to_allowlist, secret_nonce, secret_ciphertext) \
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING \
-         community_id, id, sandbox_uid, owner_pubkey, agent_pubkey, name, system_prompt, runtime, model, respond_to, \
+         (community_id, id, owner_pubkey, agent_pubkey, name, system_prompt, runtime, model, credential_mode, respond_to, \
+          respond_to_allowlist, secret_nonce, secret_ciphertext, desired_state, observed_state) \
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,CASE WHEN $14 = 'stopped' THEN 'stopped' ELSE 'pending' END) RETURNING \
+         community_id, id, sandbox_uid, owner_pubkey, agent_pubkey, name, system_prompt, runtime, model, credential_mode, respond_to, \
          respond_to_allowlist, desired_state, observed_state, lease_epoch, runtime_pid, \
          last_error, created_at, updated_at",
     )
@@ -165,10 +172,12 @@ pub async fn create(
         .bind(input.system_prompt)
         .bind(input.runtime)
         .bind(input.model)
+        .bind(input.credential_mode)
         .bind(input.respond_to)
         .bind(allowlist)
         .bind(input.secret_nonce)
         .bind(input.secret_ciphertext)
+        .bind(input.desired_state)
         .fetch_one(&mut *tx)
         .await?;
     let record = row_to_record(&row)?;
@@ -183,7 +192,7 @@ pub async fn list_owned(
     owner_pubkey: &str,
 ) -> Result<Vec<ManagedAgentHostRecord>> {
     let rows = sqlx::query(
-        "SELECT community_id, id, sandbox_uid, owner_pubkey, agent_pubkey, name, system_prompt, runtime, model, respond_to, \
+        "SELECT community_id, id, sandbox_uid, owner_pubkey, agent_pubkey, name, system_prompt, runtime, model, credential_mode, respond_to, \
          respond_to_allowlist, desired_state, observed_state, lease_epoch, runtime_pid, \
          last_error, created_at, updated_at FROM managed_agent_hosts \
          WHERE community_id = $1 AND owner_pubkey = $2 ORDER BY created_at",
@@ -193,6 +202,46 @@ pub async fn list_owned(
         .fetch_all(pool)
         .await?;
     rows.iter().map(row_to_record).collect()
+}
+
+/// Load an owned agent without returning encrypted secret columns.
+pub async fn get_owned(
+    pool: &PgPool,
+    community: CommunityId,
+    owner_pubkey: &str,
+    id: Uuid,
+) -> Result<Option<ManagedAgentHostRecord>> {
+    let row = sqlx::query(
+        "SELECT community_id, id, sandbox_uid, owner_pubkey, agent_pubkey, name, system_prompt, runtime, model, credential_mode, respond_to, \
+         respond_to_allowlist, desired_state, observed_state, lease_epoch, runtime_pid, \
+         last_error, created_at, updated_at FROM managed_agent_hosts \
+         WHERE community_id = $1 AND owner_pubkey = $2 AND id = $3",
+    )
+    .bind(community.as_uuid())
+    .bind(owner_pubkey)
+    .bind(id)
+    .fetch_optional(pool)
+    .await?;
+    row.as_ref().map(row_to_record).transpose()
+}
+
+/// Load an agent for the internal host control service.
+pub async fn get(
+    pool: &PgPool,
+    community: CommunityId,
+    id: Uuid,
+) -> Result<Option<ManagedAgentHostRecord>> {
+    let row = sqlx::query(
+        "SELECT community_id, id, sandbox_uid, owner_pubkey, agent_pubkey, name, system_prompt, runtime, model, credential_mode, respond_to, \
+         respond_to_allowlist, desired_state, observed_state, lease_epoch, runtime_pid, \
+         last_error, created_at, updated_at FROM managed_agent_hosts \
+         WHERE community_id = $1 AND id = $2",
+    )
+    .bind(community.as_uuid())
+    .bind(id)
+    .fetch_optional(pool)
+    .await?;
+    row.as_ref().map(row_to_record).transpose()
 }
 
 /// Set desired state for an owned agent.
@@ -211,7 +260,7 @@ pub async fn set_desired_state(
              WHEN $1 = 'stopped' AND observed_state IN ('pending','starting','running') THEN 'stopping' \
              ELSE observed_state END \
          WHERE community_id = $2 AND owner_pubkey = $3 AND id = $4 RETURNING \
-         community_id, id, sandbox_uid, owner_pubkey, agent_pubkey, name, system_prompt, runtime, model, respond_to, \
+         community_id, id, sandbox_uid, owner_pubkey, agent_pubkey, name, system_prompt, runtime, model, credential_mode, respond_to, \
          respond_to_allowlist, desired_state, observed_state, lease_epoch, runtime_pid, \
          last_error, created_at, updated_at",
     )
@@ -285,7 +334,7 @@ pub async fn claim_next(
            last_error = NULL, updated_at = NOW() FROM candidate c \
          WHERE a.community_id = c.community_id AND a.id = c.id \
          RETURNING a.community_id, a.id, a.sandbox_uid, a.owner_pubkey, a.agent_pubkey, a.name, a.runtime, \
-         a.system_prompt, a.model, a.respond_to, a.respond_to_allowlist, a.desired_state, a.observed_state, \
+         a.system_prompt, a.model, a.credential_mode, a.respond_to, a.respond_to_allowlist, a.desired_state, a.observed_state, \
          a.lease_epoch, a.runtime_pid, a.last_error, a.created_at, a.updated_at, \
          a.secret_nonce, a.secret_ciphertext",
     )
