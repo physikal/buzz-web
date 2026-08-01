@@ -32,9 +32,15 @@ import { Button } from "@/shared/ui/button";
 import { AddAgentToChannelDialog } from "./AddAgentToChannelDialog";
 import { AgentAuthDialog } from "./AgentAuthDialog";
 import { AgentCard } from "./AgentCard";
-import { AgentCreateDialog } from "./AgentCreateDialog";
+import {
+  type AgentCreateDefaults,
+  AgentCreateDialog,
+} from "./AgentCreateDialog";
 import { AgentEditDialog } from "./AgentEditDialog";
 import { OwnerConnection } from "./OwnerConnection";
+import { PersonasSection } from "./PersonasSection";
+import { TeamsSection } from "./TeamsSection";
+import type { AgentPersona } from "../persona-api";
 
 const PREVIEW_AGENTS: ManagedAgent[] = [
   {
@@ -153,6 +159,9 @@ function AgentsWorkspace({
   const [agentToAuthenticate, setAgentToAuthenticate] =
     useState<ManagedAgent | null>(null);
   const [agentToEdit, setAgentToEdit] = useState<ManagedAgent | null>(null);
+  const [personaToDeploy, setPersonaToDeploy] = useState<AgentPersona | null>(
+    null,
+  );
   const agentsQuery = useQuery({
     queryKey: ["managed-agents", ownerPubkey],
     queryFn: () => (preview ? Promise.resolve(PREVIEW_AGENTS) : listAgents()),
@@ -167,6 +176,7 @@ function AgentsWorkspace({
         (current = []) => [...current, agent],
       );
       onCreateOpenChange(false);
+      setPersonaToDeploy(null);
       if (agent.credential_mode === "subscription") {
         setAgentToAuthenticate(agent);
         toast.success(`${agent.name} created`, {
@@ -306,41 +316,65 @@ function AgentsWorkspace({
             </div>
           ) : null}
           {!agentsQuery.isLoading && !agentsQuery.error ? (
-            <section className="grid grid-cols-[repeat(auto-fill,minmax(220px,240px))] justify-start gap-3 [@container(max-width:40rem)]:justify-center">
-              {agents.map((agent) => (
-                <AgentCard
-                  agent={agent}
-                  key={agent.id}
-                  pending={pending || preview}
-                  onAddToChannel={() => setAgentToAddToChannel(agent)}
-                  onAuthenticate={() => setAgentToAuthenticate(agent)}
-                  onDelete={() => deleteMutation.mutate(agent.id)}
-                  onEdit={() => setAgentToEdit(agent)}
-                  onSetRunning={(running) =>
-                    stateMutation.mutate({ id: agent.id, running })
-                  }
-                />
-              ))}
-              <button
-                aria-label="New agent"
-                className="group relative flex aspect-[4/5] w-full items-center justify-center rounded-2xl border border-dashed border-border/80 text-muted-foreground shadow-xs transition-colors hover:bg-muted/70 hover:text-foreground"
-                onClick={() => onCreateOpenChange(true)}
-                type="button"
-              >
-                <Plus className="h-7 w-7" />
-              </button>
+            <section className="space-y-3">
+              <h2 className="text-lg font-semibold">Deployed agents</h2>
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,240px))] justify-start gap-3 [@container(max-width:40rem)]:justify-center">
+                {agents.map((agent) => (
+                  <AgentCard
+                    agent={agent}
+                    key={agent.id}
+                    pending={pending || preview}
+                    onAddToChannel={() => setAgentToAddToChannel(agent)}
+                    onAuthenticate={() => setAgentToAuthenticate(agent)}
+                    onDelete={() => deleteMutation.mutate(agent.id)}
+                    onEdit={() => setAgentToEdit(agent)}
+                    onSetRunning={(running) =>
+                      stateMutation.mutate({ id: agent.id, running })
+                    }
+                  />
+                ))}
+                <button
+                  aria-label="New agent"
+                  className="group relative flex aspect-[4/5] w-full items-center justify-center rounded-2xl border border-dashed border-border/80 text-muted-foreground shadow-xs transition-colors hover:bg-muted/70 hover:text-foreground"
+                  onClick={() => {
+                    setPersonaToDeploy(null);
+                    onCreateOpenChange(true);
+                  }}
+                  type="button"
+                >
+                  <Plus className="h-7 w-7" />
+                </button>
+              </div>
             </section>
           ) : null}
+          <PersonasSection
+            ownerPubkey={ownerPubkey}
+            onDeploy={(persona) => {
+              setPersonaToDeploy(persona);
+              onCreateOpenChange(true);
+            }}
+          />
+          <TeamsSection ownerPubkey={ownerPubkey} />
         </div>
       </main>
 
       <AgentCreateDialog
+        defaults={personaDefaults(personaToDeploy)}
+        key={
+          createOpen
+            ? (personaToDeploy?.id ?? "new-agent-open")
+            : "agent-dialog-closed"
+        }
         open={createOpen}
         pending={createMutation.isPending}
-        onClose={() => onCreateOpenChange(false)}
+        onClose={() => {
+          onCreateOpenChange(false);
+          setPersonaToDeploy(null);
+        }}
         onSubmit={async (input: CreateAgentInput) => {
           if (preview) {
             onCreateOpenChange(false);
+            setPersonaToDeploy(null);
             return;
           }
           await createMutation.mutateAsync(input);
@@ -378,6 +412,21 @@ function AgentsWorkspace({
       />
     </div>
   );
+}
+
+function personaDefaults(
+  persona: AgentPersona | null,
+): AgentCreateDefaults | undefined {
+  if (!persona) return undefined;
+  return {
+    name: persona.namePool[0] ?? persona.displayName,
+    instructions: persona.systemPrompt,
+    runtime: persona.runtime ?? "codex",
+    model: persona.model ?? undefined,
+    provider: persona.provider ?? undefined,
+    respondTo: persona.respondTo ?? "owner-only",
+    respondToAllowlist: persona.respondToAllowlist,
+  };
 }
 
 function SidebarItem({

@@ -34,7 +34,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
 
   const token = "42".repeat(32);
   let ownerPubkey = "";
-  let pulseNoteEventId = "";
+  const managedAgents: Array<Record<string, unknown>> = [];
   const submittedEvents: Array<{
     id: string;
     pubkey: string;
@@ -126,7 +126,8 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     });
   });
   await page.route("**/api/agents", async (route) => {
-    const authorization = route.request().headers().authorization ?? "";
+    const request = route.request();
+    const authorization = request.headers().authorization ?? "";
     const event = JSON.parse(
       Buffer.from(authorization.slice("Nostr ".length), "base64").toString(
         "utf8",
@@ -134,10 +135,46 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     );
     expect(verifyEvent(event)).toBe(true);
     expect(event.pubkey).toBe(ownerPubkey);
+    if (request.method() === "POST") {
+      const input = JSON.parse(request.postData() ?? "{}") as Record<
+        string,
+        unknown
+      >;
+      expect(event.tags).toContainEqual([
+        "payload",
+        createHash("sha256")
+          .update(request.postData() ?? "")
+          .digest("hex"),
+      ]);
+      const agent = {
+        id: "55555555-5555-4555-8555-555555555555",
+        owner_pubkey: ownerPubkey,
+        agent_pubkey: "55".repeat(32),
+        name: input.name,
+        system_prompt: input.system_prompt,
+        runtime: input.runtime,
+        model: input.model,
+        credential_mode: input.credential_mode,
+        respond_to: input.respond_to,
+        respond_to_allowlist: input.respond_to_allowlist,
+        desired_state: "running",
+        observed_state: "pending",
+        last_error: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      managedAgents.push(agent);
+      await route.fulfill({
+        status: 201,
+        contentType: "application/json",
+        body: JSON.stringify({ agent }),
+      });
+      return;
+    }
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ agents: [] }),
+      body: JSON.stringify({ agents: managedAgents }),
     });
   });
   await page.route("**/api/invites", async (route) => {
@@ -415,7 +452,6 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
               },
               signer,
             );
-            pulseNoteEventId = pulseNote.id;
             socket.send(JSON.stringify(["EVENT", subscriptionId, pulseNote]));
             socket.send(
               JSON.stringify([
@@ -451,6 +487,18 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
               (event) => event.kind === 30300,
             ))
               socket.send(JSON.stringify(["EVENT", subscriptionId, reminder]));
+          }
+          if (filters.includes("30175")) {
+            for (const persona of submittedEvents.filter(
+              (event) => event.kind === 30175,
+            ))
+              socket.send(JSON.stringify(["EVENT", subscriptionId, persona]));
+          }
+          if (filters.includes("30176")) {
+            for (const team of submittedEvents.filter(
+              (event) => event.kind === 30176,
+            ))
+              socket.send(JSON.stringify(["EVENT", subscriptionId, team]));
           }
           if (filters.includes('"kinds":[0]')) {
             socket.send(
@@ -748,7 +796,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
           event.kind === 7 &&
           event.content === "+" &&
           event.tags.some(
-            (tag) => tag[0] === "e" && tag[1] === pulseNoteEventId,
+            (tag) => tag[0] === "e" && /^[0-9a-f]{64}$/.test(tag[1] ?? ""),
           ),
       ),
     )
@@ -763,7 +811,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
           event.kind === 1 &&
           event.content === "Web reply" &&
           event.tags.some(
-            (tag) => tag[0] === "e" && tag[1] === pulseNoteEventId,
+            (tag) => tag[0] === "e" && /^[0-9a-f]{64}$/.test(tag[1] ?? ""),
           ) &&
           event.tags.some((tag) => tag[0] === "p"),
       ),
@@ -779,6 +827,70 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   ).toBeVisible();
   await page.getByRole("tab", { name: /Agents/ }).click();
   await expect(page.getByText("Relay-native Pulse update")).toBeVisible();
+  await page.getByRole("link", { name: "Agents" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Agents", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Create persona" }).click();
+  await page.getByRole("textbox", { name: "Persona name" }).fill("Review lead");
+  await page
+    .getByPlaceholder(
+      "Describe the role, behavior, and boundaries for this persona.",
+    )
+    .fill("Review changes carefully and report risks.");
+  await page.getByLabel("Harness", { exact: true }).selectOption("buzz-agent");
+  await page.getByLabel("Model", { exact: true }).fill("claude-sonnet-4-6");
+  await page.getByRole("button", { name: "Save persona" }).click();
+  await expect
+    .poll(() => {
+      const persona = submittedEvents.find((event) => event.kind === 30175);
+      return (
+        persona?.tags.some(
+          (tag) => tag[0] === "d" && /^[0-9a-f]{32}$/.test(tag[1] ?? ""),
+        ) === true &&
+        persona.tags.some(
+          (tag) => tag[0] === "alt" && tag[1] === "agent persona definition",
+        ) &&
+        !persona.tags.some((tag) => tag[0] === "shared") &&
+        persona.content.includes("Review changes carefully") &&
+        !persona.content.includes("API_KEY")
+      );
+    })
+    .toBe(true);
+  await expect(page.getByText("Review lead")).toBeVisible();
+  await page.getByRole("button", { name: "Deploy Review lead" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Deploy persona" }),
+  ).toBeVisible();
+  await page
+    .getByLabel("Anthropic API key", { exact: true })
+    .fill("test-persona-api-key");
+  await page.getByRole("button", { name: "Create agent" }).click();
+  await expect.poll(() => managedAgents.length).toBe(1);
+  await page.getByRole("button", { name: "Create team" }).click();
+  await page.getByRole("textbox", { name: "Team name" }).fill("Review crew");
+  await page.getByRole("checkbox", { name: /Review lead/ }).check();
+  await page.getByRole("button", { name: "Save team" }).click();
+  await expect
+    .poll(() => {
+      const team = submittedEvents.find((event) => event.kind === 30176);
+      return (
+        team?.tags.some(
+          (tag) => tag[0] === "alt" && tag[1] === "agent team definition",
+        ) === true &&
+        team.content.includes('"name":"Review crew"') &&
+        team.content.includes('"persona_ids"') &&
+        !team.content.includes("test-persona-api-key")
+      );
+    })
+    .toBe(true);
+  await expect(page.getByText("Review crew")).toBeVisible();
+  await page.getByRole("button", { name: "Deploy Review crew" }).click();
+  await page
+    .getByLabel("Anthropic API key", { exact: true })
+    .fill("team-api-key");
+  await page.getByRole("button", { name: "Deploy team", exact: true }).click();
+  await expect.poll(() => managedAgents.length).toBe(2);
   await page.getByRole("link", { name: "Channels" }).click();
   await expect(page.getByRole("heading", { name: "general" })).toBeVisible();
 

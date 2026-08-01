@@ -19,28 +19,51 @@ const RUNTIMES: Array<{ value: AgentRuntime; label: string }> = [
   { value: "claude", label: "Claude Code" },
 ];
 
+export type AgentCreateDefaults = {
+  name?: string;
+  instructions?: string;
+  runtime?: AgentRuntime;
+  model?: string;
+  provider?: string;
+  respondTo?: RespondToMode;
+  respondToAllowlist?: string[];
+};
+
 export function AgentCreateDialog({
+  defaults,
   open,
   pending,
   onClose,
   onSubmit,
 }: {
+  defaults?: AgentCreateDefaults;
   open: boolean;
   pending: boolean;
   onClose: () => void;
   onSubmit: (input: CreateAgentInput) => Promise<void>;
 }) {
-  const [name, setName] = useState("");
-  const [instructions, setInstructions] = useState("");
-  const [runtime, setRuntime] = useState<AgentRuntime>("buzz-agent");
-  const [provider, setProvider] = useState("anthropic");
-  const [model, setModel] = useState("");
+  const [name, setName] = useState(defaults?.name ?? "");
+  const [instructions, setInstructions] = useState(
+    defaults?.instructions ?? "",
+  );
+  const [runtime, setRuntime] = useState<AgentRuntime>(
+    defaults?.runtime ?? "buzz-agent",
+  );
+  const [provider, setProvider] = useState(defaults?.provider ?? "anthropic");
+  const [model, setModel] = useState(defaults?.model ?? "");
   const [apiKey, setApiKey] = useState("");
-  const [credentialMode, setCredentialMode] =
-    useState<AgentCredentialMode>("api-key");
+  const [credentialMode, setCredentialMode] = useState<AgentCredentialMode>(
+    defaults?.runtime && defaults.runtime !== "buzz-agent"
+      ? "subscription"
+      : "api-key",
+  );
   const [showApiKey, setShowApiKey] = useState(false);
-  const [respondTo, setRespondTo] = useState<RespondToMode>("owner-only");
-  const [allowlistText, setAllowlistText] = useState("");
+  const [respondTo, setRespondTo] = useState<RespondToMode>(
+    defaults?.respondTo ?? "owner-only",
+  );
+  const [allowlistText, setAllowlistText] = useState(
+    defaults?.respondToAllowlist?.join("\n") ?? "",
+  );
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   const allowlist = useMemo(
@@ -103,7 +126,9 @@ export function AgentCreateDialog({
       <div className="flex max-h-[calc(100dvh-2rem)] w-full max-w-3xl flex-col overflow-hidden rounded-lg bg-background shadow-2xl">
         <header className="flex items-start justify-between gap-4 px-6 pt-6 pb-2">
           <div>
-            <h2 className="text-lg font-semibold">Create agent</h2>
+            <h2 className="text-lg font-semibold">
+              {defaults ? "Deploy persona" : "Create agent"}
+            </h2>
             <p className="mt-1 text-sm text-muted-foreground">
               {credentialMode === "subscription"
                 ? "Create an agent, connect your subscription, and start it."
@@ -230,6 +255,12 @@ export function AgentCreateDialog({
                     className={`${FIELD_SHELL} flex min-h-11 items-center gap-2 px-3`}
                   >
                     <Input
+                      aria-label={
+                        runtime === "claude" ||
+                        (runtime === "buzz-agent" && provider === "anthropic")
+                          ? "Anthropic API key"
+                          : "OpenAI API key"
+                      }
                       autoComplete="off"
                       className="h-8 flex-1 border-0 px-0 shadow-none focus-visible:ring-0"
                       disabled={pending}

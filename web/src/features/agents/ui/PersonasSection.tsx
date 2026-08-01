@@ -1,0 +1,215 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  Bot,
+  Copy,
+  Globe2,
+  LockKeyhole,
+  Pencil,
+  Play,
+  Plus,
+  Trash2,
+} from "lucide-react";
+import { useState } from "react";
+import { toast } from "sonner";
+
+import { Badge } from "@/shared/ui/badge";
+import { Button } from "@/shared/ui/button";
+import {
+  deletePersona,
+  type AgentPersona,
+  listPersonas,
+  type PersonaInput,
+  savePersona,
+} from "../persona-api";
+import { PersonaDialog } from "./PersonaDialog";
+
+export function PersonasSection({
+  ownerPubkey,
+  onDeploy,
+}: {
+  ownerPubkey: string;
+  onDeploy: (persona: AgentPersona) => void;
+}) {
+  const queryClient = useQueryClient();
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editing, setEditing] = useState<AgentPersona | null>(null);
+  const query = useQuery({
+    queryKey: ["agent-personas", ownerPubkey],
+    queryFn: () => listPersonas(ownerPubkey),
+    staleTime: 30_000,
+  });
+  const refresh = () =>
+    queryClient.invalidateQueries({
+      queryKey: ["agent-personas", ownerPubkey],
+    });
+  const save = useMutation({
+    mutationFn: ({
+      input,
+      persona,
+    }: {
+      input: PersonaInput;
+      persona?: AgentPersona;
+    }) => savePersona(input, persona),
+    onSuccess: () => {
+      setDialogOpen(false);
+      setEditing(null);
+      void refresh();
+      toast.success("Persona saved");
+    },
+    onError: (error) =>
+      toast.error("Could not save persona", { description: error.message }),
+  });
+  const remove = useMutation({
+    mutationFn: (persona: AgentPersona) => deletePersona(ownerPubkey, persona),
+    onSuccess: () => {
+      void refresh();
+      toast.success("Persona deleted");
+    },
+    onError: (error) =>
+      toast.error("Could not delete persona", { description: error.message }),
+  });
+
+  return (
+    <section className="space-y-3">
+      <header className="flex items-center justify-between gap-4">
+        <div>
+          <h2 className="text-lg font-semibold">Personas</h2>
+          <p className="text-sm text-muted-foreground">
+            Reusable agent definitions synced through your relay.
+          </p>
+        </div>
+        <Button
+          onClick={() => {
+            setEditing(null);
+            setDialogOpen(true);
+          }}
+          size="sm"
+          variant="outline"
+        >
+          <Plus /> Create persona
+        </Button>
+      </header>
+      {query.isLoading ? (
+        <p className="py-5 text-sm text-muted-foreground">Loading personas…</p>
+      ) : query.error ? (
+        <p className="rounded-md border border-destructive/30 p-3 text-sm text-destructive">
+          Could not load personas.
+        </p>
+      ) : query.data?.length ? (
+        <div className="divide-y rounded-md border">
+          {query.data.map((persona) => (
+            <article className="flex items-center gap-3 p-3" key={persona.id}>
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-secondary">
+                {persona.avatarUrl ? (
+                  <img
+                    alt=""
+                    className="h-full w-full object-cover"
+                    src={persona.avatarUrl}
+                  />
+                ) : (
+                  <Bot className="h-5 w-5" />
+                )}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <p className="truncate text-sm font-medium">
+                    {persona.displayName}
+                  </p>
+                  <Badge variant="outline">
+                    {persona.shared ? (
+                      <Globe2 className="h-3 w-3" />
+                    ) : (
+                      <LockKeyhole className="h-3 w-3" />
+                    )}
+                    {persona.shared ? "Shared" : "Private"}
+                  </Badge>
+                </div>
+                <p className="truncate text-xs text-muted-foreground">
+                  {persona.model || runtimeLabel(persona.runtime)}
+                </p>
+              </div>
+              <div className="flex shrink-0 gap-1">
+                <Button
+                  aria-label={`Deploy ${persona.displayName}`}
+                  onClick={() => onDeploy(persona)}
+                  size="icon"
+                  title="Deploy persona"
+                  variant="ghost"
+                >
+                  <Play />
+                </Button>
+                <Button
+                  aria-label={`Edit ${persona.displayName}`}
+                  onClick={() => {
+                    setEditing(persona);
+                    setDialogOpen(true);
+                  }}
+                  size="icon"
+                  title="Edit persona"
+                  variant="ghost"
+                >
+                  <Pencil />
+                </Button>
+                <Button
+                  aria-label={`Duplicate ${persona.displayName}`}
+                  disabled={save.isPending}
+                  onClick={() =>
+                    save.mutate({
+                      input: {
+                        ...persona,
+                        displayName: `${persona.displayName} copy`,
+                      },
+                    })
+                  }
+                  size="icon"
+                  title="Duplicate persona"
+                  variant="ghost"
+                >
+                  <Copy />
+                </Button>
+                <Button
+                  aria-label={`Delete ${persona.displayName}`}
+                  disabled={remove.isPending}
+                  onClick={() => {
+                    if (window.confirm(`Delete ${persona.displayName}?`))
+                      remove.mutate(persona);
+                  }}
+                  size="icon"
+                  title="Delete persona"
+                  variant="ghost"
+                >
+                  <Trash2 />
+                </Button>
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
+          No personas yet. Create one to reuse an agent configuration.
+        </div>
+      )}
+      {dialogOpen ? (
+        <PersonaDialog
+          key={editing?.id ?? "new-persona"}
+          pending={save.isPending}
+          persona={editing}
+          onClose={() => {
+            setDialogOpen(false);
+            setEditing(null);
+          }}
+          onSave={(input) =>
+            save.mutateAsync({ input, persona: editing ?? undefined })
+          }
+        />
+      ) : null}
+    </section>
+  );
+}
+
+function runtimeLabel(runtime: AgentPersona["runtime"]) {
+  if (runtime === "codex") return "Codex";
+  if (runtime === "claude") return "Claude Code";
+  if (runtime === "buzz-agent") return "Buzz Agent";
+  return "Choose a harness when deploying";
+}
