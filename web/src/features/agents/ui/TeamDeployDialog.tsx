@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
+import type { AgentDefaults } from "../agent-defaults-api";
 import {
   createAgent,
   type CreateAgentInput,
@@ -17,11 +18,13 @@ export type TeamDeployResult = {
 };
 
 export function TeamDeployDialog({
+  agentDefaults,
   personas,
   team,
   onClose,
   onDeployed,
 }: {
+  agentDefaults?: AgentDefaults;
   personas: AgentPersona[];
   team: AgentTeam;
   onClose: () => void;
@@ -42,8 +45,18 @@ export function TeamDeployDialog({
     (persona) =>
       persona.runtime === "buzz-agent" && persona.provider === "openai",
   );
-  const [anthropicKey, setAnthropicKey] = useState("");
-  const [openAiKey, setOpenAiKey] = useState("");
+  const [anthropicKey, setAnthropicKey] = useState(
+    agentDefaults?.runtime === "buzz-agent" &&
+      agentDefaults.provider === "anthropic"
+      ? agentDefaults.apiKey
+      : "",
+  );
+  const [openAiKey, setOpenAiKey] = useState(
+    agentDefaults?.runtime === "buzz-agent" &&
+      agentDefaults.provider === "openai"
+      ? agentDefaults.apiKey
+      : "",
+  );
   const [pending, setPending] = useState(false);
   const canDeploy =
     members.length > 0 &&

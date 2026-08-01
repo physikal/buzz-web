@@ -27,16 +27,20 @@ export type AgentCreateDefaults = {
   provider?: string;
   respondTo?: RespondToMode;
   respondToAllowlist?: string[];
+  apiKey?: string;
+  credentialMode?: AgentCredentialMode;
 };
 
 export function AgentCreateDialog({
   defaults,
+  globalDefaults,
   open,
   pending,
   onClose,
   onSubmit,
 }: {
   defaults?: AgentCreateDefaults;
+  globalDefaults?: AgentCreateDefaults;
   open: boolean;
   pending: boolean;
   onClose: () => void;
@@ -46,16 +50,28 @@ export function AgentCreateDialog({
   const [instructions, setInstructions] = useState(
     defaults?.instructions ?? "",
   );
-  const [runtime, setRuntime] = useState<AgentRuntime>(
-    defaults?.runtime ?? "buzz-agent",
+  const initialRuntime =
+    defaults?.runtime ?? globalDefaults?.runtime ?? "buzz-agent";
+  const initialProvider =
+    defaults?.provider ?? globalDefaults?.provider ?? "anthropic";
+  const globalMatches =
+    initialRuntime === globalDefaults?.runtime &&
+    (initialRuntime !== "buzz-agent" ||
+      initialProvider === globalDefaults.provider);
+  const [runtime, setRuntime] = useState<AgentRuntime>(initialRuntime);
+  const [provider, setProvider] = useState(initialProvider);
+  const [model, setModel] = useState(
+    defaults?.model ?? globalDefaults?.model ?? "",
   );
-  const [provider, setProvider] = useState(defaults?.provider ?? "anthropic");
-  const [model, setModel] = useState(defaults?.model ?? "");
-  const [apiKey, setApiKey] = useState("");
+  const [apiKey, setApiKey] = useState(
+    globalMatches ? (globalDefaults?.apiKey ?? "") : "",
+  );
   const [credentialMode, setCredentialMode] = useState<AgentCredentialMode>(
-    defaults?.runtime && defaults.runtime !== "buzz-agent"
-      ? "subscription"
-      : "api-key",
+    globalMatches && globalDefaults?.credentialMode
+      ? globalDefaults.credentialMode
+      : initialRuntime === "buzz-agent"
+        ? "api-key"
+        : "subscription",
   );
   const [showApiKey, setShowApiKey] = useState(false);
   const [respondTo, setRespondTo] = useState<RespondToMode>(

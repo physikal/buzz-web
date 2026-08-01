@@ -31,6 +31,7 @@ import { ThemeToggle } from "@/shared/theme/ThemeToggle";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { CommunityMembersPanel } from "./CommunityMembersPanel";
+import { AgentDefaultsPanel } from "./AgentDefaultsPanel";
 import { CustomEmojiPanel } from "./CustomEmojiPanel";
 import { ModerationPanel } from "./ModerationPanel";
 import {
@@ -48,6 +49,7 @@ type Section =
   | "profile"
   | "notifications"
   | "appearance"
+  | "agents"
   | "channel-templates"
   | "reminders"
   | "community-members"
@@ -116,6 +118,9 @@ function SettingsWorkspace({
           ) : null}
           {section === "notifications" ? <NotificationsPanel /> : null}
           {section === "appearance" ? <AppearancePanel /> : null}
+          {section === "agents" ? (
+            <AgentDefaultsPanel ownerPubkey={ownerPubkey} />
+          ) : null}
           {section === "channel-templates" ? (
             <ChannelTemplatesPanel ownerPubkey={ownerPubkey} />
           ) : null}
@@ -148,6 +153,7 @@ function SettingsNav({
     ["profile", "Profile", <UserRound key="profile" />],
     ["notifications", "Notifications", <Bell key="notifications" />],
     ["appearance", "Appearance", <MonitorCog key="appearance" />],
+    ["agents", "Agents", <Bot key="agents" />],
     ["channel-templates", "Templates", <FileStack key="templates" />],
     ["reminders", "Reminders", <CalendarClock key="reminders" />],
     ["community-members", "Invites", <Ticket key="community-members" />],

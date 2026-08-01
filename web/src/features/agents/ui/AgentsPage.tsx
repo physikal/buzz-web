@@ -17,6 +17,7 @@ import { toast } from "sonner";
 
 import buzzAppIcon from "@/assets/app-icon@3x.png";
 import { lockOwnerVault } from "@/features/owner-vault/lib/vault-worker-client";
+import { getAgentDefaults } from "../agent-defaults-api";
 import { truncatePubkey } from "@/shared/lib/pubkey";
 import {
   createAgent,
@@ -175,6 +176,12 @@ function AgentsWorkspace({
     queryFn: () => (preview ? Promise.resolve(PREVIEW_AGENTS) : listAgents()),
     staleTime: Number.POSITIVE_INFINITY,
     retry: false,
+  });
+  const defaultsQuery = useQuery({
+    queryKey: ["agent-defaults", ownerPubkey],
+    queryFn: () => getAgentDefaults(ownerPubkey),
+    staleTime: 0,
+    gcTime: 0,
   });
   const createMutation = useMutation({
     mutationFn: createAgent,
@@ -347,6 +354,7 @@ function AgentsWorkspace({
                 <button
                   aria-label="New agent"
                   className="group relative flex aspect-[4/5] w-full items-center justify-center rounded-2xl border border-dashed border-border/80 text-muted-foreground shadow-xs transition-colors hover:bg-muted/70 hover:text-foreground"
+                  disabled={defaultsQuery.isLoading}
                   onClick={() => {
                     setPersonaToDeploy(null);
                     onCreateOpenChange(true);
@@ -365,12 +373,16 @@ function AgentsWorkspace({
               onCreateOpenChange(true);
             }}
           />
-          <TeamsSection ownerPubkey={ownerPubkey} />
+          <TeamsSection
+            agentDefaults={defaultsQuery.data}
+            ownerPubkey={ownerPubkey}
+          />
         </div>
       </main>
 
       <AgentCreateDialog
         defaults={personaDefaults(personaToDeploy)}
+        globalDefaults={defaultsQuery.data}
         key={
           createOpen
             ? (personaToDeploy?.id ?? "new-agent-open")

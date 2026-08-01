@@ -801,6 +801,33 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
       );
     })
     .toBe(true);
+  await page.getByRole("button", { name: "Agents" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Agent defaults" }),
+  ).toBeVisible();
+  await page.getByLabel("Default model").fill("claude-sonnet-4-6");
+  await page
+    .getByLabel("Default API key", { exact: true })
+    .fill("encrypted-default-key");
+  await page.getByRole("button", { name: "Save defaults" }).click();
+  await expect
+    .poll(() => {
+      const defaults = submittedEvents.find(
+        (event) =>
+          event.kind === 30078 &&
+          event.tags.some(
+            (tag) => tag[0] === "d" && tag[1] === "buzz-web:agent-defaults:v1",
+          ),
+      );
+      return (
+        defaults?.tags.some(
+          (tag) => tag[0] === "alt" && tag[1] === "encrypted agent defaults",
+        ) === true &&
+        !defaults.content.includes("encrypted-default-key") &&
+        !defaults.content.includes("claude-sonnet-4-6")
+      );
+    })
+    .toBe(true);
   await page.getByRole("button", { name: "Invites" }).click();
   await expect(
     page.getByRole("button", { name: "Invite to community" }),
@@ -1023,6 +1050,9 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await expect(
     page.getByRole("heading", { name: "Deploy persona" }),
   ).toBeVisible();
+  await expect(
+    page.getByLabel("Anthropic API key", { exact: true }),
+  ).toHaveValue("encrypted-default-key");
   await page
     .getByLabel("Anthropic API key", { exact: true })
     .fill("test-persona-api-key");
@@ -1047,6 +1077,9 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     .toBe(true);
   await expect(page.getByText("Review crew")).toBeVisible();
   await page.getByRole("button", { name: "Deploy Review crew" }).click();
+  await expect(
+    page.getByLabel("Anthropic API key", { exact: true }),
+  ).toHaveValue("encrypted-default-key");
   await page
     .getByLabel("Anthropic API key", { exact: true })
     .fill("team-api-key");
@@ -1134,7 +1167,15 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect
     .poll(() => {
-      const template = submittedEvents.find((event) => event.kind === 30078);
+      const template = submittedEvents.find(
+        (event) =>
+          event.kind === 30078 &&
+          event.tags.some(
+            (tag) =>
+              tag[0] === "d" &&
+              /^buzz-web:channel-template:[0-9a-f]{32}$/.test(tag[1] ?? ""),
+          ),
+      );
       return (
         template?.tags.some(
           (tag) =>

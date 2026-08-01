@@ -4,6 +4,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/shared/ui/button";
+import type { AgentDefaults } from "../agent-defaults-api";
 import type { ManagedAgent } from "../agent-api";
 import { listPersonas } from "../persona-api";
 import {
@@ -16,7 +17,13 @@ import {
 import { TeamDeployDialog } from "./TeamDeployDialog";
 import { TeamDialog } from "./TeamDialog";
 
-export function TeamsSection({ ownerPubkey }: { ownerPubkey: string }) {
+export function TeamsSection({
+  agentDefaults,
+  ownerPubkey,
+}: {
+  agentDefaults?: AgentDefaults;
+  ownerPubkey: string;
+}) {
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState<AgentTeam | null>(null);
   const [formOpen, setFormOpen] = useState(false);
@@ -158,6 +165,7 @@ export function TeamsSection({ ownerPubkey }: { ownerPubkey: string }) {
       ) : null}
       {deploying ? (
         <TeamDeployDialog
+          agentDefaults={agentDefaults}
           personas={personas.data ?? []}
           team={deploying}
           onClose={() => setDeploying(null)}
