@@ -144,13 +144,39 @@ export async function signWithOwnerVault(
   return signed;
 }
 
+export async function nip44EncryptWithOwnerVault(
+  plaintext: string,
+): Promise<string> {
+  const ciphertext = await request<string>({
+    action: "nip44-encrypt",
+    plaintext,
+  });
+  armAutoLock();
+  return ciphertext;
+}
+
+export async function nip44DecryptWithOwnerVault(
+  ciphertext: string,
+): Promise<string> {
+  const plaintext = await request<string>({
+    action: "nip44-decrypt",
+    ciphertext,
+  });
+  armAutoLock();
+  return plaintext;
+}
+
 export async function lockOwnerVault(): Promise<void> {
   if (autoLockTimer) clearTimeout(autoLockTimer);
   autoLockTimer = null;
-  if (!worker) return;
+  if (!worker) {
+    window.dispatchEvent(new Event("buzz-web:owner-disconnected"));
+    return;
+  }
   try {
     await request({ action: "lock" });
   } finally {
     activePubkey = null;
+    window.dispatchEvent(new Event("buzz-web:owner-disconnected"));
   }
 }

@@ -23,6 +23,7 @@ import buzzAppIcon from "@/assets/app-icon@3x.png";
 import { listAgents } from "@/features/agents/agent-api";
 import { OwnerConnection } from "@/features/agents/ui/OwnerConnection";
 import { lockOwnerVault } from "@/features/owner-vault/lib/vault-worker-client";
+import { ReminderDialog } from "@/features/reminders/ui/ReminderDialog";
 import { getCustomEmoji } from "@/features/settings/custom-emoji-api";
 import { submitModerationReport } from "@/features/settings/moderation-api";
 import { subscribeEvents } from "@/shared/lib/nostr-client";
@@ -68,11 +69,19 @@ import {
 } from "./MessageTimeline";
 import { ReportMessageDialog } from "./ReportMessageDialog";
 
-export function ChannelsPage() {
+export function ChannelsPage({
+  initialChannelId,
+  initialMessageId,
+}: {
+  initialChannelId?: string;
+  initialMessageId?: string;
+} = {}) {
   const [ownerPubkey, setOwnerPubkey] = useState<string | null>(null);
   if (!ownerPubkey) return <OwnerConnection onConnected={setOwnerPubkey} />;
   return (
     <ChannelsWorkspace
+      initialChannelId={initialChannelId}
+      initialMessageId={initialMessageId}
       ownerPubkey={ownerPubkey}
       onDisconnect={() => {
         void lockOwnerVault();
@@ -85,19 +94,30 @@ export function ChannelsPage() {
 function ChannelsWorkspace({
   ownerPubkey,
   onDisconnect,
+  initialChannelId,
+  initialMessageId,
 }: {
   ownerPubkey: string;
   onDisconnect: () => void;
+  initialChannelId?: string;
+  initialMessageId?: string;
 }) {
   const queryClient = useQueryClient();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(
+    initialChannelId ?? null,
+  );
   const [threadRootId, setThreadRootId] = useState<string | null>(null);
-  const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  const [highlightedId, setHighlightedId] = useState<string | null>(
+    initialMessageId ?? null,
+  );
   const [createOpen, setCreateOpen] = useState(false);
   const [dmOpen, setDmOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [reportTarget, setReportTarget] = useState<ChannelMessage | null>(null);
+  const [reminderTarget, setReminderTarget] = useState<ChannelMessage | null>(
+    null,
+  );
 
   const channelsQuery = useQuery({
     queryKey: ["channels", ownerPubkey],
@@ -195,10 +215,11 @@ function ChannelsWorkspace({
   }, []);
 
   useEffect(() => {
-    if (!selectedId && channels[0]) setSelectedId(channels[0].id);
+    if (channels[0] && !channels.some((channel) => channel.id === selectedId))
+      setSelectedId(channels[0].id);
   }, [channels, selectedId]);
   useEffect(() => {
-    if (!highlightedId) return;
+    if (!highlightedId || messages.length === 0) return;
     const timer = setTimeout(() => {
       document.getElementById(`message-${highlightedId}`)?.scrollIntoView({
         behavior: "smooth",
@@ -206,7 +227,7 @@ function ChannelsWorkspace({
       });
     }, 100);
     return () => clearTimeout(timer);
-  }, [highlightedId]);
+  }, [highlightedId, messages.length]);
 
   const allPubkeys = useMemo(
     () => [
@@ -410,6 +431,7 @@ function ChannelsWorkspace({
       });
     },
     onReport: setReportTarget,
+    onRemind: setReminderTarget,
     onReact: (message, emoji, ownEventId, customEmojiUrl) =>
       reactionMutation.mutate({
         eventId: message.id,
@@ -640,6 +662,20 @@ function ChannelsWorkspace({
                 ...input,
               })
             : Promise.resolve()
+        }
+      />
+      <ReminderDialog
+        onClose={() => setReminderTarget(null)}
+        open={reminderTarget !== null}
+        target={
+          reminderTarget && selected
+            ? {
+                eventId: reminderTarget.id,
+                channelId: selected.id,
+                preview: reminderTarget.content.slice(0, 280),
+                authorPubkey: reminderTarget.pubkey,
+              }
+            : undefined
         }
       />
     </div>

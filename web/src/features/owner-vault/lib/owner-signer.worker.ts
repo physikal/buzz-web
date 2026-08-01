@@ -1,6 +1,7 @@
 /// <reference lib="webworker" />
 
 import { nip19 } from "nostr-tools";
+import { v2 as nip44 } from "nostr-tools/nip44";
 import { finalizeEvent, getPublicKey } from "nostr-tools/pure";
 
 import { decodeBase64Url, encodeBase64Url, randomBytes } from "./encoding";
@@ -42,6 +43,8 @@ type WorkerRequest =
       kdfSalt: string;
     }
   | { id: number; action: "sign"; event: UnsignedEvent }
+  | { id: number; action: "nip44-encrypt"; plaintext: string }
+  | { id: number; action: "nip44-decrypt"; ciphertext: string }
   | { id: number; action: "public-key" | "lock" };
 
 let secretKey: Uint8Array<ArrayBuffer> | null = null;
@@ -191,6 +194,36 @@ self.onmessage = async (message: MessageEvent<WorkerRequest>) => {
       case "sign":
         result = finalizeEvent(request.event, requireSecret());
         break;
+      case "nip44-encrypt": {
+        if (new TextEncoder().encode(request.plaintext).length > 64 * 1024)
+          throw new Error("NIP-44 plaintext is too large.");
+        const current = requireSecret();
+        const conversationKey = nip44.utils.getConversationKey(
+          current,
+          getPublicKey(current),
+        );
+        try {
+          result = nip44.encrypt(request.plaintext, conversationKey);
+        } finally {
+          conversationKey.fill(0);
+        }
+        break;
+      }
+      case "nip44-decrypt": {
+        if (request.ciphertext.length > 100 * 1024)
+          throw new Error("NIP-44 ciphertext is too large.");
+        const current = requireSecret();
+        const conversationKey = nip44.utils.getConversationKey(
+          current,
+          getPublicKey(current),
+        );
+        try {
+          result = nip44.decrypt(request.ciphertext, conversationKey);
+        } finally {
+          conversationKey.fill(0);
+        }
+        break;
+      }
       case "public-key":
         result = { pubkey: getPublicKey(requireSecret()) };
         break;

@@ -1,5 +1,6 @@
 import {
   Download,
+  Clock,
   Flag,
   MessageSquareReply,
   Pencil,
@@ -28,6 +29,7 @@ export type MessageActions = {
   onEdit: (message: ChannelMessage, content: string) => Promise<void>;
   onDelete: (message: ChannelMessage) => void;
   onReport: (message: ChannelMessage) => void;
+  onRemind: (message: ChannelMessage) => void;
   onReact: (
     message: ChannelMessage,
     emoji: string,
@@ -319,6 +321,14 @@ function MessageRow({
               </div>
             ) : null}
           </div>
+          <Button
+            aria-label="Remind me later"
+            onClick={() => actions.onRemind(message)}
+            size="icon"
+            variant="ghost"
+          >
+            <Clock />
+          </Button>
           {message.pubkey === ownerPubkey ? (
             <>
               <Button

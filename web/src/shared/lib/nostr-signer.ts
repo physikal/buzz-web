@@ -6,6 +6,8 @@ import {
 import {
   getUnlockedOwnerPublicKey,
   hasUnlockedOwnerVault,
+  nip44DecryptWithOwnerVault,
+  nip44EncryptWithOwnerVault,
   signWithOwnerVault,
 } from "@/features/owner-vault/lib/vault-worker-client";
 
@@ -25,6 +27,10 @@ export type SignedNostrEvent = UnsignedNostrEvent & {
 type Nip07Provider = {
   getPublicKey(): Promise<string>;
   signEvent(event: UnsignedNostrEvent): Promise<SignedNostrEvent>;
+  nip44?: {
+    encrypt(pubkey: string, plaintext: string): Promise<string>;
+    decrypt(pubkey: string, ciphertext: string): Promise<string>;
+  };
 };
 
 declare global {
@@ -139,4 +145,28 @@ export async function signNostrEvent(
     throw new Error("Failed to create the ephemeral browser identity.");
   }
   return signed;
+}
+
+export async function nip44EncryptToSelf(plaintext: string): Promise<string> {
+  if (new TextEncoder().encode(plaintext).length > 64 * 1024)
+    throw new Error("Encrypted content is too large.");
+  if (hasUnlockedOwnerVault()) return nip44EncryptWithOwnerVault(plaintext);
+  const provider = typeof window === "undefined" ? undefined : window.nostr;
+  if (!provider?.nip44)
+    throw new Error("This browser signer does not support NIP-44 encryption.");
+  const pubkey = await getNip07PublicKey();
+  return provider.nip44.encrypt(pubkey, plaintext);
+}
+
+export async function nip44DecryptFromSelf(
+  ciphertext: string,
+): Promise<string> {
+  if (ciphertext.length > 100 * 1024)
+    throw new Error("Encrypted content is too large.");
+  if (hasUnlockedOwnerVault()) return nip44DecryptWithOwnerVault(ciphertext);
+  const provider = typeof window === "undefined" ? undefined : window.nostr;
+  if (!provider?.nip44)
+    throw new Error("This browser signer does not support NIP-44 decryption.");
+  const pubkey = await getNip07PublicKey();
+  return provider.nip44.decrypt(pubkey, ciphertext);
 }

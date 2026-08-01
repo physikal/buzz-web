@@ -1,5 +1,5 @@
 import { KeyRound, LockKeyhole, ShieldCheck } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import buzzAppIcon from "@/assets/app-icon@3x.png";
 import { decodeBase64Url } from "@/features/owner-vault/lib/encoding";
@@ -31,10 +31,20 @@ export function OwnerConnection({
   const [recoveryCode, setRecoveryCode] = useState("");
   const [error, setError] = useState<string | null>(null);
 
+  const connected = useCallback(
+    (pubkey: string) => {
+      window.dispatchEvent(
+        new CustomEvent("buzz-web:owner-connected", { detail: pubkey }),
+      );
+      onConnected(pubkey);
+    },
+    [onConnected],
+  );
+
   useEffect(() => {
     if (hasUnlockedOwnerVault()) {
       getUnlockedOwnerPublicKey()
-        .then(onConnected)
+        .then(connected)
         .catch(() => undefined);
       setLoading(false);
       return;
@@ -47,7 +57,7 @@ export function OwnerConnection({
         );
       })
       .finally(() => setLoading(false));
-  }, [onConnected]);
+  }, [connected]);
 
   async function unlock() {
     setPending(true);
@@ -60,7 +70,7 @@ export function OwnerConnection({
         expectedPubkey: wrapper.owner_pubkey,
         wrapper,
       });
-      onConnected(pubkey);
+      connected(pubkey);
     } catch (cause) {
       setError(
         cause instanceof Error
@@ -86,7 +96,7 @@ export function OwnerConnection({
         expectedPubkey: recovery.owner_pubkey,
         wrapper: recovery,
       });
-      onConnected(pubkey);
+      connected(pubkey);
     } catch (cause) {
       setError(
         cause instanceof Error
@@ -102,7 +112,7 @@ export function OwnerConnection({
     setPending(true);
     setError(null);
     try {
-      onConnected(await getBrowserOwnerPublicKey());
+      connected(await getBrowserOwnerPublicKey());
     } catch (cause) {
       setError(
         cause instanceof Error

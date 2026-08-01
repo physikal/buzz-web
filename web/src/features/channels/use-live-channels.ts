@@ -94,7 +94,11 @@ export function useLiveChannels({
               channel?.channelType === "dm"
                 ? channel.name
                 : `#${channel?.name ?? "Buzz"}`,
-              { body: event.content.slice(0, 240), tag: event.id },
+              {
+                body: event.content.slice(0, 240),
+                silent: !settings.sound,
+                tag: event.id,
+              },
             );
             notification.onclick = () => window.focus();
           }

@@ -5,6 +5,7 @@ import {
   Bot,
   BookMarked,
   Camera,
+  CalendarClock,
   FolderKanban,
   GitFork,
   LogOut,
@@ -22,6 +23,7 @@ import { toast } from "sonner";
 import buzzAppIcon from "@/assets/app-icon@3x.png";
 import { OwnerConnection } from "@/features/agents/ui/OwnerConnection";
 import { lockOwnerVault } from "@/features/owner-vault/lib/vault-worker-client";
+import { RemindersPanel } from "@/features/reminders/ui/RemindersPanel";
 import { truncatePubkey } from "@/shared/lib/pubkey";
 import { ThemeToggle } from "@/shared/theme/ThemeToggle";
 import { Button } from "@/shared/ui/button";
@@ -42,6 +44,7 @@ type Section =
   | "profile"
   | "notifications"
   | "appearance"
+  | "reminders"
   | "community-members"
   | "custom-emoji"
   | "moderation";
@@ -108,6 +111,9 @@ function SettingsWorkspace({
           ) : null}
           {section === "notifications" ? <NotificationsPanel /> : null}
           {section === "appearance" ? <AppearancePanel /> : null}
+          {section === "reminders" ? (
+            <RemindersPanel ownerPubkey={ownerPubkey} />
+          ) : null}
           {section === "community-members" ? (
             <CommunityMembersPanel ownerPubkey={ownerPubkey} />
           ) : null}
@@ -134,6 +140,7 @@ function SettingsNav({
     ["profile", "Profile", <UserRound key="profile" />],
     ["notifications", "Notifications", <Bell key="notifications" />],
     ["appearance", "Appearance", <MonitorCog key="appearance" />],
+    ["reminders", "Reminders", <CalendarClock key="reminders" />],
     ["community-members", "Invites", <Ticket key="community-members" />],
     ["moderation", "Moderation", <ShieldAlert key="moderation" />],
     ["custom-emoji", "Custom emoji", <Smile key="custom-emoji" />],
@@ -330,6 +337,17 @@ function NotificationsPanel() {
           description="Alert even when the conversation is open."
           onChange={(value) => {
             const next = { ...settings, notifyWhileViewing: value };
+            setSettings(next);
+            writeNotificationSettings(next);
+          }}
+        />
+        <ToggleRow
+          checked={settings.reminderAlerts}
+          disabled={!settings.enabled}
+          label="Reminder alerts"
+          description="Alert when a private reminder becomes due."
+          onChange={(value) => {
+            const next = { ...settings, reminderAlerts: value };
             setSettings(next);
             writeNotificationSettings(next);
           }}

@@ -37,6 +37,7 @@ export async function uploadAvatar(file: File): Promise<string> {
 export type WebNotificationSettings = {
   enabled: boolean;
   notifyWhileViewing: boolean;
+  reminderAlerts: boolean;
   sound: boolean;
 };
 
@@ -47,13 +48,19 @@ export function readNotificationSettings(): WebNotificationSettings {
     return {
       enabled: false,
       notifyWhileViewing: false,
+      reminderAlerts: true,
       sound: true,
       ...(JSON.parse(
         localStorage.getItem(NOTIFICATION_KEY) ?? "{}",
       ) as Partial<WebNotificationSettings>),
     };
   } catch {
-    return { enabled: false, notifyWhileViewing: false, sound: true };
+    return {
+      enabled: false,
+      notifyWhileViewing: false,
+      reminderAlerts: true,
+      sound: true,
+    };
   }
 }
 

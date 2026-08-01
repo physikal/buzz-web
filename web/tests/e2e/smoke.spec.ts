@@ -446,6 +446,12 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
               ]),
             );
           }
+          if (filters.includes("30300")) {
+            for (const reminder of submittedEvents.filter(
+              (event) => event.kind === 30300,
+            ))
+              socket.send(JSON.stringify(["EVENT", subscriptionId, reminder]));
+          }
           if (filters.includes('"kinds":[0]')) {
             socket.send(
               JSON.stringify([
@@ -560,6 +566,28 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     )
     .toBe(true);
   await page.getByRole("button", { name: "Close" }).click();
+  await welcomeMessage.hover();
+  await welcomeMessage.getByRole("button", { name: "Remind me later" }).click();
+  await page.getByLabel("Private note (optional)").fill("Follow up privately");
+  await page.getByRole("button", { name: "In 30 minutes" }).click();
+  await expect
+    .poll(() =>
+      submittedEvents.some(
+        (event) =>
+          event.kind === 30300 &&
+          /^[0-9a-f]{32}$/.test(
+            event.tags.find((tag) => tag[0] === "d")?.[1] ?? "",
+          ) &&
+          Number(event.tags.find((tag) => tag[0] === "not_before")?.[1]) >
+            Math.floor(Date.now() / 1000) &&
+          event.tags.some(
+            (tag) => tag[0] === "alt" && tag[1] === "Encrypted reminder",
+          ) &&
+          !event.content.includes("Follow up privately") &&
+          !event.content.includes("Welcome to Buzz Web"),
+      ),
+    )
+    .toBe(true);
 
   await page.getByRole("link", { name: "Settings" }).click();
   await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
@@ -580,6 +608,24 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     page.getByRole("heading", { name: "Custom emoji" }),
   ).toBeVisible();
   await expect(page.getByText(":shipit:")).toBeVisible();
+  await page.getByRole("button", { name: "Reminders" }).click();
+  await expect(page.getByRole("heading", { name: "Reminders" })).toBeVisible();
+  await expect(page.getByText("Follow up privately")).toBeVisible();
+  await page.getByRole("button", { name: "Complete reminder" }).click();
+  await expect
+    .poll(() => {
+      const reminders = submittedEvents.filter((event) => event.kind === 30300);
+      return (
+        reminders.length >= 2 &&
+        reminders[0].tags.find((tag) => tag[0] === "d")?.[1] ===
+          reminders.at(-1)?.tags.find((tag) => tag[0] === "d")?.[1] &&
+        !reminders.at(-1)?.tags.some((tag) => tag[0] === "not_before") &&
+        reminders.at(-1)?.tags.some((tag) => tag[0] === "expiration") ===
+          true &&
+        !reminders.at(-1)?.content.includes("Follow up privately")
+      );
+    })
+    .toBe(true);
   await page.getByRole("button", { name: "Moderation" }).click();
   await expect(page.getByText("Repeated unsolicited promotion")).toBeVisible();
   await page.getByRole("button", { name: "Resolve" }).click();
