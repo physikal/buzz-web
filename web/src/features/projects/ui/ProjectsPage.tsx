@@ -4,6 +4,7 @@ import {
   Bot,
   BookMarked,
   FolderKanban,
+  GitFork,
   LogOut,
   MessageSquare,
   Plus,
@@ -327,6 +328,7 @@ function ProjectNav({
         <Nav to="/" icon={<BookMarked />} label="Repositories" />
         <Nav to="/channels" icon={<MessageSquare />} label="Channels" />
         <Nav to="/projects" icon={<FolderKanban />} label="Projects" active />
+        <Nav to="/workflows" icon={<GitFork />} label="Workflows" />
         <Nav to="/agents" icon={<Bot />} label="Agents" />
         <Nav to="/settings" icon={<Settings />} label="Settings" />
       </nav>
@@ -347,7 +349,7 @@ function Nav({
   label,
   active,
 }: {
-  to: "/" | "/channels" | "/projects" | "/agents" | "/settings";
+  to: "/" | "/channels" | "/projects" | "/workflows" | "/agents" | "/settings";
   icon: React.ReactNode;
   label: string;
   active?: boolean;

@@ -6,6 +6,7 @@ import {
   BookMarked,
   Camera,
   FolderKanban,
+  GitFork,
   LogOut,
   MessageSquare,
   MonitorCog,
@@ -82,6 +83,7 @@ function SettingsWorkspace({
           <Nav href="/" icon={<BookMarked />} label="Repositories" />
           <Nav href="/channels" icon={<MessageSquare />} label="Channels" />
           <Nav href="/projects" icon={<FolderKanban />} label="Projects" />
+          <Nav href="/workflows" icon={<GitFork />} label="Workflows" />
           <Nav href="/agents" icon={<Bot />} label="Agents" />
         </nav>
         <button
@@ -418,7 +420,13 @@ function Nav({
   icon,
   label,
 }: {
-  href: "/" | "/channels" | "/projects" | "/agents" | "/settings";
+  href:
+    | "/"
+    | "/channels"
+    | "/projects"
+    | "/workflows"
+    | "/agents"
+    | "/settings";
   icon: React.ReactNode;
   label: string;
 }) {

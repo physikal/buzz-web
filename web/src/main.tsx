@@ -28,7 +28,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
       <ThemeProvider>
         <TooltipProvider delayDuration={300}>
           <App />
-          <Toaster />
+          <Toaster position="top-right" />
         </TooltipProvider>
       </ThemeProvider>
     </QueryClientProvider>

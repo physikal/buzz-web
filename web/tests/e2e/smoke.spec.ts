@@ -35,6 +35,9 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   const token = "42".repeat(32);
   let ownerPubkey = "";
   const submittedEvents: Array<{
+    id: string;
+    pubkey: string;
+    sig: string;
     kind: number;
     content: string;
     tags: string[][];
@@ -209,17 +212,42 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     });
   });
   await page.route("**/events", async (route) => {
-    submittedEvents.push(
-      JSON.parse(route.request().postData() ?? "{}") as {
-        kind: number;
-        content: string;
-        tags: string[][];
-      },
+    const request = route.request();
+    const body = request.postData() ?? "";
+    const event = JSON.parse(body) as (typeof submittedEvents)[number];
+    expect(verifyEvent(event)).toBe(true);
+    expect(event.pubkey).toBe(ownerPubkey);
+    const authorization = request.headers().authorization ?? "";
+    expect(authorization).toMatch(/^Nostr /);
+    const authEvent = JSON.parse(
+      Buffer.from(authorization.slice("Nostr ".length), "base64").toString(
+        "utf8",
+      ),
     );
+    expect(verifyEvent(authEvent)).toBe(true);
+    expect(authEvent.pubkey).toBe(ownerPubkey);
+    expect(authEvent.tags).toContainEqual(["u", request.url()]);
+    expect(authEvent.tags).toContainEqual(["method", "POST"]);
+    expect(authEvent.tags).toContainEqual([
+      "payload",
+      createHash("sha256").update(body).digest("hex"),
+    ]);
+    expect(
+      authEvent.tags.some(
+        (tag: string[]) => tag[0] === "nonce" && tag[1]?.length > 20,
+      ),
+    ).toBe(true);
+    submittedEvents.push(event);
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ accepted: true }),
+      body: JSON.stringify({
+        accepted: true,
+        message:
+          event.kind === 30620
+            ? 'response:{"workflow_id":"55555555-5555-4555-8555-555555555555","webhook_secret":"webhook-test-secret"}'
+            : undefined,
+      }),
     });
   });
   await page.routeWebSocket(
@@ -364,6 +392,27 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
                   },
                   signer,
                 ),
+              ]),
+            );
+          }
+          if (filters.includes("30620")) {
+            socket.send(
+              JSON.stringify([
+                "EVENT",
+                subscriptionId,
+                {
+                  id: "67".repeat(32),
+                  pubkey: ownerPubkey,
+                  sig: "68".repeat(64),
+                  kind: 30620,
+                  created_at: createdAt,
+                  content:
+                    "name: Notify release\ndescription: Posts after a release\ntrigger:\n  on: message_posted\nsteps:\n  - id: step_1\n    action: send_message\n    text: Release received\n",
+                  tags: [
+                    ["d", "66666666-6666-4666-8666-666666666666"],
+                    ["h", "44444444-4444-4444-8444-444444444444"],
+                  ],
+                },
               ]),
             );
           }
@@ -533,6 +582,50 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
       ),
     )
     .toBe(true);
+  await page.getByRole("link", { name: "Workflows" }).click();
+  await expect(page.getByRole("heading", { name: "Workflows" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Notify release" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Trigger workflow" }).click();
+  await expect
+    .poll(() =>
+      submittedEvents.some(
+        (event) =>
+          event.kind === 46020 &&
+          event.tags.some(
+            (tag) =>
+              tag[0] === "d" &&
+              tag[1] === "66666666-6666-4666-8666-666666666666",
+          ),
+      ),
+    )
+    .toBe(true);
+  await page.getByRole("button", { name: "Create workflow" }).click();
+  await page.getByLabel("Workflow name").fill("Incoming webhook");
+  await page.getByLabel("Workflow trigger").selectOption("webhook");
+  await page.getByRole("button", { name: "Add step" }).click();
+  await page.getByRole("button", { name: "Save workflow" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Webhook ready" }),
+  ).toBeVisible();
+  await expect(page.getByText("webhook-test-secret")).toBeVisible();
+  await expect
+    .poll(() =>
+      submittedEvents.some(
+        (event) =>
+          event.kind === 30620 &&
+          event.content.includes("name: Incoming webhook") &&
+          event.content.includes("on: webhook") &&
+          event.tags.some(
+            (tag) =>
+              tag[0] === "h" &&
+              tag[1] === "44444444-4444-4444-8444-444444444444",
+          ),
+      ),
+    )
+    .toBe(true);
+  await page.getByRole("button", { name: "Done" }).click();
   await page.getByRole("link", { name: "Channels" }).click();
   await expect(page.getByRole("heading", { name: "general" })).toBeVisible();
 

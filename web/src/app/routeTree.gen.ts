@@ -5,6 +5,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from "./routes/root";
+import { Route as workflowsRouteImport } from "./routes/workflows";
 import { Route as settingsRouteImport } from "./routes/settings";
 import { Route as reposRouteImport } from "./routes/repos";
 import { Route as projectsRouteImport } from "./routes/projects";
@@ -17,6 +18,11 @@ import { Route as inviteDotcodeRouteImport } from "./routes/invite.$code";
 import { Route as agentsDotsetupRouteImport } from "./routes/agents.setup";
 import { Route as reposDotrepoIdDotblobDotsplatRouteImport } from "./routes/repos.$repoId.blob.$";
 
+const workflowsRoute = workflowsRouteImport.update({
+  id: "/workflows",
+  path: "/workflows",
+  getParentRoute: () => rootRouteImport,
+} as any);
 const settingsRoute = settingsRouteImport.update({
   id: "/settings",
   path: "/settings",
@@ -81,6 +87,7 @@ export interface FileRoutesByFullPath {
   "/projects": typeof projectsRoute;
   "/repos": typeof reposRoute;
   "/settings": typeof settingsRoute;
+  "/workflows": typeof workflowsRoute;
   "/agents/setup": typeof agentsDotsetupRoute;
   "/invite/$code": typeof inviteDotcodeRoute;
   "/projects/$projectId": typeof projectsDotprojectIdRoute;
@@ -94,6 +101,7 @@ export interface FileRoutesByTo {
   "/projects": typeof projectsRoute;
   "/repos": typeof reposRoute;
   "/settings": typeof settingsRoute;
+  "/workflows": typeof workflowsRoute;
   "/agents/setup": typeof agentsDotsetupRoute;
   "/invite/$code": typeof inviteDotcodeRoute;
   "/projects/$projectId": typeof projectsDotprojectIdRoute;
@@ -108,6 +116,7 @@ export interface FileRoutesById {
   "/projects": typeof projectsRoute;
   "/repos": typeof reposRoute;
   "/settings": typeof settingsRoute;
+  "/workflows": typeof workflowsRoute;
   "/agents/setup": typeof agentsDotsetupRoute;
   "/invite/$code": typeof inviteDotcodeRoute;
   "/projects/$projectId": typeof projectsDotprojectIdRoute;
@@ -123,6 +132,7 @@ export interface FileRouteTypes {
     | "/projects"
     | "/repos"
     | "/settings"
+    | "/workflows"
     | "/agents/setup"
     | "/invite/$code"
     | "/projects/$projectId"
@@ -136,6 +146,7 @@ export interface FileRouteTypes {
     | "/projects"
     | "/repos"
     | "/settings"
+    | "/workflows"
     | "/agents/setup"
     | "/invite/$code"
     | "/projects/$projectId"
@@ -149,6 +160,7 @@ export interface FileRouteTypes {
     | "/projects"
     | "/repos"
     | "/settings"
+    | "/workflows"
     | "/agents/setup"
     | "/invite/$code"
     | "/projects/$projectId"
@@ -163,6 +175,7 @@ export interface RootRouteChildren {
   projectsRoute: typeof projectsRoute;
   reposRoute: typeof reposRoute;
   settingsRoute: typeof settingsRoute;
+  workflowsRoute: typeof workflowsRoute;
   agentsDotsetupRoute: typeof agentsDotsetupRoute;
   inviteDotcodeRoute: typeof inviteDotcodeRoute;
   projectsDotprojectIdRoute: typeof projectsDotprojectIdRoute;
@@ -172,6 +185,13 @@ export interface RootRouteChildren {
 
 declare module "@tanstack/react-router" {
   interface FileRoutesByPath {
+    "/workflows": {
+      id: "/workflows";
+      path: "/workflows";
+      fullPath: "/workflows";
+      preLoaderRoute: typeof workflowsRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
     "/settings": {
       id: "/settings";
       path: "/settings";
@@ -259,6 +279,7 @@ const rootRouteChildren: RootRouteChildren = {
   projectsRoute: projectsRoute,
   reposRoute: reposRoute,
   settingsRoute: settingsRoute,
+  workflowsRoute: workflowsRoute,
   agentsDotsetupRoute: agentsDotsetupRoute,
   inviteDotcodeRoute: inviteDotcodeRoute,
   projectsDotprojectIdRoute: projectsDotprojectIdRoute,

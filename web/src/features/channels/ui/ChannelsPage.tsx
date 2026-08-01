@@ -5,6 +5,7 @@ import {
   BookMarked,
   Circle,
   FolderKanban,
+  GitFork,
   Hash,
   LayoutList,
   LogOut,
@@ -675,6 +676,7 @@ function PrimarySidebar({
           icon={<FolderKanban />}
           label="Projects"
         />
+        <SidebarLink href="/workflows" icon={<GitFork />} label="Workflows" />
         <SidebarLink href="/agents" icon={<Bot />} label="Agents" />
         <SidebarLink href="/settings" icon={<Settings />} label="Settings" />
       </nav>
@@ -700,7 +702,13 @@ function SidebarLink({
   label,
   active = false,
 }: {
-  href: "/" | "/channels" | "/projects" | "/agents" | "/settings";
+  href:
+    | "/"
+    | "/channels"
+    | "/projects"
+    | "/workflows"
+    | "/agents"
+    | "/settings";
   icon: React.ReactNode;
   label: string;
   active?: boolean;

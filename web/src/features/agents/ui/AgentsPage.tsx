@@ -4,6 +4,7 @@ import {
   Bot,
   BookMarked,
   FolderKanban,
+  GitFork,
   LogOut,
   MessageSquare,
   Plus,
@@ -244,6 +245,9 @@ function AgentsWorkspace({
           </Link>
           <Link to="/projects" className="block">
             <SidebarItem icon={<FolderKanban />} label="Projects" />
+          </Link>
+          <Link to="/workflows" className="block">
+            <SidebarItem icon={<GitFork />} label="Workflows" />
           </Link>
           <SidebarItem active icon={<Bot />} label="Agents" />
           <Link to="/settings" className="block">
