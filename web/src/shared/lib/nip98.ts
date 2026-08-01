@@ -28,10 +28,10 @@ export async function makeNip98AuthHeader(
   const tags = [
     ["u", url],
     ["method", method],
+    ["nonce", crypto.randomUUID()],
   ];
   if (options?.body !== undefined) {
     tags.push(["payload", await sha256Hex(options.body)]);
-    tags.push(["nonce", crypto.randomUUID()]);
   }
   const event = await signNostrEvent(
     {

@@ -1,5 +1,6 @@
 import {
   Download,
+  Flag,
   MessageSquareReply,
   Pencil,
   SmilePlus,
@@ -26,6 +27,7 @@ export type MessageActions = {
   onReply: (message: ChannelMessage) => void;
   onEdit: (message: ChannelMessage, content: string) => Promise<void>;
   onDelete: (message: ChannelMessage) => void;
+  onReport: (message: ChannelMessage) => void;
   onReact: (
     message: ChannelMessage,
     emoji: string,
@@ -336,7 +338,16 @@ function MessageRow({
                 <Trash2 />
               </Button>
             </>
-          ) : null}
+          ) : (
+            <Button
+              aria-label="Report message"
+              onClick={() => actions.onReport(message)}
+              size="icon"
+              variant="ghost"
+            >
+              <Flag />
+            </Button>
+          )}
         </div>
       ) : null}
     </article>

@@ -8,6 +8,7 @@ import {
   LogOut,
   MessageSquare,
   MonitorCog,
+  ShieldAlert,
   Smile,
   Ticket,
   UserRound,
@@ -24,6 +25,7 @@ import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { CommunityMembersPanel } from "./CommunityMembersPanel";
 import { CustomEmojiPanel } from "./CustomEmojiPanel";
+import { ModerationPanel } from "./ModerationPanel";
 import {
   getOwnerProfile,
   type ProfileInput,
@@ -38,7 +40,8 @@ type Section =
   | "notifications"
   | "appearance"
   | "community-members"
-  | "custom-emoji";
+  | "custom-emoji"
+  | "moderation";
 
 export function SettingsPage() {
   const [ownerPubkey, setOwnerPubkey] = useState<string | null>(null);
@@ -105,6 +108,9 @@ function SettingsWorkspace({
           {section === "custom-emoji" ? (
             <CustomEmojiPanel ownerPubkey={ownerPubkey} />
           ) : null}
+          {section === "moderation" ? (
+            <ModerationPanel ownerPubkey={ownerPubkey} />
+          ) : null}
         </div>
       </main>
     </div>
@@ -123,6 +129,7 @@ function SettingsNav({
     ["notifications", "Notifications", <Bell key="notifications" />],
     ["appearance", "Appearance", <MonitorCog key="appearance" />],
     ["community-members", "Invites", <Ticket key="community-members" />],
+    ["moderation", "Moderation", <ShieldAlert key="moderation" />],
     ["custom-emoji", "Custom emoji", <Smile key="custom-emoji" />],
   ];
   return (

@@ -21,6 +21,7 @@ import { listAgents } from "@/features/agents/agent-api";
 import { OwnerConnection } from "@/features/agents/ui/OwnerConnection";
 import { lockOwnerVault } from "@/features/owner-vault/lib/vault-worker-client";
 import { getCustomEmoji } from "@/features/settings/custom-emoji-api";
+import { submitModerationReport } from "@/features/settings/moderation-api";
 import { subscribeEvents } from "@/shared/lib/nostr-client";
 import { truncatePubkey } from "@/shared/lib/pubkey";
 import { relayWsUrl } from "@/shared/lib/relay-url";
@@ -42,6 +43,7 @@ import {
   searchMessages,
   sendChannelMessage,
   updateChannel,
+  type ChannelMessage,
 } from "../channel-api";
 import { useLiveChannels } from "../use-live-channels";
 import { ChannelSidebar } from "./ChannelSidebar";
@@ -58,6 +60,7 @@ import {
   MessageTimeline,
   ThreadPanel,
 } from "./MessageTimeline";
+import { ReportMessageDialog } from "./ReportMessageDialog";
 
 export function ChannelsPage() {
   const [ownerPubkey, setOwnerPubkey] = useState<string | null>(null);
@@ -88,6 +91,7 @@ function ChannelsWorkspace({
   const [dmOpen, setDmOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [reportTarget, setReportTarget] = useState<ChannelMessage | null>(null);
 
   const channelsQuery = useQuery({
     queryKey: ["channels", ownerPubkey],
@@ -287,6 +291,14 @@ function ChannelsWorkspace({
     onSuccess: refreshSelected,
     onError: mutationError("Could not update reaction"),
   });
+  const reportMutation = useMutation({
+    mutationFn: submitModerationReport,
+    onSuccess: () => {
+      setReportTarget(null);
+      toast.success("Report submitted to community moderators");
+    },
+    onError: mutationError("Could not submit report"),
+  });
   const joinMutation = useMutation({
     mutationFn: joinChannel,
     onSuccess: async () =>
@@ -375,6 +387,7 @@ function ChannelsWorkspace({
         eventId: message.id,
       });
     },
+    onReport: setReportTarget,
     onReact: (message, emoji, ownEventId, customEmojiUrl) =>
       reactionMutation.mutate({
         eventId: message.id,
@@ -574,6 +587,20 @@ function ChannelsWorkspace({
         onSave={(input) =>
           selected
             ? settingsMutation.mutateAsync({ channelId: selected.id, ...input })
+            : Promise.resolve()
+        }
+      />
+      <ReportMessageDialog
+        message={reportTarget}
+        pending={reportMutation.isPending}
+        onClose={() => setReportTarget(null)}
+        onSubmit={(input) =>
+          reportTarget
+            ? reportMutation.mutateAsync({
+                authorPubkey: reportTarget.pubkey,
+                eventId: reportTarget.id,
+                ...input,
+              })
             : Promise.resolve()
         }
       />

@@ -164,6 +164,50 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
       }),
     });
   });
+  await page.route(
+    "**/moderation/reports?status=open&limit=200",
+    async (route) => {
+      const authorization = route.request().headers().authorization ?? "";
+      const event = JSON.parse(
+        Buffer.from(authorization.slice("Nostr ".length), "base64").toString(
+          "utf8",
+        ),
+      );
+      expect(verifyEvent(event)).toBe(true);
+      expect(event.pubkey).toBe(ownerPubkey);
+      expect(event.tags).toContainEqual(["u", route.request().url()]);
+      expect(
+        event.tags.some(
+          (tag: string[]) => tag[0] === "nonce" && tag[1]?.length > 20,
+        ),
+      ).toBe(true);
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([
+          {
+            id: "report-row-1",
+            report_event_id: "77".repeat(32),
+            reporter_pubkey: "88".repeat(32),
+            target_kind: "event",
+            target: "99".repeat(32),
+            channel_id: "44444444-4444-4444-8444-444444444444",
+            report_type: "spam",
+            note: "Repeated unsolicited promotion",
+            status: "open",
+            created_at: new Date().toISOString(),
+          },
+        ]),
+      });
+    },
+  );
+  await page.route("**/moderation/audit?limit=200", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: "[]",
+    });
+  });
   await page.route("**/events", async (route) => {
     submittedEvents.push(
       JSON.parse(route.request().postData() ?? "{}") as {
@@ -330,6 +374,20 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
       ),
     )
     .toBe(true);
+  await welcomeMessage.hover();
+  await welcomeMessage.getByRole("button", { name: "Report message" }).click();
+  await page.getByLabel("Details (optional)").fill("Automated promotion");
+  await page.getByRole("button", { name: "Submit report" }).click();
+  await expect
+    .poll(() =>
+      submittedEvents.some(
+        (event) =>
+          event.kind === 1984 &&
+          event.content === "Automated promotion" &&
+          event.tags.some((tag) => tag[0] === "e" && tag[2] === "spam"),
+      ),
+    )
+    .toBe(true);
 
   await page.getByRole("link", { name: "Settings" }).click();
   await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
@@ -350,6 +408,23 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     page.getByRole("heading", { name: "Custom emoji" }),
   ).toBeVisible();
   await expect(page.getByText(":shipit:")).toBeVisible();
+  await page.getByRole("button", { name: "Moderation" }).click();
+  await expect(page.getByText("Repeated unsolicited promotion")).toBeVisible();
+  await page.getByRole("button", { name: "Resolve" }).click();
+  await expect
+    .poll(() =>
+      submittedEvents.some(
+        (event) =>
+          event.kind === 9044 &&
+          event.tags.some(
+            (tag) => tag[0] === "report" && tag[1] === "77".repeat(32),
+          ) &&
+          event.tags.some(
+            (tag) => tag[0] === "status" && tag[1] === "dismissed",
+          ),
+      ),
+    )
+    .toBe(true);
   await page.getByRole("link", { name: "Channels" }).click();
   await expect(page.getByRole("heading", { name: "general" })).toBeVisible();
 
