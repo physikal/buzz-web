@@ -346,6 +346,27 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
               ]),
             );
           }
+          if (filters.includes("30617")) {
+            socket.send(
+              JSON.stringify([
+                "EVENT",
+                subscriptionId,
+                finalizeEvent(
+                  {
+                    kind: 30617,
+                    created_at: createdAt,
+                    content: "A relay-native project",
+                    tags: [
+                      ["d", "relay-project"],
+                      ["name", "Relay project"],
+                      ["description", "A relay-native project"],
+                    ],
+                  },
+                  signer,
+                ),
+              ]),
+            );
+          }
           socket.send(JSON.stringify(["EOSE", subscriptionId]));
         }
       });
@@ -473,6 +494,41 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
           ) &&
           event.tags.some(
             (tag) => tag[0] === "status" && tag[1] === "dismissed",
+          ),
+      ),
+    )
+    .toBe(true);
+  await page.getByRole("link", { name: "Projects" }).click();
+  await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Relay project" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "New project" }).click();
+  await page.getByLabel("Name").fill("Web parity");
+  await page.getByLabel("Description").fill("Created from the browser");
+  await page.getByRole("button", { name: "Create project" }).click();
+  await expect
+    .poll(() =>
+      submittedEvents.some(
+        (event) =>
+          event.kind === 30617 &&
+          event.tags.some((tag) => tag[0] === "d" && tag[1] === "web-parity"),
+      ),
+    )
+    .toBe(true);
+  await page.getByRole("link", { name: "Relay project" }).click();
+  await expect(page.getByRole("heading", { name: "Issues" })).toBeVisible();
+  await page.getByRole("button", { name: "New issue" }).click();
+  await page.getByLabel("Title").fill("Browser issue");
+  await page.getByLabel("Description").fill("Track this from Buzz Web");
+  await page.getByRole("button", { name: "Create issue" }).click();
+  await expect
+    .poll(() =>
+      submittedEvents.some(
+        (event) =>
+          event.kind === 1621 &&
+          event.tags.some(
+            (tag) => tag[0] === "subject" && tag[1] === "Browser issue",
           ),
       ),
     )

@@ -4,6 +4,7 @@ import {
   Bot,
   BookMarked,
   Circle,
+  FolderKanban,
   Hash,
   LayoutList,
   LogOut,
@@ -669,6 +670,11 @@ function PrimarySidebar({
           icon={<MessageSquare />}
           label="Channels"
         />
+        <SidebarLink
+          href="/projects"
+          icon={<FolderKanban />}
+          label="Projects"
+        />
         <SidebarLink href="/agents" icon={<Bot />} label="Agents" />
         <SidebarLink href="/settings" icon={<Settings />} label="Settings" />
       </nav>
@@ -694,7 +700,7 @@ function SidebarLink({
   label,
   active = false,
 }: {
-  href: "/" | "/channels" | "/agents" | "/settings";
+  href: "/" | "/channels" | "/projects" | "/agents" | "/settings";
   icon: React.ReactNode;
   label: string;
   active?: boolean;

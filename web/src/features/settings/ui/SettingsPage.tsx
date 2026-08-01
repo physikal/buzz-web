@@ -5,6 +5,7 @@ import {
   Bot,
   BookMarked,
   Camera,
+  FolderKanban,
   LogOut,
   MessageSquare,
   MonitorCog,
@@ -80,6 +81,7 @@ function SettingsWorkspace({
         <nav className="mt-4 space-y-1 text-sm">
           <Nav href="/" icon={<BookMarked />} label="Repositories" />
           <Nav href="/channels" icon={<MessageSquare />} label="Channels" />
+          <Nav href="/projects" icon={<FolderKanban />} label="Projects" />
           <Nav href="/agents" icon={<Bot />} label="Agents" />
         </nav>
         <button
@@ -416,7 +418,7 @@ function Nav({
   icon,
   label,
 }: {
-  href: "/" | "/channels" | "/agents" | "/settings";
+  href: "/" | "/channels" | "/projects" | "/agents" | "/settings";
   icon: React.ReactNode;
   label: string;
 }) {

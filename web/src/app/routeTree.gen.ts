@@ -7,10 +7,12 @@
 import { Route as rootRouteImport } from "./routes/root";
 import { Route as settingsRouteImport } from "./routes/settings";
 import { Route as reposRouteImport } from "./routes/repos";
+import { Route as projectsRouteImport } from "./routes/projects";
 import { Route as channelsRouteImport } from "./routes/channels";
 import { Route as agentsRouteImport } from "./routes/agents";
 import { Route as indexRouteImport } from "./routes/index";
 import { Route as reposDotrepoIdRouteImport } from "./routes/repos.$repoId";
+import { Route as projectsDotprojectIdRouteImport } from "./routes/projects.$projectId";
 import { Route as inviteDotcodeRouteImport } from "./routes/invite.$code";
 import { Route as agentsDotsetupRouteImport } from "./routes/agents.setup";
 import { Route as reposDotrepoIdDotblobDotsplatRouteImport } from "./routes/repos.$repoId.blob.$";
@@ -23,6 +25,11 @@ const settingsRoute = settingsRouteImport.update({
 const reposRoute = reposRouteImport.update({
   id: "/repos",
   path: "/repos",
+  getParentRoute: () => rootRouteImport,
+} as any);
+const projectsRoute = projectsRouteImport.update({
+  id: "/projects",
+  path: "/projects",
   getParentRoute: () => rootRouteImport,
 } as any);
 const channelsRoute = channelsRouteImport.update({
@@ -43,6 +50,11 @@ const indexRoute = indexRouteImport.update({
 const reposDotrepoIdRoute = reposDotrepoIdRouteImport.update({
   id: "/repos/$repoId",
   path: "/repos/$repoId",
+  getParentRoute: () => rootRouteImport,
+} as any);
+const projectsDotprojectIdRoute = projectsDotprojectIdRouteImport.update({
+  id: "/projects/$projectId",
+  path: "/projects/$projectId",
   getParentRoute: () => rootRouteImport,
 } as any);
 const inviteDotcodeRoute = inviteDotcodeRouteImport.update({
@@ -66,10 +78,12 @@ export interface FileRoutesByFullPath {
   "/": typeof indexRoute;
   "/agents": typeof agentsRoute;
   "/channels": typeof channelsRoute;
+  "/projects": typeof projectsRoute;
   "/repos": typeof reposRoute;
   "/settings": typeof settingsRoute;
   "/agents/setup": typeof agentsDotsetupRoute;
   "/invite/$code": typeof inviteDotcodeRoute;
+  "/projects/$projectId": typeof projectsDotprojectIdRoute;
   "/repos/$repoId": typeof reposDotrepoIdRoute;
   "/repos/$repoId/blob/$": typeof reposDotrepoIdDotblobDotsplatRoute;
 }
@@ -77,10 +91,12 @@ export interface FileRoutesByTo {
   "/": typeof indexRoute;
   "/agents": typeof agentsRoute;
   "/channels": typeof channelsRoute;
+  "/projects": typeof projectsRoute;
   "/repos": typeof reposRoute;
   "/settings": typeof settingsRoute;
   "/agents/setup": typeof agentsDotsetupRoute;
   "/invite/$code": typeof inviteDotcodeRoute;
+  "/projects/$projectId": typeof projectsDotprojectIdRoute;
   "/repos/$repoId": typeof reposDotrepoIdRoute;
   "/repos/$repoId/blob/$": typeof reposDotrepoIdDotblobDotsplatRoute;
 }
@@ -89,10 +105,12 @@ export interface FileRoutesById {
   "/": typeof indexRoute;
   "/agents": typeof agentsRoute;
   "/channels": typeof channelsRoute;
+  "/projects": typeof projectsRoute;
   "/repos": typeof reposRoute;
   "/settings": typeof settingsRoute;
   "/agents/setup": typeof agentsDotsetupRoute;
   "/invite/$code": typeof inviteDotcodeRoute;
+  "/projects/$projectId": typeof projectsDotprojectIdRoute;
   "/repos/$repoId": typeof reposDotrepoIdRoute;
   "/repos/$repoId/blob/$": typeof reposDotrepoIdDotblobDotsplatRoute;
 }
@@ -102,10 +120,12 @@ export interface FileRouteTypes {
     | "/"
     | "/agents"
     | "/channels"
+    | "/projects"
     | "/repos"
     | "/settings"
     | "/agents/setup"
     | "/invite/$code"
+    | "/projects/$projectId"
     | "/repos/$repoId"
     | "/repos/$repoId/blob/$";
   fileRoutesByTo: FileRoutesByTo;
@@ -113,10 +133,12 @@ export interface FileRouteTypes {
     | "/"
     | "/agents"
     | "/channels"
+    | "/projects"
     | "/repos"
     | "/settings"
     | "/agents/setup"
     | "/invite/$code"
+    | "/projects/$projectId"
     | "/repos/$repoId"
     | "/repos/$repoId/blob/$";
   id:
@@ -124,10 +146,12 @@ export interface FileRouteTypes {
     | "/"
     | "/agents"
     | "/channels"
+    | "/projects"
     | "/repos"
     | "/settings"
     | "/agents/setup"
     | "/invite/$code"
+    | "/projects/$projectId"
     | "/repos/$repoId"
     | "/repos/$repoId/blob/$";
   fileRoutesById: FileRoutesById;
@@ -136,10 +160,12 @@ export interface RootRouteChildren {
   indexRoute: typeof indexRoute;
   agentsRoute: typeof agentsRoute;
   channelsRoute: typeof channelsRoute;
+  projectsRoute: typeof projectsRoute;
   reposRoute: typeof reposRoute;
   settingsRoute: typeof settingsRoute;
   agentsDotsetupRoute: typeof agentsDotsetupRoute;
   inviteDotcodeRoute: typeof inviteDotcodeRoute;
+  projectsDotprojectIdRoute: typeof projectsDotprojectIdRoute;
   reposDotrepoIdRoute: typeof reposDotrepoIdRoute;
   reposDotrepoIdDotblobDotsplatRoute: typeof reposDotrepoIdDotblobDotsplatRoute;
 }
@@ -158,6 +184,13 @@ declare module "@tanstack/react-router" {
       path: "/repos";
       fullPath: "/repos";
       preLoaderRoute: typeof reposRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/projects": {
+      id: "/projects";
+      path: "/projects";
+      fullPath: "/projects";
+      preLoaderRoute: typeof projectsRouteImport;
       parentRoute: typeof rootRouteImport;
     };
     "/channels": {
@@ -188,6 +221,13 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof reposDotrepoIdRouteImport;
       parentRoute: typeof rootRouteImport;
     };
+    "/projects/$projectId": {
+      id: "/projects/$projectId";
+      path: "/projects/$projectId";
+      fullPath: "/projects/$projectId";
+      preLoaderRoute: typeof projectsDotprojectIdRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
     "/invite/$code": {
       id: "/invite/$code";
       path: "/invite/$code";
@@ -216,10 +256,12 @@ const rootRouteChildren: RootRouteChildren = {
   indexRoute: indexRoute,
   agentsRoute: agentsRoute,
   channelsRoute: channelsRoute,
+  projectsRoute: projectsRoute,
   reposRoute: reposRoute,
   settingsRoute: settingsRoute,
   agentsDotsetupRoute: agentsDotsetupRoute,
   inviteDotcodeRoute: inviteDotcodeRoute,
+  projectsDotprojectIdRoute: projectsDotprojectIdRoute,
   reposDotrepoIdRoute: reposDotrepoIdRoute,
   reposDotrepoIdDotblobDotsplatRoute: reposDotrepoIdDotblobDotsplatRoute,
 };

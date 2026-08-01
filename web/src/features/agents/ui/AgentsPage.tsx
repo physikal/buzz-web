@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router";
 import {
   Bot,
   BookMarked,
+  FolderKanban,
   LogOut,
   MessageSquare,
   Plus,
@@ -240,6 +241,9 @@ function AgentsWorkspace({
           </Link>
           <Link to="/channels" className="block">
             <SidebarItem icon={<MessageSquare />} label="Channels" />
+          </Link>
+          <Link to="/projects" className="block">
+            <SidebarItem icon={<FolderKanban />} label="Projects" />
           </Link>
           <SidebarItem active icon={<Bot />} label="Agents" />
           <Link to="/settings" className="block">
