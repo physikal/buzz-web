@@ -32,6 +32,15 @@ the private key. **Connect owner key** requests only the public key, and the
 signer asks for approval when the console signs an authenticated management
 request.
 
+The owner console recommends the open-source
+[Alby browser extension](https://github.com/getAlby/lightning-browser-extension)
+and links directly to its official
+[Chromium](https://chromewebstore.google.com/detail/alby/iokeahhehimjnekafflcihljlcjccdbe)
+and [Firefox](https://addons.mozilla.org/firefox/addon/alby/) store listings.
+Verify that the store publisher is **Alby** before importing the owner key. This
+is a reviewed default, not a guarantee about future extension releases; keep
+automatic updates enabled and continue reviewing signature prompts.
+
 The owner public key is remembered in that browser session so a refresh returns
 to the Agents page. The private key remains in the signer. A different computer
 can administer the same centralized agents after installing a compatible signer

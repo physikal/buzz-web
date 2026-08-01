@@ -51,6 +51,10 @@ runtime and does not give an agent process access to Docker.
    secret volumes outside Dokploy.
 3. Review signer prompts. A compromised signer or owner workstation has owner
    authority, just as a compromised desktop client does.
+   The UI links to Alby's official browser-store listings because Alby is
+   open-source, actively maintained, and publishes a security policy. That
+   recommendation does not remove browser-extension supply-chain risk; verify
+   the listed publisher before installing and keep the extension updated.
 4. Keep `respond_to` set to `owner-only` unless broader access is intentional.
    A permitted author can ask an agent to exercise whatever repository,
    network, and provider access that particular harness has.

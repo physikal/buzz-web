@@ -1,4 +1,4 @@
-import { KeyRound, ShieldCheck } from "lucide-react";
+import { ExternalLink, KeyRound, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 
 import buzzAppIcon from "@/assets/app-icon@3x.png";
@@ -25,7 +25,7 @@ export function OwnerConnection({
     } catch (cause) {
       setError(
         cause instanceof Nip07UnavailableError
-          ? "No Nostr signer was found in this browser. Install a NIP-07 signer, add your owner key to it, then reload Buzz."
+          ? "No Nostr signer was found. Install a signer below, import your owner key, then reload Buzz."
           : cause instanceof Error
             ? cause.message
             : "Could not connect the owner key.",
@@ -60,9 +60,31 @@ export function OwnerConnection({
           </p>
         </div>
         {!hasNip07Provider() ? (
-          <p className="mt-4 text-xs text-muted-foreground">
-            A NIP-07 browser signer is required.
-          </p>
+          <div className="mt-4 rounded-md border border-border bg-muted/40 px-3 py-3 text-left text-xs leading-5 text-muted-foreground">
+            <p>
+              Install the open-source Alby signer from the official browser
+              store, then verify the publisher is <strong>Alby</strong> before
+              importing your owner key.
+            </p>
+            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-2 font-medium">
+              <a
+                className="inline-flex items-center gap-1 text-foreground underline underline-offset-4"
+                href="https://chromewebstore.google.com/detail/alby/iokeahhehimjnekafflcihljlcjccdbe"
+                rel="noreferrer"
+                target="_blank"
+              >
+                Chrome, Edge, or Brave <ExternalLink className="h-3 w-3" />
+              </a>
+              <a
+                className="inline-flex items-center gap-1 text-foreground underline underline-offset-4"
+                href="https://addons.mozilla.org/firefox/addon/alby/"
+                rel="noreferrer"
+                target="_blank"
+              >
+                Firefox <ExternalLink className="h-3 w-3" />
+              </a>
+            </div>
+          </div>
         ) : null}
         {error ? (
           <p className="mt-4 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-left text-sm text-destructive">
