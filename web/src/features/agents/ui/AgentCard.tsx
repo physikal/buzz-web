@@ -1,6 +1,7 @@
 import {
   AlertTriangle,
   Bot,
+  Brain,
   EllipsisVertical,
   KeyRound,
   MessageSquarePlus,
@@ -29,6 +30,7 @@ export function AgentCard({
   onAuthenticate,
   onDelete,
   onEdit,
+  onViewMemory,
   onSetRunning,
 }: {
   agent: ManagedAgent;
@@ -37,6 +39,7 @@ export function AgentCard({
   onAuthenticate: () => void;
   onDelete: () => void;
   onEdit: () => void;
+  onViewMemory: () => void;
   onSetRunning: (running: boolean) => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -110,6 +113,17 @@ export function AgentCard({
               type="button"
             >
               <MessageSquarePlus className="h-4 w-4" /> Add to channel
+            </button>
+            <button
+              className="flex h-9 w-full items-center gap-2 rounded px-2 text-sm hover:bg-accent"
+              disabled={pending}
+              onClick={() => {
+                setMenuOpen(false);
+                onViewMemory();
+              }}
+              type="button"
+            >
+              <Brain className="h-4 w-4" /> View memory
             </button>
             {agent.credential_mode === "subscription" ? (
               <button

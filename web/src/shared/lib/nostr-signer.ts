@@ -5,6 +5,7 @@ import {
 } from "nostr-tools/pure";
 import {
   getUnlockedOwnerPublicKey,
+  deriveMemoryAddressWithOwnerVault,
   hasUnlockedOwnerVault,
   nip44DecryptWithOwnerVault,
   nip44EncryptWithOwnerVault,
@@ -169,4 +170,31 @@ export async function nip44DecryptFromSelf(
     throw new Error("This browser signer does not support NIP-44 decryption.");
   const pubkey = await getNip07PublicKey();
   return provider.nip44.decrypt(pubkey, ciphertext);
+}
+
+export async function nip44DecryptFromPeer(
+  peerPubkey: string,
+  ciphertext: string,
+): Promise<string> {
+  if (!/^[0-9a-f]{64}$/u.test(peerPubkey))
+    throw new Error("The peer public key is invalid.");
+  if (ciphertext.length > 100 * 1024)
+    throw new Error("Encrypted content is too large.");
+  if (hasUnlockedOwnerVault())
+    return nip44DecryptWithOwnerVault(ciphertext, peerPubkey);
+  const provider = typeof window === "undefined" ? undefined : window.nostr;
+  if (!provider?.nip44)
+    throw new Error("This browser signer does not support NIP-44 decryption.");
+  return provider.nip44.decrypt(peerPubkey, ciphertext);
+}
+
+export async function deriveAgentMemoryAddress(
+  agentPubkey: string,
+  slug: string,
+): Promise<string> {
+  if (!hasUnlockedOwnerVault())
+    throw new Error(
+      "Memory address verification requires the first-party owner vault.",
+    );
+  return deriveMemoryAddressWithOwnerVault(agentPubkey, slug);
 }

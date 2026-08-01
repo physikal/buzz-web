@@ -37,6 +37,7 @@ import {
   AgentCreateDialog,
 } from "./AgentCreateDialog";
 import { AgentEditDialog } from "./AgentEditDialog";
+import { AgentMemoryDialog } from "./AgentMemoryDialog";
 import { OwnerConnection } from "./OwnerConnection";
 import { PersonasSection } from "./PersonasSection";
 import { TeamsSection } from "./TeamsSection";
@@ -159,6 +160,9 @@ function AgentsWorkspace({
   const [agentToAuthenticate, setAgentToAuthenticate] =
     useState<ManagedAgent | null>(null);
   const [agentToEdit, setAgentToEdit] = useState<ManagedAgent | null>(null);
+  const [agentToInspect, setAgentToInspect] = useState<ManagedAgent | null>(
+    null,
+  );
   const [personaToDeploy, setPersonaToDeploy] = useState<AgentPersona | null>(
     null,
   );
@@ -328,6 +332,7 @@ function AgentsWorkspace({
                     onAuthenticate={() => setAgentToAuthenticate(agent)}
                     onDelete={() => deleteMutation.mutate(agent.id)}
                     onEdit={() => setAgentToEdit(agent)}
+                    onViewMemory={() => setAgentToInspect(agent)}
                     onSetRunning={(running) =>
                       stateMutation.mutate({ id: agent.id, running })
                     }
@@ -409,6 +414,11 @@ function AgentsWorkspace({
           if (!agentToEdit) return;
           await editMutation.mutateAsync({ id: agentToEdit.id, input });
         }}
+      />
+      <AgentMemoryDialog
+        agent={agentToInspect}
+        ownerPubkey={ownerPubkey}
+        onClose={() => setAgentToInspect(null)}
       />
     </div>
   );

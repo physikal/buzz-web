@@ -44,7 +44,18 @@ type WorkerRequest =
     }
   | { id: number; action: "sign"; event: UnsignedEvent }
   | { id: number; action: "nip44-encrypt"; plaintext: string }
-  | { id: number; action: "nip44-decrypt"; ciphertext: string }
+  | {
+      id: number;
+      action: "nip44-decrypt-peer";
+      ciphertext: string;
+      peerPubkey: string;
+    }
+  | {
+      id: number;
+      action: "nip44-memory-address";
+      peerPubkey: string;
+      slug: string;
+    }
   | { id: number; action: "public-key" | "lock" };
 
 let secretKey: Uint8Array<ArrayBuffer> | null = null;
@@ -57,6 +68,28 @@ function setSecret(next: Uint8Array<ArrayBuffer>): void {
 function requireSecret(): Uint8Array<ArrayBuffer> {
   if (!secretKey) throw new Error("The owner vault is locked.");
   return secretKey;
+}
+
+function requirePeerPubkey(value: string): string {
+  if (!/^[0-9a-f]{64}$/u.test(value))
+    throw new Error("The peer public key is invalid.");
+  return value;
+}
+
+function toHex(value: ArrayBuffer): string {
+  return [...new Uint8Array(value)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function validMemorySlug(value: string): boolean {
+  return (
+    value === "core" ||
+    (new TextEncoder().encode(value).length <= 255 &&
+      /^mem\/[a-z0-9][a-z0-9_-]{0,63}(\/[a-z0-9][a-z0-9_-]{0,63})*$/u.test(
+        value,
+      ))
+  );
 }
 
 function parseSecret(value: string): Uint8Array<ArrayBuffer> {
@@ -209,17 +242,43 @@ self.onmessage = async (message: MessageEvent<WorkerRequest>) => {
         }
         break;
       }
-      case "nip44-decrypt": {
+      case "nip44-decrypt-peer": {
         if (request.ciphertext.length > 100 * 1024)
           throw new Error("NIP-44 ciphertext is too large.");
         const current = requireSecret();
         const conversationKey = nip44.utils.getConversationKey(
           current,
-          getPublicKey(current),
+          requirePeerPubkey(request.peerPubkey),
         );
         try {
           result = nip44.decrypt(request.ciphertext, conversationKey);
         } finally {
+          conversationKey.fill(0);
+        }
+        break;
+      }
+      case "nip44-memory-address": {
+        if (!validMemorySlug(request.slug))
+          throw new Error("The memory slug is invalid.");
+        const conversationKey = nip44.utils.getConversationKey(
+          requireSecret(),
+          requirePeerPubkey(request.peerPubkey),
+        );
+        const hmacMaterial = new Uint8Array(conversationKey);
+        try {
+          const key = await crypto.subtle.importKey(
+            "raw",
+            hmacMaterial,
+            { name: "HMAC", hash: "SHA-256" },
+            false,
+            ["sign"],
+          );
+          const prefix = new TextEncoder().encode(
+            `agent-memory/v1/d-tag\0${request.slug}`,
+          );
+          result = toHex(await crypto.subtle.sign("HMAC", key, prefix));
+        } finally {
+          hmacMaterial.fill(0);
           conversationKey.fill(0);
         }
         break;

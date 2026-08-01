@@ -157,13 +157,28 @@ export async function nip44EncryptWithOwnerVault(
 
 export async function nip44DecryptWithOwnerVault(
   ciphertext: string,
+  peerPubkey?: string,
 ): Promise<string> {
   const plaintext = await request<string>({
-    action: "nip44-decrypt",
+    action: "nip44-decrypt-peer",
     ciphertext,
+    peerPubkey: peerPubkey ?? activePubkey,
   });
   armAutoLock();
   return plaintext;
+}
+
+export async function deriveMemoryAddressWithOwnerVault(
+  peerPubkey: string,
+  slug: string,
+): Promise<string> {
+  const address = await request<string>({
+    action: "nip44-memory-address",
+    peerPubkey,
+    slug,
+  });
+  armAutoLock();
+  return address;
 }
 
 export async function lockOwnerVault(): Promise<void> {

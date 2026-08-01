@@ -1,6 +1,7 @@
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { expect, test } from "@playwright/test";
-import { finalizeEvent, verifyEvent } from "nostr-tools/pure";
+import { v2 as nip44 } from "nostr-tools/nip44";
+import { finalizeEvent, getPublicKey, verifyEvent } from "nostr-tools/pure";
 
 test("home page loads with Buzz branding", async ({ page }) => {
   await page.goto("/");
@@ -34,6 +35,9 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   });
 
   const token = "42".repeat(32);
+  const agentSecret = new Uint8Array(32);
+  agentSecret[31] = 3;
+  const agentPubkey = getPublicKey(agentSecret);
   let ownerPubkey = "";
   const managedAgents: Array<Record<string, unknown>> = [];
   const submittedEvents: Array<{
@@ -150,7 +154,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
       const agent = {
         id: "55555555-5555-4555-8555-555555555555",
         owner_pubkey: ownerPubkey,
-        agent_pubkey: "55".repeat(32),
+        agent_pubkey: agentPubkey,
         name: input.name,
         system_prompt: input.system_prompt,
         runtime: input.runtime,
@@ -518,6 +522,42 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
               (event) => event.kind === 30315,
             ))
               socket.send(JSON.stringify(["EVENT", subscriptionId, status]));
+          }
+          if (filters.includes("30174") && ownerPubkey) {
+            const conversationKey = nip44.utils.getConversationKey(
+              agentSecret,
+              ownerPubkey,
+            );
+            const slug = "core";
+            const address = createHmac("sha256", conversationKey)
+              .update(`agent-memory/v1/d-tag\0${slug}`)
+              .digest("hex");
+            const content = nip44.encrypt(
+              JSON.stringify({
+                slug,
+                profile: "Review carefully and preserve user intent.",
+              }),
+              conversationKey,
+            );
+            conversationKey.fill(0);
+            socket.send(
+              JSON.stringify([
+                "EVENT",
+                subscriptionId,
+                finalizeEvent(
+                  {
+                    kind: 30174,
+                    created_at: createdAt,
+                    content,
+                    tags: [
+                      ["d", address],
+                      ["p", ownerPubkey],
+                    ],
+                  },
+                  agentSecret,
+                ),
+              ]),
+            );
           }
           if (filters.includes('"kinds":[0]')) {
             socket.send(
@@ -944,6 +984,26 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     .fill("team-api-key");
   await page.getByRole("button", { name: "Deploy team", exact: true }).click();
   await expect.poll(() => managedAgents.length).toBe(2);
+  const reviewAgentCard = page
+    .locator("article")
+    .filter({
+      hasText: "Review lead",
+    })
+    .first();
+  await reviewAgentCard
+    .getByRole("button", { name: "Review lead actions" })
+    .click();
+  await reviewAgentCard.getByRole("button", { name: "View memory" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Review lead memory" }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Review carefully and preserve user intent."),
+  ).toBeVisible();
+  await page
+    .getByRole("dialog", { name: "Review lead memory" })
+    .getByRole("button", { name: "Close" })
+    .click();
   await page.getByRole("link", { name: "Settings" }).click();
   await page.getByRole("button", { name: "Templates" }).click();
   await expect(
@@ -1003,7 +1063,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
           (event) =>
             event.kind === 9000 &&
             event.tags.some(
-              (tag) => tag[0] === "p" && tag[1] === "55".repeat(32),
+              (tag) => tag[0] === "p" && tag[1] === agentPubkey,
             ) &&
             event.tags.some((tag) => tag[0] === "role" && tag[1] === "bot"),
         ) &&
