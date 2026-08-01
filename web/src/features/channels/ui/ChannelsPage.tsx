@@ -27,7 +27,6 @@ import { OwnerConnection } from "@/features/agents/ui/OwnerConnection";
 import {
   listChannelTemplates,
   renderCanvasTemplate,
-  setChannelCanvas,
 } from "@/features/channel-templates/channel-template-api";
 import { TemplateDeployDialog } from "@/features/channel-templates/ui/TemplateDeployDialog";
 import { lockOwnerVault } from "@/features/owner-vault/lib/vault-worker-client";
@@ -55,6 +54,7 @@ import {
   searchMessages,
   sendPresence,
   sendChannelMessage,
+  setChannelCanvas,
   sendTypingIndicator,
   updateChannel,
   type ChannelMessage,

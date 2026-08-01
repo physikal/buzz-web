@@ -507,6 +507,12 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
             ))
               socket.send(JSON.stringify(["EVENT", subscriptionId, template]));
           }
+          if (filters.includes("40100")) {
+            for (const canvas of submittedEvents.filter(
+              (event) => event.kind === 40100,
+            ))
+              socket.send(JSON.stringify(["EVENT", subscriptionId, canvas]));
+          }
           if (filters.includes('"kinds":[0]')) {
             socket.send(
               JSON.stringify([
@@ -617,6 +623,27 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
             (tag) => tag[0] === "p" && tag[1] === "aa".repeat(32),
           ) &&
           event.tags.some((tag) => tag[0] === "role" && tag[1] === "admin"),
+      ),
+    )
+    .toBe(true);
+  await expect(page.getByText("No canvas set for this channel.")).toBeVisible();
+  await page.getByRole("button", { name: "Create canvas" }).click();
+  await page
+    .getByLabel("Canvas content")
+    .fill("# General canvas\n\nShared **Markdown** notes.");
+  await page.getByRole("button", { name: "Save canvas" }).click();
+  await expect(page.getByText("General canvas")).toBeVisible();
+  await expect
+    .poll(() =>
+      submittedEvents.some(
+        (event) =>
+          event.kind === 40100 &&
+          event.content === "# General canvas\n\nShared **Markdown** notes." &&
+          event.tags.some(
+            (tag) =>
+              tag[0] === "h" &&
+              tag[1] === "44444444-4444-4444-8444-444444444444",
+          ),
       ),
     )
     .toBe(true);

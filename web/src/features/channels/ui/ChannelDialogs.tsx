@@ -5,6 +5,7 @@ import { parsePubkey, truncatePubkey } from "@/shared/lib/pubkey";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import type { Channel } from "../channel-api";
+import { ChannelCanvas } from "./ChannelCanvas";
 import { ChannelMembersSection } from "./ChannelMembersSection";
 
 function DialogFrame({
@@ -315,6 +316,12 @@ function ChannelSettingsForm({
           </Button>
         </div>
       </form>
+      {channel.channelType !== "dm" ? (
+        <section className="mt-6 border-t pt-5">
+          <h3 className="mb-3 text-sm font-semibold">Canvas</h3>
+          <ChannelCanvas channelId={channel.id} />
+        </section>
+      ) : null}
       <ChannelMembersSection channel={channel} ownerPubkey={ownerPubkey} />
       <div className="mt-6 flex flex-wrap gap-2 border-t pt-4">
         <Button onClick={onLeave} variant="outline">

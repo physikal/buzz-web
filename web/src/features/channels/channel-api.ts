@@ -66,6 +66,13 @@ export type ChannelMember = {
   role: "owner" | "admin" | "member" | "guest" | "bot";
 };
 
+export type ChannelCanvas = {
+  content: string;
+  eventId: string | null;
+  updatedAt: number | null;
+  author: string | null;
+};
+
 const STARTER_NAMESPACE = "3ce33bea-8f09-5f1b-9c85-8a7d2659e6b0";
 const STARTER_CHANNELS = [
   {
@@ -206,6 +213,41 @@ export async function createChannel(input: {
     ],
   });
   return id;
+}
+
+export async function getChannelCanvas(
+  channelId: string,
+): Promise<ChannelCanvas> {
+  const events = await queryEvents(
+    relayWsUrl(),
+    { kinds: [40100], "#h": [channelId], limit: 100 },
+    { requireNip07: true },
+  );
+  const latest = events
+    .filter(
+      (event) =>
+        event.content.length <= 128 * 1024 &&
+        event.tags.some(
+          (tag) => tag.length === 2 && tag[0] === "h" && tag[1] === channelId,
+        ),
+    )
+    .sort((a, b) => b.created_at - a.created_at || a.id.localeCompare(b.id))[0];
+  return latest
+    ? {
+        content: latest.content,
+        eventId: latest.id,
+        updatedAt: latest.created_at,
+        author: latest.pubkey,
+      }
+    : { content: "", eventId: null, updatedAt: null, author: null };
+}
+
+export async function setChannelCanvas(channelId: string, content: string) {
+  if (!/^[0-9a-f-]{36}$/iu.test(channelId))
+    throw new Error("The relay returned an invalid channel identifier.");
+  if (content.length > 128 * 1024)
+    throw new Error("Canvas content is limited to 128 KB.");
+  await submitEvent({ kind: 40100, tags: [["h", channelId]], content });
 }
 
 export async function openDm(pubkeys: string[]): Promise<string> {

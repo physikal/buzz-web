@@ -173,14 +173,6 @@ export async function deleteChannelTemplate(
   });
 }
 
-export async function setChannelCanvas(channelId: string, content: string) {
-  if (!/^[0-9a-f-]{36}$/iu.test(channelId))
-    throw new Error("The relay returned an invalid channel identifier.");
-  if (content.length > 128 * 1024)
-    throw new Error("Canvas content is limited to 128 KB.");
-  await submitEvent({ kind: 40100, tags: [["h", channelId]], content });
-}
-
 export function renderCanvasTemplate(
   template: ChannelTemplate,
   channelName: string,
