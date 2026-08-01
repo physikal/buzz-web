@@ -513,6 +513,12 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
             ))
               socket.send(JSON.stringify(["EVENT", subscriptionId, canvas]));
           }
+          if (filters.includes("30315")) {
+            for (const status of submittedEvents.filter(
+              (event) => event.kind === 30315,
+            ))
+              socket.send(JSON.stringify(["EVENT", subscriptionId, status]));
+          }
           if (filters.includes('"kinds":[0]')) {
             socket.send(
               JSON.stringify([
@@ -674,6 +680,19 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await page.getByRole("link", { name: "Settings" }).click();
   await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Profile" })).toBeVisible();
+  await page.getByLabel("Status emoji").fill("focus");
+  await page.getByLabel("Status text").fill("Reviewing the web client");
+  await page.getByRole("button", { name: "Set status" }).click();
+  await expect
+    .poll(() => {
+      const status = submittedEvents.find((event) => event.kind === 30315);
+      return (
+        status?.content === "Reviewing the web client" &&
+        status.tags.some((tag) => tag[0] === "d" && tag[1] === "general") &&
+        status.tags.some((tag) => tag[0] === "emoji" && tag[1] === "focus")
+      );
+    })
+    .toBe(true);
   await page.getByRole("button", { name: "Invites" }).click();
   await expect(
     page.getByRole("button", { name: "Invite to community" }),

@@ -35,9 +35,11 @@ import { CustomEmojiPanel } from "./CustomEmojiPanel";
 import { ModerationPanel } from "./ModerationPanel";
 import {
   getOwnerProfile,
+  getUserStatus,
   type ProfileInput,
   readNotificationSettings,
   updateOwnerProfile,
+  setUserStatus,
   uploadAvatar,
   writeNotificationSettings,
 } from "../settings-api";
@@ -290,6 +292,7 @@ function ProfileForm({
             }
           />
         </label>
+        <UserStatusPanel ownerPubkey={ownerPubkey} />
         <div className="rounded-md border p-3">
           <p className="text-sm font-medium">Public key</p>
           <p className="mt-1 break-all font-mono text-xs text-muted-foreground">
@@ -304,6 +307,106 @@ function ProfileForm({
         </Button>
       </form>
     </Panel>
+  );
+}
+
+function UserStatusPanel({ ownerPubkey }: { ownerPubkey: string }) {
+  const queryClient = useQueryClient();
+  const query = useQuery({
+    queryKey: ["user-status", ownerPubkey],
+    queryFn: () => getUserStatus(ownerPubkey),
+  });
+  if (query.isLoading)
+    return <p className="text-sm text-muted-foreground">Loading status…</p>;
+  return (
+    <UserStatusEditor
+      key={`${query.data?.updatedAt ?? 0}:${query.data?.text ?? ""}:${query.data?.emoji ?? ""}`}
+      emoji={query.data?.emoji ?? ""}
+      text={query.data?.text ?? ""}
+      onSaved={() =>
+        queryClient.invalidateQueries({
+          queryKey: ["user-status", ownerPubkey],
+        })
+      }
+    />
+  );
+}
+
+function UserStatusEditor({
+  text: initialText,
+  emoji: initialEmoji,
+  onSaved,
+}: {
+  text: string;
+  emoji: string;
+  onSaved: () => Promise<unknown>;
+}) {
+  const [text, setText] = useState(initialText);
+  const [emoji, setEmoji] = useState(initialEmoji);
+  const mutation = useMutation({
+    mutationFn: ({ text, emoji }: { text: string; emoji: string }) =>
+      setUserStatus(text, emoji),
+    onSuccess: async (_, input) => {
+      await onSaved();
+      toast.success(
+        input.text || input.emoji ? "Status updated" : "Status cleared",
+      );
+    },
+    onError: (error) =>
+      toast.error("Could not update status", { description: error.message }),
+  });
+  return (
+    <div className="rounded-md border p-4">
+      <div>
+        <p className="text-sm font-medium">Custom status</p>
+        <p className="text-sm text-muted-foreground">
+          Shown beside your profile across Buzz clients.
+        </p>
+      </div>
+      <div className="mt-3 flex gap-2">
+        <Input
+          aria-label="Status emoji"
+          className="w-16 shrink-0 text-center"
+          maxLength={64}
+          placeholder="🙂"
+          value={emoji}
+          onChange={(event) => setEmoji(event.target.value)}
+        />
+        <Input
+          aria-label="Status text"
+          maxLength={160}
+          placeholder="What are you working on?"
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+        />
+      </div>
+      <div className="mt-3 flex gap-2">
+        <Button
+          disabled={mutation.isPending || (!text.trim() && !emoji.trim())}
+          onClick={() => mutation.mutate({ text, emoji })}
+          size="sm"
+          type="button"
+          variant="outline"
+        >
+          {mutation.isPending ? "Saving…" : "Set status"}
+        </Button>
+        {initialText || initialEmoji ? (
+          <Button
+            disabled={mutation.isPending}
+            onClick={() => {
+              setText("");
+              setEmoji("");
+              mutation.mutate({ text: "", emoji: "" });
+            }}
+            size="sm"
+            type="button"
+            variant="ghost"
+          >
+            Clear
+          </Button>
+        ) : null}
+      </div>
+    </div>
   );
 }
 
