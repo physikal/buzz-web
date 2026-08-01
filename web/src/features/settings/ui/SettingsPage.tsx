@@ -6,6 +6,7 @@ import {
   BookMarked,
   Camera,
   CalendarClock,
+  FileStack,
   FolderKanban,
   GitFork,
   LogOut,
@@ -22,6 +23,7 @@ import { toast } from "sonner";
 
 import buzzAppIcon from "@/assets/app-icon@3x.png";
 import { OwnerConnection } from "@/features/agents/ui/OwnerConnection";
+import { ChannelTemplatesPanel } from "@/features/channel-templates/ui/ChannelTemplatesPanel";
 import { lockOwnerVault } from "@/features/owner-vault/lib/vault-worker-client";
 import { RemindersPanel } from "@/features/reminders/ui/RemindersPanel";
 import { truncatePubkey } from "@/shared/lib/pubkey";
@@ -44,6 +46,7 @@ type Section =
   | "profile"
   | "notifications"
   | "appearance"
+  | "channel-templates"
   | "reminders"
   | "community-members"
   | "custom-emoji"
@@ -111,6 +114,9 @@ function SettingsWorkspace({
           ) : null}
           {section === "notifications" ? <NotificationsPanel /> : null}
           {section === "appearance" ? <AppearancePanel /> : null}
+          {section === "channel-templates" ? (
+            <ChannelTemplatesPanel ownerPubkey={ownerPubkey} />
+          ) : null}
           {section === "reminders" ? (
             <RemindersPanel ownerPubkey={ownerPubkey} />
           ) : null}
@@ -140,6 +146,7 @@ function SettingsNav({
     ["profile", "Profile", <UserRound key="profile" />],
     ["notifications", "Notifications", <Bell key="notifications" />],
     ["appearance", "Appearance", <MonitorCog key="appearance" />],
+    ["channel-templates", "Templates", <FileStack key="templates" />],
     ["reminders", "Reminders", <CalendarClock key="reminders" />],
     ["community-members", "Invites", <Ticket key="community-members" />],
     ["moderation", "Moderation", <ShieldAlert key="moderation" />],

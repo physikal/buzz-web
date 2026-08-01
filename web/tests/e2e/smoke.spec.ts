@@ -501,6 +501,12 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
             ))
               socket.send(JSON.stringify(["EVENT", subscriptionId, team]));
           }
+          if (filters.includes("30078")) {
+            for (const template of submittedEvents.filter(
+              (event) => event.kind === 30078,
+            ))
+              socket.send(JSON.stringify(["EVENT", subscriptionId, template]));
+          }
           if (filters.includes('"kinds":[0]')) {
             socket.send(
               JSON.stringify([
@@ -892,8 +898,75 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     .fill("team-api-key");
   await page.getByRole("button", { name: "Deploy team", exact: true }).click();
   await expect.poll(() => managedAgents.length).toBe(2);
+  await page.getByRole("link", { name: "Settings" }).click();
+  await page.getByRole("button", { name: "Templates" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Channel templates" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Create" }).click();
+  await page.getByLabel("Name", { exact: true }).fill("Review room");
+  await page.getByLabel("Description (optional)").fill("Review work together");
+  await page
+    .getByLabel("Canvas template (optional)")
+    .fill("# {channel.name}\n\nCreated from {template.name}");
+  await page.getByRole("checkbox", { name: "Review lead" }).check();
+  await page.getByRole("checkbox", { name: "Review crew" }).check();
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect
+    .poll(() => {
+      const template = submittedEvents.find((event) => event.kind === 30078);
+      return (
+        template?.tags.some(
+          (tag) =>
+            tag[0] === "d" &&
+            /^buzz-web:channel-template:[0-9a-f]{32}$/.test(tag[1] ?? ""),
+        ) === true &&
+        !template.content.includes("Review room") &&
+        !template.content.includes("Review changes carefully") &&
+        !template.content.includes("{channel.name}")
+      );
+    })
+    .toBe(true);
   await page.getByRole("link", { name: "Channels" }).click();
   await expect(page.getByRole("heading", { name: "general" })).toBeVisible();
+  await page.getByRole("button", { name: "Create channel" }).click();
+  await page.getByLabel("Channel name").fill("release-review");
+  await page.getByLabel("Template").selectOption({ label: "Review room" });
+  await page
+    .getByRole("dialog", { name: "Create channel" })
+    .getByRole("button", { name: "Create channel" })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Finish template setup" }),
+  ).toBeVisible();
+  await page
+    .getByLabel("Anthropic API key", { exact: true })
+    .fill("template-api-key");
+  await page.getByRole("button", { name: "Add agents" }).click();
+  await expect.poll(() => managedAgents.length).toBe(3);
+  await expect
+    .poll(() => {
+      const canvas = submittedEvents.find(
+        (event) =>
+          event.kind === 40100 &&
+          event.content === "# release-review\n\nCreated from Review room",
+      );
+      return (
+        Boolean(canvas) &&
+        submittedEvents.some(
+          (event) =>
+            event.kind === 9000 &&
+            event.tags.some(
+              (tag) => tag[0] === "p" && tag[1] === "55".repeat(32),
+            ) &&
+            event.tags.some((tag) => tag[0] === "role" && tag[1] === "bot"),
+        ) &&
+        !submittedEvents.some((event) =>
+          event.content.includes("template-api-key"),
+        )
+      );
+    })
+    .toBe(true);
 
   await page.reload();
   await page.setViewportSize({ width: 390, height: 844 });

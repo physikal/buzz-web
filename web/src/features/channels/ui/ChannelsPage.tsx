@@ -21,7 +21,15 @@ import { toast } from "sonner";
 
 import buzzAppIcon from "@/assets/app-icon@3x.png";
 import { listAgents } from "@/features/agents/agent-api";
+import { listPersonas } from "@/features/agents/persona-api";
+import { listTeams } from "@/features/agents/team-api";
 import { OwnerConnection } from "@/features/agents/ui/OwnerConnection";
+import {
+  listChannelTemplates,
+  renderCanvasTemplate,
+  setChannelCanvas,
+} from "@/features/channel-templates/channel-template-api";
+import { TemplateDeployDialog } from "@/features/channel-templates/ui/TemplateDeployDialog";
 import { lockOwnerVault } from "@/features/owner-vault/lib/vault-worker-client";
 import { ReminderDialog } from "@/features/reminders/ui/ReminderDialog";
 import { getCustomEmoji } from "@/features/settings/custom-emoji-api";
@@ -118,6 +126,10 @@ function ChannelsWorkspace({
   const [reminderTarget, setReminderTarget] = useState<ChannelMessage | null>(
     null,
   );
+  const [templateSetup, setTemplateSetup] = useState<{
+    channelId: string;
+    templateId: string;
+  } | null>(null);
 
   const channelsQuery = useQuery({
     queryKey: ["channels", ownerPubkey],
@@ -131,6 +143,21 @@ function ChannelsWorkspace({
     staleTime: 10_000,
     retry: false,
   });
+  const templatesQuery = useQuery({
+    queryKey: ["channel-templates", ownerPubkey],
+    queryFn: () => listChannelTemplates(ownerPubkey),
+    staleTime: 30_000,
+  });
+  const personasQuery = useQuery({
+    queryKey: ["agent-personas", ownerPubkey],
+    queryFn: () => listPersonas(ownerPubkey),
+    staleTime: 30_000,
+  });
+  const teamsQuery = useQuery({
+    queryKey: ["agent-teams", ownerPubkey],
+    queryFn: () => listTeams(ownerPubkey),
+    staleTime: 30_000,
+  });
   const customEmojiQuery = useQuery({
     queryKey: ["custom-emoji", ownerPubkey],
     queryFn: () => getCustomEmoji(ownerPubkey),
@@ -142,6 +169,9 @@ function ChannelsWorkspace({
     channels.find((channel) => channel.id === selectedId) ??
     channels[0] ??
     null;
+  const templateSetupDefinition = templateSetup
+    ? templatesQuery.data?.find((item) => item.id === templateSetup.templateId)
+    : null;
   const messagesQuery = useQuery({
     queryKey: ["channel-messages", selected?.id, ownerPubkey],
     queryFn: () => listChannelMessages(selected?.id ?? "", ownerPubkey),
@@ -273,14 +303,47 @@ function ChannelsWorkspace({
     toast.error(title, { description: error.message });
 
   const createMutation = useMutation({
-    mutationFn: createChannel,
-    onSuccess: async (id) => {
+    mutationFn: async (input: {
+      name: string;
+      description: string;
+      channelType: "stream" | "forum";
+      visibility: "open" | "private";
+      templateId?: string;
+    }) => {
+      const id = await createChannel(input);
+      const template = templatesQuery.data?.find(
+        (item) => item.id === input.templateId,
+      );
+      if (template?.canvasTemplate) {
+        try {
+          await setChannelCanvas(
+            id,
+            renderCanvasTemplate(template, input.name),
+          );
+        } catch (error) {
+          toast.warning("Channel created without its canvas", {
+            description:
+              error instanceof Error ? error.message : "Canvas setup failed.",
+          });
+        }
+      }
+      return id;
+    },
+    onSuccess: async (id, input) => {
       await queryClient.invalidateQueries({
         queryKey: ["channels", ownerPubkey],
       });
       setSelectedId(id);
       setCreateOpen(false);
       toast.success("Channel created");
+      const template = templatesQuery.data?.find(
+        (item) => item.id === input.templateId,
+      );
+      if (
+        template &&
+        (template.personaIds.length > 0 || template.teamIds.length > 0)
+      )
+        setTemplateSetup({ channelId: id, templateId: template.id });
     },
     onError: mutationError("Could not create channel"),
   });
@@ -607,11 +670,33 @@ function ChannelsWorkspace({
       <CreateChannelDialog
         open={createOpen}
         pending={createMutation.isPending}
+        templates={templatesQuery.data ?? []}
         onClose={() => setCreateOpen(false)}
         onSubmit={(input) =>
           createMutation.mutateAsync(input).then(() => undefined)
         }
       />
+      {templateSetup && templateSetupDefinition ? (
+        <TemplateDeployDialog
+          channelId={templateSetup.channelId}
+          personas={personasQuery.data ?? []}
+          teams={teamsQuery.data ?? []}
+          template={templateSetupDefinition}
+          onClose={() => setTemplateSetup(null)}
+          onDeployed={(result) => {
+            setTemplateSetup(null);
+            void queryClient.invalidateQueries({
+              queryKey: ["managed-agents", ownerPubkey],
+            });
+            if (result.failures.length)
+              toast.warning(
+                `${result.failures.length} template agent${result.failures.length === 1 ? "" : "s"} could not be added`,
+                { description: result.failures.join("\n") },
+              );
+            else toast.success("Template agents added");
+          }}
+        />
+      ) : null}
       <NewDmDialog
         open={dmOpen}
         pending={dmMutation.isPending}

@@ -3,27 +3,32 @@ import { type FormEvent, useState } from "react";
 
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
+import type { ChannelTemplate } from "@/features/channel-templates/channel-template-api";
 
 export function CreateChannelDialog({
   open,
   pending,
+  templates,
   onClose,
   onSubmit,
 }: {
   open: boolean;
   pending: boolean;
+  templates: ChannelTemplate[];
   onClose: () => void;
   onSubmit: (input: {
     name: string;
     description: string;
     channelType: "stream" | "forum";
     visibility: "open" | "private";
+    templateId?: string;
   }) => Promise<void>;
 }) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [channelType, setChannelType] = useState<"stream" | "forum">("stream");
   const [visibility, setVisibility] = useState<"open" | "private">("open");
+  const [templateId, setTemplateId] = useState("");
   if (!open) return null;
 
   async function submit(event: FormEvent) {
@@ -34,9 +39,11 @@ export function CreateChannelDialog({
       description: description.trim(),
       channelType,
       visibility,
+      templateId: templateId || undefined,
     });
     setName("");
     setDescription("");
+    setTemplateId("");
   }
 
   return (
@@ -87,6 +94,36 @@ export function CreateChannelDialog({
           value={name}
           onChange={(event) => setName(event.target.value)}
         />
+        {templates.length ? (
+          <label
+            className="mt-4 block text-sm font-medium"
+            htmlFor="channel-template"
+          >
+            Template
+            <select
+              className="mt-2 h-10 w-full rounded-md border bg-background px-3 text-sm"
+              disabled={pending}
+              id="channel-template"
+              value={templateId}
+              onChange={(event) => {
+                const value = event.target.value;
+                setTemplateId(value);
+                const template = templates.find((item) => item.id === value);
+                if (!template) return;
+                setDescription(template.description);
+                setChannelType(template.channelType);
+                setVisibility(template.visibility);
+              }}
+            >
+              <option value="">No template</option>
+              {templates.map((template) => (
+                <option key={template.id} value={template.id}>
+                  {template.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
         <fieldset className="mt-4">
           <legend className="text-sm font-medium">Channel type</legend>
           <div className="mt-2 grid grid-cols-2 gap-2">
