@@ -182,6 +182,31 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
       body: JSON.stringify({ agents: managedAgents }),
     });
   });
+  await page.route("**/api/agents/*/logs", async (route) => {
+    const request = route.request();
+    const authorization = request.headers().authorization ?? "";
+    const event = JSON.parse(
+      Buffer.from(authorization.slice("Nostr ".length), "base64").toString(
+        "utf8",
+      ),
+    );
+    expect(verifyEvent(event)).toBe(true);
+    expect(event.pubkey).toBe(ownerPubkey);
+    expect(event.tags).toContainEqual(["u", request.url()]);
+    expect(event.tags).toContainEqual(["method", "GET"]);
+    expect(event.tags.some((tag: string[]) => tag[0] === "payload")).toBe(
+      false,
+    );
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      headers: { "Cache-Control": "no-store" },
+      body: JSON.stringify({
+        output: "[stdout] ACP session ready\n[stderr] [REDACTED]",
+        truncated: true,
+      }),
+    });
+  });
   await page.route("**/api/invites", async (route) => {
     const request = route.request();
     const body = request.postData() ?? "";
@@ -1078,6 +1103,19 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     .toBe(true);
   await page
     .getByRole("dialog", { name: "Review lead activity" })
+    .getByRole("button", { name: "Close" })
+    .click();
+  await reviewAgentCard
+    .getByRole("button", { name: "Review lead actions" })
+    .click();
+  await reviewAgentCard.getByRole("button", { name: "Harness log" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Review lead harness log" }),
+  ).toBeVisible();
+  await expect(page.getByText("ACP session ready")).toBeVisible();
+  await expect(page.getByText("Older output was discarded")).toBeVisible();
+  await page
+    .getByRole("dialog", { name: "Review lead harness log" })
     .getByRole("button", { name: "Close" })
     .click();
   await page.getByRole("link", { name: "Settings" }).click();

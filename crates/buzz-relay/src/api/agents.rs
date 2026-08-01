@@ -357,6 +357,21 @@ pub async fn auth_status(
     proxy_agent_host("GET", *tenant.community().as_uuid(), id, None).await
 }
 
+/// Return a bounded, redacted, in-memory tail from the private agent host.
+pub async fn agent_logs(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+    headers: HeaderMap,
+) -> Result<(HeaderMap, Json<Value>), (StatusCode, Json<Value>)> {
+    let path = format!("/api/agents/{id}/logs");
+    let (tenant, owner) = authorize_owner(&state, &headers, "GET", &path, None, false).await?;
+    require_owned_agent(&state, tenant.community(), &owner.to_hex(), id).await?;
+    let payload = proxy_agent_host_logs(*tenant.community().as_uuid(), id).await?;
+    let mut response_headers = HeaderMap::new();
+    response_headers.insert(header::CACHE_CONTROL, "no-store".parse().unwrap());
+    Ok((response_headers, payload))
+}
+
 /// Start the fixed vendor subscription-login command for one stopped agent.
 pub async fn start_auth(
     State(state): State<Arc<AppState>>,
@@ -425,15 +440,7 @@ async fn require_owned_subscription_agent(
     owner_pubkey: &str,
     id: Uuid,
 ) -> Result<(), (StatusCode, Json<Value>)> {
-    let record = state
-        .db
-        .get_owned_managed_agent_host(community, owner_pubkey, id)
-        .await
-        .map_err(|error| {
-            tracing::error!(%error, "managed-agent auth lookup failed");
-            api_error(StatusCode::INTERNAL_SERVER_ERROR, "internal server error")
-        })?
-        .ok_or_else(|| api_error(StatusCode::NOT_FOUND, "agent not found"))?;
+    let record = require_owned_agent(state, community, owner_pubkey, id).await?;
     if record.credential_mode != "subscription" {
         return Err(api_error(
             StatusCode::CONFLICT,
@@ -443,10 +450,49 @@ async fn require_owned_subscription_agent(
     Ok(())
 }
 
+async fn require_owned_agent(
+    state: &AppState,
+    community: buzz_core::CommunityId,
+    owner_pubkey: &str,
+    id: Uuid,
+) -> Result<buzz_db::managed_agent_host::ManagedAgentHostRecord, (StatusCode, Json<Value>)> {
+    state
+        .db
+        .get_owned_managed_agent_host(community, owner_pubkey, id)
+        .await
+        .map_err(|error| {
+            tracing::error!(%error, "managed-agent auth lookup failed");
+            api_error(StatusCode::INTERNAL_SERVER_ERROR, "internal server error")
+        })?
+        .ok_or_else(|| api_error(StatusCode::NOT_FOUND, "agent not found"))
+}
+
+async fn proxy_agent_host_logs(
+    community: Uuid,
+    id: Uuid,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    proxy_agent_host_request("GET", community, id, "logs", None).await
+}
+
 async fn proxy_agent_host(
     action: &str,
     community: Uuid,
     id: Uuid,
+    body: Option<Value>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let suffix = if action == "INPUT" {
+        "auth/input"
+    } else {
+        "auth"
+    };
+    proxy_agent_host_request(action, community, id, suffix, body).await
+}
+
+async fn proxy_agent_host_request(
+    action: &str,
+    community: Uuid,
+    id: Uuid,
+    suffix: &str,
     body: Option<Value>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let envelope_key = std::env::var("BUZZ_AGENT_SECRET_KEY")
@@ -460,9 +506,8 @@ async fn proxy_agent_host(
         })?;
     let base = std::env::var("BUZZ_AGENT_HOST_CONTROL_URL")
         .unwrap_or_else(|_| "http://agent-host:8090".into());
-    let suffix = if action == "INPUT" { "/input" } else { "" };
     let url = format!(
-        "{}/v1/agents/{community}/{id}/auth{suffix}",
+        "{}/v1/agents/{community}/{id}/{suffix}",
         base.trim_end_matches('/')
     );
     let client = reqwest::Client::builder()
@@ -494,7 +539,7 @@ async fn proxy_agent_host(
         let message = payload
             .get("error")
             .and_then(Value::as_str)
-            .unwrap_or("agent authentication failed");
+            .unwrap_or("agent host request failed");
         return Err(api_error(status, message));
     }
     Ok(Json(payload))

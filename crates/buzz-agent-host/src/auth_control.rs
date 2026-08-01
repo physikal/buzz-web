@@ -28,10 +28,60 @@ use tokio::{
 use uuid::Uuid;
 
 const MAX_OUTPUT_BYTES: usize = 32 * 1024;
+const MAX_RUNTIME_LOG_BYTES: usize = 128 * 1024;
 const MAX_INPUT_BYTES: usize = 4096;
 const LOGIN_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 
 type SessionKey = (Uuid, Uuid);
+
+#[derive(Clone, Default)]
+pub struct RuntimeLogStore {
+    logs: Arc<RwLock<HashMap<SessionKey, RuntimeLog>>>,
+}
+
+#[derive(Clone, Default, Serialize)]
+pub struct RuntimeLog {
+    output: String,
+    truncated: bool,
+}
+
+impl RuntimeLogStore {
+    pub async fn reset(&self, community: Uuid, id: Uuid) {
+        self.logs
+            .write()
+            .await
+            .insert((community, id), RuntimeLog::default());
+    }
+
+    pub async fn append(&self, community: Uuid, id: Uuid, stream: &str, value: &str) {
+        let mut logs = self.logs.write().await;
+        let log = logs.entry((community, id)).or_default();
+        log.output.push('[');
+        log.output.push_str(stream);
+        log.output.push_str("] ");
+        log.output.push_str(value);
+        if !value.ends_with('\n') {
+            log.output.push('\n');
+        }
+        if log.output.len() > MAX_RUNTIME_LOG_BYTES {
+            let mut start = log.output.len() - MAX_RUNTIME_LOG_BYTES;
+            while !log.output.is_char_boundary(start) {
+                start += 1;
+            }
+            log.output.drain(..start);
+            log.truncated = true;
+        }
+    }
+
+    async fn snapshot(&self, community: Uuid, id: Uuid) -> RuntimeLog {
+        self.logs
+            .read()
+            .await
+            .get(&(community, id))
+            .cloned()
+            .unwrap_or_default()
+    }
+}
 
 #[derive(Clone)]
 pub struct AuthControlState {
@@ -40,6 +90,7 @@ pub struct AuthControlState {
     data_dir: PathBuf,
     runtime_path: Arc<String>,
     sessions: Arc<RwLock<HashMap<SessionKey, Arc<AuthSession>>>>,
+    runtime_logs: RuntimeLogStore,
 }
 
 struct AuthSession {
@@ -69,6 +120,7 @@ pub async fn serve(
     token: String,
     data_dir: PathBuf,
     runtime_path: String,
+    runtime_logs: RuntimeLogStore,
 ) -> anyhow::Result<()> {
     let state = AuthControlState {
         db,
@@ -76,6 +128,7 @@ pub async fn serve(
         data_dir,
         runtime_path: Arc::new(runtime_path),
         sessions: Arc::new(RwLock::new(HashMap::new())),
+        runtime_logs,
     };
     let router = Router::new()
         .route(
@@ -83,11 +136,27 @@ pub async fn serve(
             get(status).post(start).delete(cancel),
         )
         .route("/v1/agents/{community}/{id}/auth/input", post(input))
+        .route("/v1/agents/{community}/{id}/logs", get(runtime_log))
         .with_state(state);
     let listener = tokio::net::TcpListener::bind(bind).await?;
     tracing::info!(%bind, "agent authentication control port ready");
     axum::serve(listener, router).await?;
     Ok(())
+}
+
+async fn runtime_log(
+    State(state): State<AuthControlState>,
+    AxumPath((community, id)): AxumPath<(Uuid, Uuid)>,
+    headers: HeaderMap,
+) -> Result<(HeaderMap, Json<RuntimeLog>), (StatusCode, Json<serde_json::Value>)> {
+    authorize(&state, &headers)?;
+    let _ = load_agent(&state, community, id).await?;
+    let mut response_headers = HeaderMap::new();
+    response_headers.insert(header::CACHE_CONTROL, "no-store".parse().unwrap());
+    Ok((
+        response_headers,
+        Json(state.runtime_logs.snapshot(community, id).await),
+    ))
 }
 
 async fn status(
@@ -97,6 +166,7 @@ async fn status(
 ) -> Result<Json<AuthSnapshot>, (StatusCode, Json<serde_json::Value>)> {
     authorize(&state, &headers)?;
     let record = load_agent(&state, community, id).await?;
+    require_subscription(&record)?;
     if let Some(session) = state.sessions.read().await.get(&(community, id)).cloned() {
         return Ok(Json(session.snapshot.read().await.clone()));
     }
@@ -121,6 +191,7 @@ async fn start(
 ) -> Result<Json<AuthSnapshot>, (StatusCode, Json<serde_json::Value>)> {
     authorize(&state, &headers)?;
     let record = load_agent(&state, community, id).await?;
+    require_subscription(&record)?;
     if record.desired_state != "stopped" || record.observed_state != "stopped" {
         return Err(error(
             StatusCode::CONFLICT,
@@ -208,7 +279,8 @@ async fn input(
     Json(input): Json<AuthInput>,
 ) -> Result<Json<AuthSnapshot>, (StatusCode, Json<serde_json::Value>)> {
     authorize(&state, &headers)?;
-    let _ = load_agent(&state, community, id).await?;
+    let record = load_agent(&state, community, id).await?;
+    require_subscription(&record)?;
     if input.value.is_empty()
         || input.value.len() > MAX_INPUT_BYTES
         || input.value.contains(['\r', '\n'])
@@ -248,7 +320,8 @@ async fn cancel(
     headers: HeaderMap,
 ) -> Result<Json<AuthSnapshot>, (StatusCode, Json<serde_json::Value>)> {
     authorize(&state, &headers)?;
-    let _ = load_agent(&state, community, id).await?;
+    let record = load_agent(&state, community, id).await?;
+    require_subscription(&record)?;
     let session = state
         .sessions
         .read()
@@ -278,13 +351,19 @@ async fn load_agent(
         .await
         .map_err(|_| error(StatusCode::INTERNAL_SERVER_ERROR, "agent lookup failed"))?
         .ok_or_else(|| error(StatusCode::NOT_FOUND, "agent not found"))?;
+    Ok(record)
+}
+
+fn require_subscription(
+    record: &ManagedAgentHostRecord,
+) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
     if record.credential_mode != "subscription" {
         return Err(error(
             StatusCode::CONFLICT,
             "agent does not use subscription login",
         ));
     }
-    Ok(record)
+    Ok(())
 }
 
 fn authorize(
@@ -411,7 +490,7 @@ async fn pump_output<R: AsyncRead + Unpin>(mut reader: R, session: Arc<AuthSessi
     }
 }
 
-fn sanitize_terminal(value: &str) -> String {
+pub(crate) fn sanitize_terminal(value: &str) -> String {
     enum EscapeState {
         Normal,
         Escape,
@@ -466,5 +545,27 @@ mod tests {
             "\u{1b}[94mhttps://auth.openai.com/codex/device\u{1b}[0m\n\u{1b}[94m3T0M-X5R95\u{1b}[0m",
         );
         assert_eq!(value, "https://auth.openai.com/codex/device\n3T0M-X5R95");
+    }
+
+    #[tokio::test]
+    async fn runtime_logs_are_bounded_and_tenant_scoped() {
+        let store = RuntimeLogStore::default();
+        let community_a = Uuid::new_v4();
+        let community_b = Uuid::new_v4();
+        let agent = Uuid::new_v4();
+        store.reset(community_a, agent).await;
+        store
+            .append(
+                community_a,
+                agent,
+                "stdout",
+                &"x".repeat(MAX_RUNTIME_LOG_BYTES),
+            )
+            .await;
+
+        let snapshot = store.snapshot(community_a, agent).await;
+        assert!(snapshot.truncated);
+        assert!(snapshot.output.len() <= MAX_RUNTIME_LOG_BYTES);
+        assert!(store.snapshot(community_b, agent).await.output.is_empty());
     }
 }

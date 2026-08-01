@@ -55,6 +55,11 @@ export type AgentAuthStatus = {
   error: string | null;
 };
 
+export type AgentRuntimeLog = {
+  output: string;
+  truncated: boolean;
+};
+
 async function signedRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const method = init?.method ?? "GET";
   const body = typeof init?.body === "string" ? init.body : undefined;
@@ -154,5 +159,12 @@ export async function cancelAgentAuth(id: string): Promise<AgentAuthStatus> {
   return signedRequest<AgentAuthStatus>(
     `/api/agents/${encodeURIComponent(id)}/auth`,
     { method: "DELETE", body: "" },
+  );
+}
+
+export async function getAgentRuntimeLog(id: string): Promise<AgentRuntimeLog> {
+  return signedRequest<AgentRuntimeLog>(
+    `/api/agents/${encodeURIComponent(id)}/logs`,
+    { cache: "no-store" },
   );
 }

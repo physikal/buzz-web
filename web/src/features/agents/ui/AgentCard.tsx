@@ -5,6 +5,7 @@ import {
   Brain,
   EllipsisVertical,
   KeyRound,
+  Logs,
   MessageSquarePlus,
   OctagonX,
   Pencil,
@@ -33,6 +34,7 @@ export function AgentCard({
   onEdit,
   onViewActivity,
   onViewMemory,
+  onViewLogs,
   onSetRunning,
 }: {
   agent: ManagedAgent;
@@ -43,6 +45,7 @@ export function AgentCard({
   onEdit: () => void;
   onViewActivity: () => void;
   onViewMemory: () => void;
+  onViewLogs: () => void;
   onSetRunning: (running: boolean) => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -138,6 +141,17 @@ export function AgentCard({
               type="button"
             >
               <Activity className="h-4 w-4" /> View activity
+            </button>
+            <button
+              className="flex h-9 w-full items-center gap-2 rounded px-2 text-sm hover:bg-accent"
+              disabled={pending}
+              onClick={() => {
+                setMenuOpen(false);
+                onViewLogs();
+              }}
+              type="button"
+            >
+              <Logs className="h-4 w-4" /> Harness log
             </button>
             {agent.credential_mode === "subscription" ? (
               <button
