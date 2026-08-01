@@ -329,6 +329,23 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
               ]),
             );
           }
+          if (filters.includes("20002")) {
+            socket.send(
+              JSON.stringify([
+                "EVENT",
+                subscriptionId,
+                finalizeEvent(
+                  {
+                    kind: 20002,
+                    created_at: Math.floor(Date.now() / 1000),
+                    content: "",
+                    tags: [["h", "44444444-4444-4444-8444-444444444444"]],
+                  },
+                  signer,
+                ),
+              ]),
+            );
+          }
           socket.send(JSON.stringify(["EOSE", subscriptionId]));
         }
       });
@@ -353,6 +370,23 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await expect(page.getByText("Welcome to Buzz Web.")).toBeVisible();
   await expect(page.getByLabel("Message #general")).toBeVisible();
   expect(ownerPubkey).toMatch(/^[0-9a-f]{64}$/);
+  await expect(page.getByText(/is typing…$/)).toBeVisible();
+  await page.getByLabel("Message #general").fill("Typing interoperability");
+  await expect
+    .poll(() =>
+      submittedEvents.some(
+        (event) =>
+          event.kind === 20002 &&
+          event.tags.some(
+            (tag) =>
+              tag[0] === "h" &&
+              tag[1] === "44444444-4444-4444-8444-444444444444",
+          ),
+      ),
+    )
+    .toBe(true);
+  await page.getByLabel("Message #general").fill("");
+  expect(submittedEvents.some((event) => event.kind === 20001)).toBe(true);
   const welcomeMessage = page.locator("article").filter({
     hasText: "Welcome to Buzz Web.",
   });

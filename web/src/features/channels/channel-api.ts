@@ -568,6 +568,23 @@ export function changeChannelMemberRole(
   return addChannelMember(channelId, pubkey, role);
 }
 
+export async function sendTypingIndicator(
+  channelId: string,
+  parentId?: string | null,
+  rootId?: string | null,
+): Promise<void> {
+  const tags: string[][] = [["h", channelId]];
+  if (rootId) tags.push(["e", rootId, "", "root"]);
+  if (parentId) tags.push(["e", parentId, "", "reply"]);
+  await submitEvent({ kind: 20002, content: "", tags });
+}
+
+export async function sendPresence(
+  status: "online" | "away" | "offline",
+): Promise<void> {
+  await submitEvent({ kind: 20001, content: status, tags: [] });
+}
+
 export type UploadedMedia = {
   url: string;
   sha256: string;

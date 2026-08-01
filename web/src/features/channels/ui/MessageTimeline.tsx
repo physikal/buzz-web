@@ -458,7 +458,9 @@ export function ThreadPanel({
   pending,
   actions,
   customEmoji,
+  typingPubkeys,
   onClose,
+  onTyping,
   onSubmit,
 }: {
   channel: Channel;
@@ -470,7 +472,9 @@ export function ThreadPanel({
   pending: boolean;
   actions: MessageActions;
   customEmoji: CustomEmoji[];
+  typingPubkeys: string[];
   onClose: () => void;
+  onTyping: () => void;
   onSubmit: (payload: ComposerPayload) => Promise<void>;
 }) {
   const replies = messages.filter((message) => message.rootId === root.id);
@@ -508,13 +512,35 @@ export function ThreadPanel({
           />
         ))}
       </div>
+      <ThreadTypingLine profiles={profiles} pubkeys={typingPubkeys} />
       <MessageComposer
         channel={channel}
         parent={root}
         pending={pending}
         onSubmit={onSubmit}
+        onTyping={onTyping}
       />
     </aside>
+  );
+}
+
+function ThreadTypingLine({
+  pubkeys,
+  profiles,
+}: {
+  pubkeys: string[];
+  profiles: Map<string, UserProfile>;
+}) {
+  if (!pubkeys.length) return null;
+  const names = pubkeys.map(
+    (pubkey) => profiles.get(pubkey)?.displayName || truncatePubkey(pubkey),
+  );
+  return (
+    <p className="px-4 pt-2 text-xs text-muted-foreground" role="status">
+      {names.length === 1
+        ? `${names[0]} is typing…`
+        : `${names.slice(0, 2).join(" and ")} are typing…`}
+    </p>
   );
 }
 

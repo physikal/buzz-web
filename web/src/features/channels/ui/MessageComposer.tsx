@@ -22,11 +22,13 @@ export function MessageComposer({
   channel,
   parent,
   pending,
+  onTyping,
   onSubmit,
 }: {
   channel: Channel;
   parent?: ChannelMessage | null;
   pending: boolean;
+  onTyping?: () => void;
   onSubmit: (payload: ComposerPayload) => Promise<void>;
 }) {
   const key = draftKey(channel.id, parent?.id);
@@ -34,6 +36,7 @@ export function MessageComposer({
   const [files, setFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
+  const lastTypingSent = useRef(0);
 
   useEffect(() => {
     setDraft(localStorage.getItem(key) ?? "");
@@ -126,6 +129,13 @@ export function MessageComposer({
             onChange={(event) => {
               setDraft(event.target.value);
               localStorage.setItem(key, event.target.value);
+              if (
+                event.target.value.trim() &&
+                Date.now() - lastTypingSent.current >= 3_000
+              ) {
+                lastTypingSent.current = Date.now();
+                onTyping?.();
+              }
             }}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey) {

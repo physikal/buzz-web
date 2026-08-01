@@ -41,11 +41,14 @@ import {
   openDm,
   removeReaction,
   searchMessages,
+  sendPresence,
   sendChannelMessage,
+  sendTypingIndicator,
   updateChannel,
   type ChannelMessage,
 } from "../channel-api";
 import { useLiveChannels } from "../use-live-channels";
+import { useTypingIndicators } from "../use-typing";
 import { ChannelSidebar } from "./ChannelSidebar";
 import {
   ChannelSettingsDialog,
@@ -124,6 +127,11 @@ function ChannelsWorkspace({
     retry: false,
   });
   const messages = messagesQuery.data ?? [];
+  const typingEntries = useTypingIndicators({
+    channelId: selected?.id ?? null,
+    channelType: selected?.channelType ?? null,
+    ownerPubkey,
+  });
 
   const handleLiveChannelEvent = useCallback(
     (channelId: string) => {
@@ -171,6 +179,17 @@ function ChannelsWorkspace({
     );
     return subscription.close;
   }, [ownerPubkey, queryClient]);
+  useEffect(() => {
+    const update = () => {
+      void sendPresence(document.hidden ? "away" : "online").catch(() => {});
+    };
+    update();
+    document.addEventListener("visibilitychange", update);
+    return () => {
+      document.removeEventListener("visibilitychange", update);
+      void sendPresence("offline").catch(() => {});
+    };
+  }, []);
 
   useEffect(() => {
     if (!selectedId && channels[0]) setSelectedId(channels[0].id);
@@ -502,11 +521,20 @@ function ChannelsWorkspace({
         </section>
         {selected ? (
           selected.isMember ? (
-            <MessageComposer
-              channel={selected}
-              pending={sendMutation.isPending}
-              onSubmit={submitRoot}
-            />
+            <div className="border-t">
+              <TypingLine
+                pubkeys={typingEntries
+                  .filter((entry) => entry.threadId === null)
+                  .map((entry) => entry.pubkey)}
+                profiles={profiles}
+              />
+              <MessageComposer
+                channel={selected}
+                pending={sendMutation.isPending}
+                onSubmit={submitRoot}
+                onTyping={() => void sendTypingIndicator(selected.id)}
+              />
+            </div>
           ) : (
             <div className="border-t p-4 text-center">
               <Button
@@ -529,10 +557,16 @@ function ChannelsWorkspace({
           customEmoji={customEmojiQuery.data?.community ?? []}
           messages={messages}
           onClose={() => setThreadRootId(null)}
+          onTyping={() =>
+            void sendTypingIndicator(selected.id, threadRoot.id, threadRoot.id)
+          }
           ownerPubkey={ownerPubkey}
           pending={sendMutation.isPending}
           profiles={profiles}
           root={threadRoot}
+          typingPubkeys={typingEntries
+            .filter((entry) => entry.threadId === threadRoot.id)
+            .map((entry) => entry.pubkey)}
           onSubmit={async (payload) => {
             await sendMutation.mutateAsync({
               channelId: selected.id,
@@ -681,5 +715,29 @@ function CenteredMessage({ children }: { children: React.ReactNode }) {
     <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
       {children}
     </div>
+  );
+}
+
+function TypingLine({
+  pubkeys,
+  profiles,
+}: {
+  pubkeys: string[];
+  profiles: Map<string, { displayName: string | null }>;
+}) {
+  if (!pubkeys.length) return null;
+  const names = pubkeys.map(
+    (pubkey) => profiles.get(pubkey)?.displayName || truncatePubkey(pubkey),
+  );
+  const label =
+    names.length === 1
+      ? `${names[0]} is typing…`
+      : names.length === 2
+        ? `${names[0]} and ${names[1]} are typing…`
+        : `${names[0]}, ${names[1]}, and ${names.length - 2} others are typing…`;
+  return (
+    <p className="px-5 pt-2 text-xs text-muted-foreground" role="status">
+      {label}
+    </p>
   );
 }
