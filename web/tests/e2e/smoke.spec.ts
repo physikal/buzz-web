@@ -1095,6 +1095,19 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     .toBe(true);
   await page.getByLabel("Message #general").fill("");
   expect(submittedEvents.some((event) => event.kind === 20001)).toBe(true);
+  const composer = page.getByLabel("Message #general");
+  await composer.fill("format me");
+  await composer.selectText();
+  await page.getByRole("button", { name: "Toggle formatting" }).click();
+  await page.getByRole("button", { name: "Bold" }).click();
+  await expect(composer).toHaveValue("**format me**");
+  await page.getByRole("button", { name: "Insert emoji" }).click();
+  await page.getByRole("button", { name: "Insert 🚀" }).click();
+  await expect(composer).toHaveValue(/🚀/u);
+  await page.getByRole("button", { name: "Mention someone" }).click();
+  await page.getByLabel("Find someone to mention").fill("Relay agent");
+  await page.getByRole("button", { name: "Mention Relay agent" }).click();
+  await expect(composer).toHaveValue(/@Relay agent/u);
   await page.getByRole("button", { name: "Add direct messages" }).click();
   const newMessageDialog = page.getByRole("dialog", { name: "New message" });
   await expect(
@@ -1387,6 +1400,8 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await page.getByRole("link", { name: "Inbox" }).click();
   await expect(page.getByRole("heading", { name: "Inbox" })).toBeVisible();
   await page.getByLabel("Inbox filter").selectOption("drafts");
+  await expect(page.getByText(/@Relay agent/u).first()).toBeVisible();
+  await page.getByRole("button", { name: "Delete draft" }).click();
   await expect(page.getByText("No drafts")).toBeVisible();
   await page.getByRole("link", { name: "Channels" }).click();
   await page.getByLabel("Message #general").fill("Saved browser draft");

@@ -1,6 +1,7 @@
-import { FileText, Paperclip, Send, X } from "lucide-react";
+import { FileText, Send, X } from "lucide-react";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 
+import type { CustomEmoji } from "@/features/settings/custom-emoji-api";
 import { Button } from "@/shared/ui/button";
 import {
   mediaImetaTag,
@@ -9,6 +10,8 @@ import {
   uploadMedia,
 } from "../channel-api";
 import { deleteDraft, loadDraft, saveDraft } from "../draft-store";
+import type { DmCandidate } from "../dm-candidates";
+import { ComposerToolbar } from "./ComposerToolbar";
 
 export type ComposerPayload = {
   content: string;
@@ -19,6 +22,8 @@ export function MessageComposer({
   channel,
   parent,
   ownerPubkey,
+  customEmoji,
+  mentionCandidates,
   pending,
   onTyping,
   onSubmit,
@@ -26,6 +31,8 @@ export function MessageComposer({
   channel: Channel;
   parent?: ChannelMessage | null;
   ownerPubkey: string;
+  customEmoji: CustomEmoji[];
+  mentionCandidates: DmCandidate[];
   pending: boolean;
   onTyping?: () => void;
   onSubmit: (payload: ComposerPayload) => Promise<void>;
@@ -36,6 +43,7 @@ export function MessageComposer({
   const [files, setFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const lastTypingSent = useRef(0);
 
   useEffect(() => {
@@ -109,22 +117,13 @@ export function MessageComposer({
               event.target.value = "";
             }}
           />
-          <Button
-            aria-label="Attach files"
-            disabled={pending || uploading}
-            onClick={() => fileInput.current?.click()}
-            size="icon"
-            type="button"
-            variant="ghost"
-          >
-            <Paperclip />
-          </Button>
           <textarea
             aria-label={placeholder}
             className="max-h-40 min-h-10 flex-1 resize-none bg-transparent px-2 py-2 text-sm outline-none"
             disabled={pending || uploading}
             placeholder={placeholder}
             rows={1}
+            ref={textareaRef}
             value={draft}
             onChange={(event) => {
               setDraft(event.target.value);
@@ -149,6 +148,21 @@ export function MessageComposer({
                 event.currentTarget.form?.requestSubmit();
               }
             }}
+          />
+        </div>
+        <div className="flex min-h-12 items-center justify-between gap-2 border-t px-2 py-1">
+          <ComposerToolbar
+            customEmoji={customEmoji}
+            disabled={pending || uploading}
+            key={`${channel.id}:${parent?.id ?? "root"}`}
+            mentionCandidates={mentionCandidates}
+            onAttach={() => fileInput.current?.click()}
+            onValueChange={(value, selection) => {
+              setDraft(value);
+              saveDraft(ownerPubkey, channel.id, parent?.id, value, selection);
+            }}
+            textareaRef={textareaRef}
+            value={draft}
           />
           <Button
             aria-label="Send message"

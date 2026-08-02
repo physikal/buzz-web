@@ -18,6 +18,7 @@ import { relativeTime } from "@/shared/lib/relative-time";
 import { truncatePubkey } from "@/shared/lib/pubkey";
 import { Button } from "@/shared/ui/button";
 import type { CustomEmoji } from "@/features/settings/custom-emoji-api";
+import type { DmCandidate } from "../dm-candidates";
 import { PresenceDot } from "@/features/profile/UserProfileDialog";
 import type { PresenceStatus } from "@/features/presence/presence-api";
 import type {
@@ -495,6 +496,7 @@ export function ThreadPanel({
   pending,
   actions,
   customEmoji,
+  mentionCandidates,
   typingPubkeys,
   onClose,
   followed,
@@ -513,6 +515,7 @@ export function ThreadPanel({
   pending: boolean;
   actions: MessageActions;
   customEmoji: CustomEmoji[];
+  mentionCandidates: DmCandidate[];
   typingPubkeys: string[];
   onClose: () => void;
   followed: boolean;
@@ -569,6 +572,8 @@ export function ThreadPanel({
       <ThreadTypingLine profiles={profiles} pubkeys={typingPubkeys} />
       <MessageComposer
         channel={channel}
+        customEmoji={customEmoji}
+        mentionCandidates={mentionCandidates}
         ownerPubkey={ownerPubkey}
         parent={root}
         pending={pending}

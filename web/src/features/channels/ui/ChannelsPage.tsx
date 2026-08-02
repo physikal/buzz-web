@@ -531,9 +531,11 @@ function ChannelsWorkspace({
 
   function mentionsFor(content: string): string[] {
     const lower = content.toLowerCase();
-    return (agentsQuery.data ?? [])
-      .filter((agent) => lower.includes(`@${agent.name.toLowerCase()}`))
-      .map((agent) => agent.agent_pubkey);
+    return dmCandidates
+      .filter((candidate) =>
+        lower.includes(`@${candidate.displayName.toLowerCase()}`),
+      )
+      .map((candidate) => candidate.pubkey);
   }
 
   async function submitRoot(payload: ComposerPayload) {
@@ -730,6 +732,8 @@ function ChannelsWorkspace({
               />
               <MessageComposer
                 channel={selected}
+                customEmoji={customEmojiQuery.data?.community ?? []}
+                mentionCandidates={dmCandidates}
                 ownerPubkey={ownerPubkey}
                 pending={sendMutation.isPending}
                 onSubmit={submitRoot}
@@ -756,6 +760,7 @@ function ChannelsWorkspace({
           agentNames={agentNames}
           channel={selected}
           customEmoji={customEmojiQuery.data?.community ?? []}
+          mentionCandidates={dmCandidates}
           messages={messages}
           onClose={() => setThreadRootId(null)}
           followed={followedRootIds.has(threadRoot.id)}
