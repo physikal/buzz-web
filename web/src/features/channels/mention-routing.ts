@@ -1,6 +1,11 @@
 import type { DraftMentionRef } from "./draft-store";
 import type { DmCandidate } from "./dm-candidates";
 
+export type MentionQuery = {
+  query: string;
+  start: number;
+};
+
 function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -12,6 +17,19 @@ export function hasNamedMention(content: string, displayName: string) {
     `(^|[^\\p{L}\\p{N}_])@${escapeRegExp(name)}(?=$|[^\\p{L}\\p{N}_])`,
     "iu",
   ).test(content);
+}
+
+export function findMentionQuery(
+  content: string,
+  selection: number,
+): MentionQuery | null {
+  const prefix = content.slice(0, selection);
+  const match = /(^|\s)@([^@\n]{0,200})$/u.exec(prefix);
+  if (!match) return null;
+  return {
+    query: match[2],
+    start: match.index + match[1].length,
+  };
 }
 
 export function reconcileMentionRefs(

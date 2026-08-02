@@ -25,6 +25,7 @@ import {
 } from "../draft-store";
 import type { DmCandidate } from "../dm-candidates";
 import {
+  findMentionQuery,
   reconcileMentionRefs,
   resolveMentionPubkeys,
 } from "../mention-routing";
@@ -70,6 +71,11 @@ export function MessageComposer({
   );
   const [uploading, setUploading] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [mentionAutocomplete, setMentionAutocomplete] = useState<{
+    query: string;
+    start: number;
+    selectedIndex: number;
+  } | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const dragDepthRef = useRef(0);
@@ -87,6 +93,7 @@ export function MessageComposer({
     setMentionRefs(saved.mentionRefs);
     dragDepthRef.current = 0;
     setIsDragOver(false);
+    setMentionAutocomplete(null);
   }, [channel.id, ownerPubkey, parent?.id]);
 
   useEffect(() => {
@@ -180,6 +187,7 @@ export function MessageComposer({
       setDraft("");
       setAttachments([]);
       setMentionRefs([]);
+      setMentionAutocomplete(null);
       deleteDraft(ownerPubkey, parent?.id ? `thread:${parent.id}` : channel.id);
     } finally {
       setUploading(false);
@@ -193,6 +201,45 @@ export function MessageComposer({
       : channel.channelType === "dm"
         ? `Message ${channel.name}`
         : `Message #${channel.name}`;
+  const mentionSuggestions = mentionAutocomplete
+    ? mentionCandidates
+        .filter((candidate) =>
+          candidate.displayName
+            .toLowerCase()
+            .includes(mentionAutocomplete.query.trim().toLowerCase()),
+        )
+        .slice(0, 20)
+    : [];
+
+  function updateMentionAutocomplete(content: string, selection: number) {
+    const query = findMentionQuery(content, selection);
+    setMentionAutocomplete(query ? { ...query, selectedIndex: 0 } : null);
+  }
+
+  function selectMention(candidate: DmCandidate) {
+    if (!mentionAutocomplete) return;
+    const selection = textareaRef.current?.selectionStart ?? draft.length;
+    const insertText = `@${candidate.displayName} `;
+    const next = `${draft.slice(0, mentionAutocomplete.start)}${insertText}${draft.slice(selection)}`;
+    const nextSelection = mentionAutocomplete.start + insertText.length;
+    const nextMentionRefs = reconcileMentionRefs(next, mentionRefs, candidate);
+    setDraft(next);
+    setMentionRefs(nextMentionRefs);
+    setMentionAutocomplete(null);
+    saveDraft(
+      ownerPubkey,
+      channel.id,
+      parent?.id,
+      next,
+      nextSelection,
+      attachments,
+      nextMentionRefs,
+    );
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+      textareaRef.current?.setSelectionRange(nextSelection, nextSelection);
+    });
+  }
 
   return (
     <form
@@ -230,7 +277,36 @@ export function MessageComposer({
           </span>
         </div>
       ) : null}
-      <div className="mx-auto max-w-4xl rounded-md border bg-background shadow-xs focus-within:ring-1 focus-within:ring-ring">
+      <div className="relative mx-auto max-w-4xl rounded-md border bg-background shadow-xs focus-within:ring-1 focus-within:ring-ring">
+        {mentionAutocomplete && mentionSuggestions.length ? (
+          <div
+            aria-label="Mention suggestions"
+            className="absolute bottom-full left-2 z-20 mb-2 max-h-64 w-[min(24rem,calc(100vw-3rem))] overflow-y-auto rounded-md border bg-popover p-2 text-popover-foreground shadow-lg"
+            role="listbox"
+          >
+            {mentionSuggestions.map((candidate, index) => (
+              <button
+                aria-label={`Mention ${candidate.displayName}`}
+                aria-selected={index === mentionAutocomplete.selectedIndex}
+                className={`flex w-full items-center gap-2 rounded px-2 py-2 text-left hover:bg-muted ${
+                  index === mentionAutocomplete.selectedIndex ? "bg-muted" : ""
+                }`}
+                key={candidate.pubkey}
+                onClick={() => selectMention(candidate)}
+                onMouseDown={(event) => event.preventDefault()}
+                role="option"
+                type="button"
+              >
+                <span className="min-w-0 flex-1 truncate text-sm">
+                  {candidate.displayName}
+                </span>
+                {candidate.isAgent ? (
+                  <span className="text-xs text-muted-foreground">agent</span>
+                ) : null}
+              </button>
+            ))}
+          </div>
+        ) : null}
         {attachments.length ? (
           <div className="flex flex-wrap gap-2 border-b p-2">
             {attachments.map((attachment, index) => (
@@ -305,6 +381,10 @@ export function MessageComposer({
               );
               setDraft(event.target.value);
               setMentionRefs(nextMentionRefs);
+              updateMentionAutocomplete(
+                event.target.value,
+                event.target.selectionStart,
+              );
               saveDraft(
                 ownerPubkey,
                 channel.id,
@@ -323,6 +403,37 @@ export function MessageComposer({
               }
             }}
             onKeyDown={(event) => {
+              if (mentionAutocomplete && mentionSuggestions.length) {
+                if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                  event.preventDefault();
+                  const direction = event.key === "ArrowDown" ? 1 : -1;
+                  setMentionAutocomplete((current) =>
+                    current
+                      ? {
+                          ...current,
+                          selectedIndex:
+                            (current.selectedIndex +
+                              direction +
+                              mentionSuggestions.length) %
+                            mentionSuggestions.length,
+                        }
+                      : null,
+                  );
+                  return;
+                }
+                if (event.key === "Enter" || event.key === "Tab") {
+                  event.preventDefault();
+                  selectMention(
+                    mentionSuggestions[mentionAutocomplete.selectedIndex],
+                  );
+                  return;
+                }
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  setMentionAutocomplete(null);
+                  return;
+                }
+              }
               if (event.key === "Enter" && !event.shiftKey) {
                 event.preventDefault();
                 event.currentTarget.form?.requestSubmit();
@@ -345,6 +456,7 @@ export function MessageComposer({
               );
               setDraft(value);
               setMentionRefs(nextMentionRefs);
+              if (selectedMention) setMentionAutocomplete(null);
               saveDraft(
                 ownerPubkey,
                 channel.id,

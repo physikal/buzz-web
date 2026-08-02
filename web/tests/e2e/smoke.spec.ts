@@ -1529,10 +1529,15 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await page.getByLabel("Inbox filter").selectOption("drafts");
   await expect(page.getByText("No drafts")).toBeVisible();
   await page.getByRole("link", { name: "Channels" }).click();
-  await page.getByLabel("Message #general").fill("Send from the web inbox to ");
-  await page.getByRole("button", { name: "Mention someone" }).click();
-  await page.getByLabel("Find someone to mention").fill("Relay agent");
-  await page.getByRole("button", { name: "Mention Relay agent" }).click();
+  await page
+    .getByLabel("Message #general")
+    .fill("Send from the web inbox to @Relay");
+  await expect(
+    page
+      .getByRole("listbox", { name: "Mention suggestions" })
+      .getByRole("option", { name: "Mention Relay agent" }),
+  ).toBeVisible();
+  await page.getByLabel("Message #general").press("Enter");
   await expect(page.getByLabel("Message #general")).toHaveValue(
     "Send from the web inbox to @Relay agent ",
   );
