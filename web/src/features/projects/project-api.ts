@@ -81,6 +81,7 @@ export type ProjectPullRequest = {
   changeRequests: ProjectPullRequestReviewDecision[];
   labels: string[];
   status: "open" | "draft" | "merged" | "closed";
+  mergeCommit: string | null;
   branchName: string | null;
   targetBranch: string | null;
   initialCommit: string | null;
@@ -408,7 +409,9 @@ export async function listProjectPullRequests(
       const latestStatus = statuses
         .filter(
           (candidate) =>
-            allowedActors.has(candidate.pubkey.toLowerCase()) &&
+            (candidate.kind === 1631
+              ? candidate.pubkey.toLowerCase() === project.owner.toLowerCase()
+              : allowedActors.has(candidate.pubkey.toLowerCase())) &&
             candidate.tags.some(
               (value) =>
                 (value[0] === "e" || value[0] === "E") && value[1] === event.id,
@@ -572,6 +575,12 @@ export async function listProjectPullRequests(
         ),
         labels: tags(event, "t"),
         status,
+        mergeCommit:
+          latestStatus?.kind === 1631
+            ? (tag(latestStatus, "merge-commit") ??
+              tag(latestStatus, "r") ??
+              null)
+            : null,
         branchName: tag(event, "branch-name") ?? null,
         targetBranch: tag(event, "target-branch") ?? null,
         initialCommit,
@@ -912,6 +921,38 @@ export async function setProjectPullRequestStatus(
         "p",
         pubkey.toLowerCase(),
       ]),
+    ],
+  });
+}
+
+export async function publishProjectPullRequestMergedStatus(
+  project: Project,
+  pullRequest: ProjectPullRequest,
+  viewerPubkey: string,
+  mergeCommit: string,
+): Promise<void> {
+  if (viewerPubkey.toLowerCase() !== project.owner.toLowerCase()) {
+    throw new Error("Only the repository owner can publish merged status.");
+  }
+  if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu.test(mergeCommit)) {
+    throw new Error("Merge commit is invalid.");
+  }
+  await submitEvent({
+    kind: 1631,
+    content: "",
+    created_at: Math.max(
+      Math.floor(Date.now() / 1000),
+      (pullRequest.statusCreatedAt ?? 0) + 1,
+    ),
+    tags: [
+      ["e", pullRequest.id, "", "root"],
+      ["a", project.repoAddress],
+      ...[...new Set([project.owner, pullRequest.author])].map((pubkey) => [
+        "p",
+        pubkey.toLowerCase(),
+      ]),
+      ["merge-commit", mergeCommit.toLowerCase()],
+      ["r", mergeCommit.toLowerCase()],
     ],
   });
 }

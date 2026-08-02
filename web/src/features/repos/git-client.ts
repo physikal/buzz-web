@@ -33,7 +33,7 @@ export function getFs(owner: string, repoName: string): LightningFS {
 
 /** Working directory inside the virtual FS. */
 export function getDir(owner: string, repoName: string): string {
-  return `/${owner}/${repoName}`;
+  return `/${encodeURIComponent(owner)}/${encodeURIComponent(repoName)}`;
 }
 
 function repoGitUrl(owner: string, repoName: string): string {
@@ -91,15 +91,27 @@ export function validateRelayGitUrl(value: string): string {
   }
   const segments = remote.pathname.split("/").filter(Boolean);
   const gitIndex = segments.lastIndexOf("git");
+  const repoSegment = segments[gitIndex + 2] ?? "";
+  const repoName = repoSegment.endsWith(".git")
+    ? repoSegment.slice(0, -4)
+    : repoSegment;
   if (
     gitIndex < 0 ||
     segments.length !== gitIndex + 3 ||
-    !/^[0-9a-f]{64}$/iu.test(segments[gitIndex + 1] ?? "") ||
-    !segments[gitIndex + 2]
+    !/^[0-9a-f]{64}$/u.test(segments[gitIndex + 1] ?? "") ||
+    !/^[a-z0-9._-]{1,64}$/iu.test(repoName) ||
+    repoName.startsWith(".") ||
+    repoName.includes("..")
   ) {
     throw new Error("Clone URL must point at a Buzz Git repository.");
   }
   return remote.toString();
+}
+
+export function relayGitUrlOwner(value: string): string {
+  const url = new URL(validateRelayGitUrl(value));
+  const segments = url.pathname.split("/").filter(Boolean);
+  return segments[segments.lastIndexOf("git") + 1] ?? "";
 }
 
 /**
@@ -135,7 +147,7 @@ export async function ensureCloneFromUrl(
   repoName: string,
   url: string,
   ref: string,
-  depth = 1,
+  depth: number | null = 1,
 ): Promise<{ fs: LightningFS; dir: string; oid: string }> {
   const fs = getFs(owner, repoName);
   const dir = getDir(owner, repoName);
@@ -159,7 +171,7 @@ export async function ensureCloneFromUrl(
       dir,
       url,
       ref,
-      depth,
+      ...(depth === null ? {} : { depth }),
       singleBranch: true,
       headers,
     });
@@ -172,7 +184,7 @@ export async function ensureCloneFromUrl(
       dir,
       url,
       ref,
-      depth,
+      ...(depth === null ? {} : { depth }),
       singleBranch: true,
       noTags: true,
       headers,
@@ -187,7 +199,7 @@ export async function fetchCloneRef(
   dir: string,
   url: string,
   ref: string,
-  depth = 100,
+  depth: number | null = 100,
 ): Promise<string> {
   const result = await fetch({
     fs,
@@ -195,7 +207,7 @@ export async function fetchCloneRef(
     dir,
     url,
     ref,
-    depth,
+    ...(depth === null ? {} : { depth }),
     singleBranch: true,
     headers: await gitAuthHeadersForUrl(url),
   });

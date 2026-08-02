@@ -2422,6 +2422,9 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await expect(page.getByText("Commented on src/browser.ts +12")).toBeVisible();
   await expect(page.getByText("Malicious inline location")).toBeVisible();
   await expect(page.getByText("Commented on ../secrets.txt")).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Merge", exact: true }),
+  ).toHaveCount(0);
   await page.getByText("Commented on src/browser.ts +12").click();
   await expect(
     page.getByText("Clone URL must use the active workspace relay."),
@@ -2585,6 +2588,9 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     page.getByRole("heading", { name: "Create PR from web" }),
   ).toBeVisible();
   await expect(page.getByText("feature/create-pr → main")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Merge", exact: true }),
+  ).toHaveCount(0);
   const createdPullRequest = submittedEvents.find(
     (event) =>
       event.kind === 1618 &&

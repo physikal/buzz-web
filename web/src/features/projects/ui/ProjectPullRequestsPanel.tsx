@@ -289,6 +289,9 @@ function PullRequestDetail({
           {pullRequest.branchName ?? "unknown"} →{" "}
           {pullRequest.targetBranch ?? "main"}
           {pullRequest.commit ? ` · ${pullRequest.commit.slice(0, 7)}` : ""}
+          {pullRequest.mergeCommit
+            ? ` · merged as ${pullRequest.mergeCommit.slice(0, 7)}`
+            : ""}
         </p>
         {pullRequest.content ? (
           <p className="mt-5 whitespace-pre-wrap text-sm leading-6">

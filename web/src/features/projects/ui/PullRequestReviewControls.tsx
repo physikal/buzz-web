@@ -15,6 +15,7 @@ import {
   requestProjectPullRequestReview,
   submitProjectPullRequestReview,
 } from "../project-api";
+import { MergePullRequestControl } from "./MergePullRequestControl";
 
 export function PullRequestReviewControls({
   ownerPubkey,
@@ -128,6 +129,12 @@ export function PullRequestReviewControls({
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
+            <MergePullRequestControl
+              onUpdated={onUpdated}
+              ownerPubkey={ownerPubkey}
+              project={project}
+              pullRequest={pullRequest}
+            />
             {canReview && !hasApproved ? (
               <Button onClick={() => setDecision("approve")} size="sm">
                 <Check /> Approve
