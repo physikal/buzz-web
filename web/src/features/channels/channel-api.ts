@@ -20,6 +20,7 @@ export type Channel = {
   isMember: boolean;
   memberCount: number;
   participantPubkeys: string[];
+  archived: boolean;
 };
 
 export type MediaAttachment = {
@@ -157,8 +158,7 @@ export async function listChannels(ownerPubkey: string): Promise<Channel[]> {
     if (
       !id ||
       !["stream", "forum", "dm"].includes(channelType) ||
-      event.tags.some((tag) => tag[0] === "hidden") ||
-      tagValue(event, "archived") === "true"
+      event.tags.some((tag) => tag[0] === "hidden")
     )
       continue;
     const participants = tagValues(event, "p");
@@ -180,6 +180,7 @@ export async function listChannels(ownerPubkey: string): Promise<Channel[]> {
       memberCount:
         Number(tagValue(event, "member_count")) || participants.length,
       participantPubkeys: participants,
+      archived: tagValue(event, "archived") === "true",
     });
   }
   return [...channels.values()].sort((a, b) => {
@@ -304,6 +305,17 @@ export async function archiveChannel(channelId: string): Promise<void> {
     tags: [
       ["h", channelId],
       ["archived", "true"],
+    ],
+  });
+}
+
+export async function restoreChannel(channelId: string): Promise<void> {
+  await submitEvent({
+    kind: 9002,
+    content: "",
+    tags: [
+      ["h", channelId],
+      ["archived", "false"],
     ],
   });
 }

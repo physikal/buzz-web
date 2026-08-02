@@ -1,24 +1,42 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { subscribeEvents } from "@/shared/lib/nostr-client";
-import { relayWsUrl } from "@/shared/lib/relay-url";
 import { readNotificationSettings } from "@/features/settings/settings-api";
+import {
+  queryEvents,
+  subscribeEvents,
+  type NostrEvent,
+} from "@/shared/lib/nostr-client";
+import { relayWsUrl } from "@/shared/lib/relay-url";
 import type { Channel } from "./channel-api";
+import { ReadStateManager } from "./read-state";
 
+const CONTENT_KINDS = [9, 40002, 40008, 40099, 45001, 45003];
 const LIVE_KINDS = [
   5, 7, 9, 9002, 9005, 39000, 40002, 40003, 40008, 40099, 45001, 45002, 45003,
 ];
+const READ_HORIZON_SECONDS = 7 * 24 * 60 * 60;
+
+type Activity = Record<
+  string,
+  Record<string, { createdAt: number; pubkey: string }>
+>;
 
 export type RelayLiveStatus = "connecting" | "live" | "offline";
 
-function readUnread(ownerPubkey: string): Record<string, number> {
-  try {
-    return JSON.parse(
-      localStorage.getItem(`buzz-web:unread:${ownerPubkey}`) ?? "{}",
-    ) as Record<string, number>;
-  } catch {
-    return {};
+function mergeActivity(current: Activity, events: NostrEvent[]): Activity {
+  let next = current;
+  for (const event of events) {
+    const channelId = event.tags.find((tag) => tag[0] === "h")?.[1];
+    if (!channelId || !CONTENT_KINDS.includes(event.kind)) continue;
+    const existing = current[channelId]?.[event.id];
+    if (existing) continue;
+    if (next === current) next = { ...current };
+    next[channelId] = {
+      ...(next[channelId] ?? {}),
+      [event.id]: { createdAt: event.created_at, pubkey: event.pubkey },
+    };
   }
+  return next;
 }
 
 export function useLiveChannels({
@@ -33,26 +51,76 @@ export function useLiveChannels({
   onChannelEvent: (channelId: string) => void;
 }) {
   const [status, setStatus] = useState<RelayLiveStatus>("connecting");
-  const [unread, setUnread] = useState<Record<string, number>>(() =>
-    readUnread(ownerPubkey),
-  );
+  const [activity, setActivity] = useState<Activity>({});
+  const [readMarkers, setReadMarkers] = useState<Record<string, number>>({});
+  const managerRef = useRef<ReadStateManager | null>(null);
   const channelIds = useMemo(
     () => channels.map((channel) => channel.id).sort(),
     [channels],
   );
 
   useEffect(() => {
-    if (!selectedChannelId) return;
-    setUnread((current) => {
-      if (!current[selectedChannelId]) return current;
-      const next = { ...current, [selectedChannelId]: 0 };
-      localStorage.setItem(
-        `buzz-web:unread:${ownerPubkey}`,
-        JSON.stringify(next),
-      );
-      return next;
-    });
-  }, [ownerPubkey, selectedChannelId]);
+    const manager = new ReadStateManager(ownerPubkey);
+    managerRef.current = manager;
+    const unsubscribe = manager.subscribe(() =>
+      setReadMarkers(manager.snapshot()),
+    );
+    setReadMarkers(manager.snapshot());
+    void manager.initialize();
+    return () => {
+      unsubscribe();
+      manager.destroy();
+      if (managerRef.current === manager) managerRef.current = null;
+    };
+  }, [ownerPubkey]);
+
+  useEffect(() => {
+    if (!channelIds.length) {
+      setActivity({});
+      return;
+    }
+    let cancelled = false;
+    void queryEvents(
+      relayWsUrl(),
+      {
+        kinds: CONTENT_KINDS,
+        "#h": channelIds,
+        since: Math.floor(Date.now() / 1000) - READ_HORIZON_SECONDS,
+        limit: 5_000,
+      },
+      { requireNip07: true },
+    )
+      .then((events) => {
+        if (!cancelled)
+          setActivity((current) => mergeActivity(current, events));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [channelIds]);
+
+  const markSelectedRead = useCallback(() => {
+    if (!selectedChannelId || document.hidden) return;
+    const timestamps = Object.values(activity[selectedChannelId] ?? {}).map(
+      (event) => event.createdAt,
+    );
+    if (timestamps.length)
+      managerRef.current?.markRead(selectedChannelId, Math.max(...timestamps));
+  }, [activity, selectedChannelId]);
+
+  useEffect(() => {
+    markSelectedRead();
+  }, [markSelectedRead]);
+  useEffect(() => {
+    const handleVisibility = () => markSelectedRead();
+    document.addEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("focus", handleVisibility);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("focus", handleVisibility);
+    };
+  }, [markSelectedRead]);
 
   useEffect(() => {
     if (!channelIds.length) return;
@@ -63,24 +131,12 @@ export function useLiveChannels({
         const channelId = event.tags.find((tag) => tag[0] === "h")?.[1];
         if (!channelId) return;
         onChannelEvent(channelId);
-        if (
-          channelId !== selectedChannelId &&
-          event.pubkey !== ownerPubkey &&
-          [9, 40002, 40008, 45001, 45003].includes(event.kind)
-        ) {
-          setUnread((current) => {
-            const next = {
-              ...current,
-              [channelId]: (current[channelId] ?? 0) + 1,
-            };
-            localStorage.setItem(
-              `buzz-web:unread:${ownerPubkey}`,
-              JSON.stringify(next),
-            );
-            return next;
-          });
+        if (CONTENT_KINDS.includes(event.kind)) {
+          setActivity((current) => mergeActivity(current, [event]));
+          if (channelId === selectedChannelId && !document.hidden)
+            managerRef.current?.markRead(channelId, event.created_at);
         }
-        if ([9, 40002, 40008, 45001, 45003].includes(event.kind)) {
+        if (CONTENT_KINDS.includes(event.kind)) {
           const settings = readNotificationSettings();
           const shouldNotify =
             settings.enabled &&
@@ -109,5 +165,23 @@ export function useLiveChannels({
     return subscription.close;
   }, [channelIds, channels, onChannelEvent, ownerPubkey, selectedChannelId]);
 
-  return { status, unread };
+  const unread = useMemo(() => {
+    const result: Record<string, number> = {};
+    for (const channelId of channelIds) {
+      const marker = readMarkers[channelId] ?? 0;
+      result[channelId] = Object.values(activity[channelId] ?? {}).filter(
+        (event) => event.pubkey !== ownerPubkey && event.createdAt > marker,
+      ).length;
+    }
+    return result;
+  }, [activity, channelIds, ownerPubkey, readMarkers]);
+
+  const markContextRead = useCallback(
+    (contextId: string, timestamp: number) => {
+      managerRef.current?.markRead(contextId, timestamp);
+    },
+    [],
+  );
+
+  return { status, unread, markContextRead };
 }

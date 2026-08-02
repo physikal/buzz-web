@@ -1,4 +1,4 @@
-import { Hash, LayoutList, MessageCircle, Plus } from "lucide-react";
+import { Archive, Hash, LayoutList, MessageCircle, Plus } from "lucide-react";
 
 import { Button } from "@/shared/ui/button";
 import type { Channel } from "../channel-api";
@@ -10,6 +10,7 @@ export function ChannelSidebar({
   onSelect,
   onCreate,
   onNewDm,
+  onBrowse,
 }: {
   channels: Channel[];
   selectedId: string | null;
@@ -17,6 +18,7 @@ export function ChannelSidebar({
   onSelect: (id: string) => void;
   onCreate: () => void;
   onNewDm: () => void;
+  onBrowse: () => void;
 }) {
   const shared = channels.filter((channel) => channel.channelType !== "dm");
   const dms = channels.filter((channel) => channel.channelType === "dm");
@@ -34,7 +36,7 @@ export function ChannelSidebar({
         </Button>
       </div>
       <nav className="min-h-0 flex-1 overflow-y-auto p-2 text-sm">
-        <SectionHeader label="Channels" onAdd={onCreate} />
+        <SectionHeader label="Channels" onAdd={onCreate} onBrowse={onBrowse} />
         {shared.map((channel) => (
           <ChannelButton
             channel={channel}
@@ -71,18 +73,39 @@ export function ChannelSidebar({
   );
 }
 
-function SectionHeader({ label, onAdd }: { label: string; onAdd: () => void }) {
+function SectionHeader({
+  label,
+  onAdd,
+  onBrowse,
+}: {
+  label: string;
+  onAdd: () => void;
+  onBrowse?: () => void;
+}) {
   return (
     <div className="mb-1 flex items-center justify-between px-2 text-xs font-semibold uppercase text-muted-foreground">
       <span>{label}</span>
-      <button
-        aria-label={`Add ${label.toLowerCase()}`}
-        className="rounded p-1 hover:bg-accent"
-        onClick={onAdd}
-        type="button"
-      >
-        <Plus className="h-3.5 w-3.5" />
-      </button>
+      <span className="flex items-center gap-0.5">
+        {onBrowse ? (
+          <button
+            aria-label="Browse channels"
+            className="rounded p-1 hover:bg-accent"
+            onClick={onBrowse}
+            title="Browse channels"
+            type="button"
+          >
+            <Archive className="h-3.5 w-3.5" />
+          </button>
+        ) : null}
+        <button
+          aria-label={`Add ${label.toLowerCase()}`}
+          className="rounded p-1 hover:bg-accent"
+          onClick={onAdd}
+          type="button"
+        >
+          <Plus className="h-3.5 w-3.5" />
+        </button>
+      </span>
     </div>
   );
 }

@@ -1,5 +1,12 @@
-import { MessageCircle, Search, Settings, X } from "lucide-react";
-import { type FormEvent, useState } from "react";
+import {
+  Archive,
+  Hash,
+  MessageCircle,
+  Search,
+  Settings,
+  X,
+} from "lucide-react";
+import { type FormEvent, useMemo, useState } from "react";
 
 import { parsePubkey, truncatePubkey } from "@/shared/lib/pubkey";
 import { Button } from "@/shared/ui/button";
@@ -128,6 +135,118 @@ export type SearchResult = {
   author: string;
   content: string;
 };
+
+export function ChannelBrowserDialog({
+  channels,
+  open,
+  pendingChannelId,
+  onClose,
+  onOpen,
+  onJoin,
+  onRestore,
+}: {
+  channels: Channel[];
+  open: boolean;
+  pendingChannelId: string | null;
+  onClose: () => void;
+  onOpen: (channelId: string) => void;
+  onJoin: (channelId: string) => void;
+  onRestore: (channelId: string) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [view, setView] = useState<"active" | "archived">("active");
+  const visible = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    return channels.filter(
+      (channel) =>
+        channel.channelType !== "dm" &&
+        channel.archived === (view === "archived") &&
+        (!needle ||
+          channel.name.toLowerCase().includes(needle) ||
+          channel.description.toLowerCase().includes(needle)),
+    );
+  }, [channels, query, view]);
+
+  return (
+    <DialogFrame
+      open={open}
+      title="Browse channels"
+      icon={<Hash />}
+      onClose={onClose}
+    >
+      <div className="mt-4 flex gap-2">
+        <Button
+          onClick={() => setView("active")}
+          size="sm"
+          variant={view === "active" ? "default" : "outline"}
+        >
+          Active
+        </Button>
+        <Button
+          onClick={() => setView("archived")}
+          size="sm"
+          variant={view === "archived" ? "default" : "outline"}
+        >
+          <Archive /> Archived
+        </Button>
+      </div>
+      <Input
+        aria-label="Filter channels"
+        className="mt-3"
+        placeholder="Filter channels"
+        value={query}
+        onChange={(event) => setQuery(event.target.value)}
+      />
+      <div className="mt-3 divide-y">
+        {visible.map((channel) => (
+          <div className="flex items-center gap-3 py-3" key={channel.id}>
+            <Hash className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium">{channel.name}</p>
+              <p className="truncate text-xs text-muted-foreground">
+                {channel.description || `${channel.memberCount} members`}
+              </p>
+            </div>
+            {channel.archived ? (
+              <Button
+                disabled={pendingChannelId === channel.id}
+                onClick={() => onRestore(channel.id)}
+                size="sm"
+                variant="outline"
+              >
+                Restore
+              </Button>
+            ) : channel.isMember ? (
+              <Button
+                onClick={() => onOpen(channel.id)}
+                size="sm"
+                variant="ghost"
+              >
+                Open
+              </Button>
+            ) : (
+              <Button
+                disabled={
+                  pendingChannelId === channel.id ||
+                  channel.visibility !== "open"
+                }
+                onClick={() => onJoin(channel.id)}
+                size="sm"
+              >
+                Join
+              </Button>
+            )}
+          </div>
+        ))}
+        {!visible.length ? (
+          <p className="py-10 text-center text-sm text-muted-foreground">
+            No {view} channels found.
+          </p>
+        ) : null}
+      </div>
+    </DialogFrame>
+  );
+}
 
 export function SearchDialog({
   open,

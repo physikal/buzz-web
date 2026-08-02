@@ -51,6 +51,7 @@ import {
   listProfiles,
   openDm,
   removeReaction,
+  restoreChannel,
   searchMessages,
   sendPresence,
   sendChannelMessage,
@@ -63,6 +64,7 @@ import { useLiveChannels } from "../use-live-channels";
 import { useTypingIndicators } from "../use-typing";
 import { ChannelSidebar } from "./ChannelSidebar";
 import {
+  ChannelBrowserDialog,
   ChannelSettingsDialog,
   NewDmDialog,
   SearchDialog,
@@ -121,6 +123,7 @@ function ChannelsWorkspace({
   const [createOpen, setCreateOpen] = useState(false);
   const [dmOpen, setDmOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [browserOpen, setBrowserOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [reportTarget, setReportTarget] = useState<ChannelMessage | null>(null);
   const [reminderTarget, setReminderTarget] = useState<ChannelMessage | null>(
@@ -164,7 +167,11 @@ function ChannelsWorkspace({
     staleTime: 30_000,
     retry: false,
   });
-  const channels = channelsQuery.data ?? [];
+  const allChannels = channelsQuery.data ?? [];
+  const channels = useMemo(
+    () => allChannels.filter((channel) => !channel.archived),
+    [allChannels],
+  );
   const selected =
     channels.find((channel) => channel.id === selectedId) ??
     channels[0] ??
@@ -411,6 +418,21 @@ function ChannelsWorkspace({
       queryClient.invalidateQueries({ queryKey: ["channels", ownerPubkey] }),
     onError: mutationError("Could not join channel"),
   });
+  const restoreMutation = useMutation({
+    mutationFn: async (channelId: string) => {
+      await restoreChannel(channelId);
+      return channelId;
+    },
+    onSuccess: async (channelId) => {
+      await queryClient.invalidateQueries({
+        queryKey: ["channels", ownerPubkey],
+      });
+      setBrowserOpen(false);
+      setSelectedId(channelId);
+      toast.success("Channel restored");
+    },
+    onError: mutationError("Could not restore channel"),
+  });
   const settingsMutation = useMutation({
     mutationFn: updateChannel,
     onSuccess: async () => {
@@ -521,6 +543,7 @@ function ChannelsWorkspace({
         unread={unread}
         onCreate={() => setCreateOpen(true)}
         onNewDm={() => setDmOpen(true)}
+        onBrowse={() => setBrowserOpen(true)}
         onSelect={setSelectedId}
       />
       <main className="flex min-w-0 flex-1 flex-col">
@@ -675,6 +698,24 @@ function ChannelsWorkspace({
         onSubmit={(input) =>
           createMutation.mutateAsync(input).then(() => undefined)
         }
+      />
+      <ChannelBrowserDialog
+        channels={allChannels}
+        open={browserOpen}
+        pendingChannelId={
+          restoreMutation.isPending
+            ? restoreMutation.variables
+            : joinMutation.isPending
+              ? joinMutation.variables
+              : null
+        }
+        onClose={() => setBrowserOpen(false)}
+        onJoin={(channelId) => joinMutation.mutate(channelId)}
+        onOpen={(channelId) => {
+          setSelectedId(channelId);
+          setBrowserOpen(false);
+        }}
+        onRestore={(channelId) => restoreMutation.mutate(channelId)}
       />
       {templateSetup && templateSetupDefinition ? (
         <TemplateDeployDialog
