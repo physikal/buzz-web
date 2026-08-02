@@ -569,6 +569,7 @@ export function ThreadPanel({
       <ThreadTypingLine profiles={profiles} pubkeys={typingPubkeys} />
       <MessageComposer
         channel={channel}
+        ownerPubkey={ownerPubkey}
         parent={root}
         pending={pending}
         onSubmit={onSubmit}

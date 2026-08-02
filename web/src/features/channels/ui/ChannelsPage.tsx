@@ -707,6 +707,7 @@ function ChannelsWorkspace({
               />
               <MessageComposer
                 channel={selected}
+                ownerPubkey={ownerPubkey}
                 pending={sendMutation.isPending}
                 onSubmit={submitRoot}
                 onTyping={() => void sendTypingIndicator(selected.id)}

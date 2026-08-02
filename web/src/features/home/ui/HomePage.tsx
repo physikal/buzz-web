@@ -28,6 +28,11 @@ import {
   type UserProfile,
 } from "@/features/channels/channel-api";
 import { ReadStateManager } from "@/features/channels/read-state";
+import {
+  deleteDraft,
+  listDrafts,
+  subscribeDrafts,
+} from "@/features/channels/draft-store";
 import { lockOwnerVault } from "@/features/owner-vault/lib/vault-worker-client";
 import {
   cancelReminder,
@@ -46,8 +51,9 @@ import {
   type InboxItem,
 } from "../home-api";
 import { HomeReminderDetail, HomeReminderRow, isDue } from "./HomeReminder";
+import { HomeDraftDetail, HomeDraftRow } from "./HomeDraft";
 
-type InboxFilter = "all" | InboxCategory | "reminders";
+type InboxFilter = "all" | InboxCategory | "reminders" | "drafts";
 
 export function HomePage() {
   const [ownerPubkey, setOwnerPubkey] = useState<string | null>(null);
@@ -77,6 +83,8 @@ function HomeWorkspace({
   const [selectedReminderId, setSelectedReminderId] = useState<string | null>(
     null,
   );
+  const [selectedDraftId, setSelectedDraftId] = useState<string | null>(null);
+  const [drafts, setDrafts] = useState(() => listDrafts(ownerPubkey));
   const [readMarkers, setReadMarkers] = useState<Record<string, number>>({});
   const readManagerRef = useRef<ReadStateManager | null>(null);
   const inboxQuery = useQuery({
@@ -129,6 +137,10 @@ function HomeWorkspace({
   const selectedReminder =
     explicitlySelectedReminder ?? visibleReminders[0] ?? null;
   const isReminders = filter === "reminders";
+  const explicitlySelectedDraft =
+    drafts.find((draft) => draft.key === selectedDraftId) ?? null;
+  const selectedDraft = explicitlySelectedDraft ?? drafts[0] ?? null;
+  const isDrafts = filter === "drafts";
   const isUnread = (item: InboxItem) =>
     (readMarkers[`msg:${item.id}`] ?? 0) < item.createdAt;
   const visibleItems = items.filter(
@@ -141,10 +153,16 @@ function HomeWorkspace({
   const selected = explicitlySelected ?? visibleItems[0] ?? null;
   const unreadCount = items.filter(isUnread).length;
   const dueReminderCount = reminders.filter(isDue).length;
-  const displayedCount = isReminders ? dueReminderCount : unreadCount;
-  const mobileDetailVisible = isReminders
-    ? Boolean(explicitlySelectedReminder)
-    : Boolean(explicitlySelected);
+  const displayedCount = isDrafts
+    ? drafts.length
+    : isReminders
+      ? dueReminderCount
+      : unreadCount;
+  const mobileDetailVisible = isDrafts
+    ? Boolean(explicitlySelectedDraft)
+    : isReminders
+      ? Boolean(explicitlySelectedReminder)
+      : Boolean(explicitlySelected);
   const reminderTransition = useMutation({
     mutationFn: ({
       reminder,
@@ -183,6 +201,12 @@ function HomeWorkspace({
       manager.destroy();
       if (readManagerRef.current === manager) readManagerRef.current = null;
     };
+  }, [ownerPubkey]);
+
+  useEffect(() => {
+    const sync = () => setDrafts(listDrafts(ownerPubkey));
+    sync();
+    return subscribeDrafts(sync);
   }, [ownerPubkey]);
 
   useEffect(
@@ -225,15 +249,19 @@ function HomeWorkspace({
               <Button
                 aria-label="Refresh inbox"
                 disabled={
-                  isReminders
-                    ? remindersQuery.isFetching
-                    : inboxQuery.isFetching
+                  isDrafts
+                    ? false
+                    : isReminders
+                      ? remindersQuery.isFetching
+                      : inboxQuery.isFetching
                 }
-                onClick={() =>
-                  void (isReminders
-                    ? remindersQuery.refetch()
-                    : inboxQuery.refetch())
-                }
+                onClick={() => {
+                  if (isDrafts) setDrafts(listDrafts(ownerPubkey));
+                  else
+                    void (isReminders
+                      ? remindersQuery.refetch()
+                      : inboxQuery.refetch());
+                }}
                 size="icon"
                 variant="ghost"
               >
@@ -241,32 +269,29 @@ function HomeWorkspace({
               </Button>
             </div>
             <div className="mt-3 flex items-center gap-2">
-              <div className="grid min-w-0 flex-1 grid-cols-4 rounded-md border p-0.5">
-                {(
-                  [
-                    ["all", "All"],
-                    ["mention", "Mentions"],
-                    ["needs_action", "Action"],
-                    ["reminders", "Reminders"],
-                  ] as const
-                ).map(([value, label]) => (
-                  <button
-                    className={`rounded px-2 py-1.5 text-xs ${filter === value ? "bg-accent font-medium" : "text-muted-foreground"}`}
-                    key={value}
-                    onClick={() => {
-                      setFilter(value);
-                      setSelectedId(null);
-                      setSelectedReminderId(null);
-                    }}
-                    type="button"
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
+              <label className="sr-only" htmlFor="inbox-filter">
+                Inbox filter
+              </label>
+              <select
+                className="h-9 min-w-0 flex-1 rounded-md border bg-background px-3 text-sm"
+                id="inbox-filter"
+                onChange={(event) => {
+                  setFilter(event.target.value as InboxFilter);
+                  setSelectedId(null);
+                  setSelectedReminderId(null);
+                  setSelectedDraftId(null);
+                }}
+                value={filter}
+              >
+                <option value="all">All</option>
+                <option value="mention">Mentions</option>
+                <option value="needs_action">Needs action</option>
+                <option value="reminders">Reminders</option>
+                <option value="drafts">Drafts</option>
+              </select>
               <Button
                 aria-label="Mark all read"
-                disabled={!unreadCount || isReminders}
+                disabled={!unreadCount || isReminders || isDrafts}
                 onClick={() => {
                   for (const item of items) markRead(item);
                 }}
@@ -279,6 +304,7 @@ function HomeWorkspace({
             <label className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
               <input
                 checked={unreadOnly}
+                disabled={isDrafts}
                 onChange={(event) => setUnreadOnly(event.target.checked)}
                 type="checkbox"
               />
@@ -286,33 +312,53 @@ function HomeWorkspace({
             </label>
           </header>
           <div className="min-h-0 flex-1 overflow-y-auto">
-            {isReminders
-              ? visibleReminders.map((reminder) => (
-                  <HomeReminderRow
-                    key={reminder.id}
-                    onSelect={() => setSelectedReminderId(reminder.id)}
-                    reminder={reminder}
-                    selected={selectedReminder?.id === reminder.id}
+            {isDrafts
+              ? drafts.map((draft) => (
+                  <HomeDraftRow
+                    channel={channels.find(
+                      (channel) => channel.id === draft.channelId,
+                    )}
+                    draft={draft}
+                    key={draft.key}
+                    onSelect={() => setSelectedDraftId(draft.key)}
+                    selected={selectedDraft?.key === draft.key}
                   />
                 ))
-              : visibleItems.map((item) => (
-                  <InboxRow
-                    channel={channels.find(
-                      (channel) => channel.id === item.channelId,
-                    )}
-                    item={item}
-                    key={item.id}
-                    onSelect={() => {
-                      setSelectedId(item.id);
-                      markRead(item);
-                    }}
-                    profile={profiles.get(item.pubkey)}
-                    selected={selected?.id === item.id}
-                    unread={isUnread(item)}
-                  />
-                ))}
-            {!(isReminders ? remindersQuery.isLoading : inboxQuery.isLoading) &&
-            !(isReminders ? visibleReminders.length : visibleItems.length) ? (
+              : isReminders
+                ? visibleReminders.map((reminder) => (
+                    <HomeReminderRow
+                      key={reminder.id}
+                      onSelect={() => setSelectedReminderId(reminder.id)}
+                      reminder={reminder}
+                      selected={selectedReminder?.id === reminder.id}
+                    />
+                  ))
+                : visibleItems.map((item) => (
+                    <InboxRow
+                      channel={channels.find(
+                        (channel) => channel.id === item.channelId,
+                      )}
+                      item={item}
+                      key={item.id}
+                      onSelect={() => {
+                        setSelectedId(item.id);
+                        markRead(item);
+                      }}
+                      profile={profiles.get(item.pubkey)}
+                      selected={selected?.id === item.id}
+                      unread={isUnread(item)}
+                    />
+                  ))}
+            {!(isDrafts
+              ? false
+              : isReminders
+                ? remindersQuery.isLoading
+                : inboxQuery.isLoading) &&
+            !(isDrafts
+              ? drafts.length
+              : isReminders
+                ? visibleReminders.length
+                : visibleItems.length) ? (
               <div className="px-6 py-16 text-center">
                 <Inbox className="mx-auto h-7 w-7 text-muted-foreground" />
                 <p className="mt-3 text-sm text-muted-foreground">
@@ -320,20 +366,41 @@ function HomeWorkspace({
                     ? isReminders
                       ? "No reminders due"
                       : "No unread activity"
-                    : isReminders
-                      ? "No reminders"
-                      : "No activity yet"}
+                    : isDrafts
+                      ? "No drafts"
+                      : isReminders
+                        ? "No reminders"
+                        : "No activity yet"}
                 </p>
               </div>
             ) : null}
-            {(isReminders ? remindersQuery.isLoading : inboxQuery.isLoading) ? (
+            {(
+              isDrafts
+                ? false
+                : isReminders
+                  ? remindersQuery.isLoading
+                  : inboxQuery.isLoading
+            ) ? (
               <p className="p-6 text-sm text-muted-foreground">
                 Loading inbox…
               </p>
             ) : null}
           </div>
         </section>
-        {isReminders ? (
+        {isDrafts ? (
+          <HomeDraftDetail
+            channel={channels.find(
+              (channel) => channel.id === selectedDraft?.channelId,
+            )}
+            draft={selectedDraft}
+            mobileVisible={Boolean(explicitlySelectedDraft)}
+            onBack={() => setSelectedDraftId(null)}
+            onDelete={(key) => {
+              deleteDraft(ownerPubkey, key);
+              setSelectedDraftId(null);
+            }}
+          />
+        ) : isReminders ? (
           <HomeReminderDetail
             key={selectedReminder?.id ?? "empty"}
             mobileVisible={Boolean(explicitlySelectedReminder)}

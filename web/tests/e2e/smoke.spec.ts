@@ -1368,7 +1368,23 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
 
   await page.getByRole("link", { name: "Inbox" }).click();
   await expect(page.getByRole("heading", { name: "Inbox" })).toBeVisible();
-  await page.getByRole("button", { name: "Reminders" }).click();
+  await page.getByLabel("Inbox filter").selectOption("drafts");
+  await expect(page.getByText("No drafts")).toBeVisible();
+  await page.getByRole("link", { name: "Channels" }).click();
+  await page.getByLabel("Message #general").fill("Saved browser draft");
+  await page.getByRole("link", { name: "Inbox" }).click();
+  await page.getByLabel("Inbox filter").selectOption("drafts");
+  await expect(page.getByText("Saved browser draft").first()).toBeVisible();
+  await page.getByRole("link", { name: "Open draft" }).click();
+  await expect(page).toHaveURL(/\/channels/);
+  await expect(page.getByLabel("Message #general")).toHaveValue(
+    "Saved browser draft",
+  );
+  await page.getByLabel("Message #general").fill("");
+  await page.getByRole("link", { name: "Inbox" }).click();
+  await page.getByLabel("Inbox filter").selectOption("drafts");
+  await expect(page.getByText("No drafts")).toBeVisible();
+  await page.getByLabel("Inbox filter").selectOption("reminders");
   await expect(page.getByText("Follow up privately")).toBeVisible();
   await expect(page.getByLabel("Snooze reminder")).toBeVisible();
   await page.getByLabel("Snooze reminder").selectOption({

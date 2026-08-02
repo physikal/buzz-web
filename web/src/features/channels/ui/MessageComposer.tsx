@@ -8,40 +8,40 @@ import {
   type ChannelMessage,
   uploadMedia,
 } from "../channel-api";
+import { deleteDraft, loadDraft, saveDraft } from "../draft-store";
 
 export type ComposerPayload = {
   content: string;
   mediaTags: string[][];
 };
 
-function draftKey(channelId: string, parentId?: string | null) {
-  return `buzz-web:draft:${channelId}:${parentId ?? "root"}`;
-}
-
 export function MessageComposer({
   channel,
   parent,
+  ownerPubkey,
   pending,
   onTyping,
   onSubmit,
 }: {
   channel: Channel;
   parent?: ChannelMessage | null;
+  ownerPubkey: string;
   pending: boolean;
   onTyping?: () => void;
   onSubmit: (payload: ComposerPayload) => Promise<void>;
 }) {
-  const key = draftKey(channel.id, parent?.id);
-  const [draft, setDraft] = useState(() => localStorage.getItem(key) ?? "");
+  const [draft, setDraft] = useState(() =>
+    loadDraft(ownerPubkey, channel.id, parent?.id),
+  );
   const [files, setFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const lastTypingSent = useRef(0);
 
   useEffect(() => {
-    setDraft(localStorage.getItem(key) ?? "");
+    setDraft(loadDraft(ownerPubkey, channel.id, parent?.id));
     setFiles([]);
-  }, [key]);
+  }, [channel.id, ownerPubkey, parent?.id]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -56,7 +56,7 @@ export function MessageComposer({
       await onSubmit({ content: draft, mediaTags: uploads });
       setDraft("");
       setFiles([]);
-      localStorage.removeItem(key);
+      deleteDraft(ownerPubkey, parent?.id ? `thread:${parent.id}` : channel.id);
     } finally {
       setUploading(false);
     }
@@ -128,7 +128,13 @@ export function MessageComposer({
             value={draft}
             onChange={(event) => {
               setDraft(event.target.value);
-              localStorage.setItem(key, event.target.value);
+              saveDraft(
+                ownerPubkey,
+                channel.id,
+                parent?.id,
+                event.target.value,
+                event.target.selectionStart,
+              );
               if (
                 event.target.value.trim() &&
                 Date.now() - lastTypingSent.current >= 3_000
