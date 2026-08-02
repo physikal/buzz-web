@@ -1,5 +1,6 @@
 import { FileText, Send, X } from "lucide-react";
 import { type FormEvent, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 
 import type { CustomEmoji } from "@/features/settings/custom-emoji-api";
 import { Button } from "@/shared/ui/button";
@@ -9,7 +10,12 @@ import {
   type ChannelMessage,
   uploadMedia,
 } from "../channel-api";
-import { deleteDraft, loadDraft, saveDraft } from "../draft-store";
+import {
+  deleteDraft,
+  type DraftAttachment,
+  loadDraftState,
+  saveDraft,
+} from "../draft-store";
 import type { DmCandidate } from "../dm-candidates";
 import { ComposerToolbar } from "./ComposerToolbar";
 
@@ -37,33 +43,49 @@ export function MessageComposer({
   onTyping?: () => void;
   onSubmit: (payload: ComposerPayload) => Promise<void>;
 }) {
-  const [draft, setDraft] = useState(() =>
-    loadDraft(ownerPubkey, channel.id, parent?.id),
+  const [draft, setDraft] = useState(
+    () => loadDraftState(ownerPubkey, channel.id, parent?.id).content,
   );
-  const [files, setFiles] = useState<File[]>([]);
+  const [attachments, setAttachments] = useState<DraftAttachment[]>(
+    () => loadDraftState(ownerPubkey, channel.id, parent?.id).pendingImeta,
+  );
   const [uploading, setUploading] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const draftRef = useRef(draft);
+  const contextKey = `${channel.id}:${parent?.id ?? "root"}`;
+  const contextKeyRef = useRef(contextKey);
+  draftRef.current = draft;
+  contextKeyRef.current = contextKey;
   const lastTypingSent = useRef(0);
 
   useEffect(() => {
-    setDraft(loadDraft(ownerPubkey, channel.id, parent?.id));
-    setFiles([]);
+    const saved = loadDraftState(ownerPubkey, channel.id, parent?.id);
+    setDraft(saved.content);
+    setAttachments(saved.pendingImeta);
   }, [channel.id, ownerPubkey, parent?.id]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if ((!draft.trim() && !files.length) || pending || uploading) return;
+    if ((!draft.trim() && !attachments.length) || pending || uploading) return;
     setUploading(true);
     try {
-      const uploads = await Promise.all(
-        files.map(async (file) =>
-          mediaImetaTag(await uploadMedia(file), file.name),
+      const mediaTags = attachments.map((attachment) =>
+        mediaImetaTag(
+          {
+            url: attachment.url,
+            sha256: attachment.sha256,
+            size: attachment.size,
+            type: attachment.type,
+            dimensions: attachment.dim,
+            thumbnailUrl: attachment.thumb,
+          },
+          attachment.filename ?? "attachment",
         ),
       );
-      await onSubmit({ content: draft, mediaTags: uploads });
+      await onSubmit({ content: draft, mediaTags });
       setDraft("");
-      setFiles([]);
+      setAttachments([]);
       deleteDraft(ownerPubkey, parent?.id ? `thread:${parent.id}` : channel.id);
     } finally {
       setUploading(false);
@@ -81,22 +103,36 @@ export function MessageComposer({
   return (
     <form className="border-t p-3 sm:p-4" onSubmit={submit}>
       <div className="mx-auto max-w-4xl rounded-md border bg-background shadow-xs focus-within:ring-1 focus-within:ring-ring">
-        {files.length ? (
+        {attachments.length ? (
           <div className="flex flex-wrap gap-2 border-b p-2">
-            {files.map((file, index) => (
+            {attachments.map((attachment, index) => (
               <span
                 className="flex max-w-full items-center gap-2 rounded-md bg-muted px-2 py-1 text-xs"
-                key={`${file.name}-${file.lastModified}`}
+                key={attachment.url}
               >
                 <FileText className="h-3.5 w-3.5 shrink-0" />
-                <span className="truncate">{file.name}</span>
+                <span className="truncate">
+                  {attachment.filename ?? "Attachment"}
+                </span>
                 <button
-                  aria-label={`Remove ${file.name}`}
-                  onClick={() =>
-                    setFiles((current) =>
-                      current.filter((_, itemIndex) => itemIndex !== index),
-                    )
-                  }
+                  aria-label={`Remove ${attachment.filename ?? "attachment"}`}
+                  onClick={() => {
+                    setAttachments((current) => {
+                      const next = current.filter(
+                        (_, itemIndex) => itemIndex !== index,
+                      );
+                      saveDraft(
+                        ownerPubkey,
+                        channel.id,
+                        parent?.id,
+                        draftRef.current,
+                        textareaRef.current?.selectionStart ??
+                          draftRef.current.length,
+                        next,
+                      );
+                      return next;
+                    });
+                  }}
                   type="button"
                 >
                   <X className="h-3.5 w-3.5" />
@@ -111,10 +147,58 @@ export function MessageComposer({
             multiple
             ref={fileInput}
             type="file"
-            onChange={(event) => {
-              const selected = [...(event.target.files ?? [])];
-              setFiles((current) => [...current, ...selected].slice(0, 10));
+            onChange={async (event) => {
+              const selected = [...(event.target.files ?? [])].slice(
+                0,
+                Math.max(0, 10 - attachments.length),
+              );
               event.target.value = "";
+              if (!selected.length) return;
+              const uploadChannelId = channel.id;
+              const uploadParentId = parent?.id;
+              const uploadContextKey = contextKey;
+              setUploading(true);
+              try {
+                const uploaded = await Promise.all(
+                  selected.map(async (file): Promise<DraftAttachment> => {
+                    const media = await uploadMedia(file);
+                    return {
+                      url: media.url,
+                      sha256: media.sha256,
+                      size: media.size,
+                      type: media.type,
+                      uploaded: Math.floor(Date.now() / 1_000),
+                      dim: media.dimensions,
+                      thumb: media.thumbnailUrl,
+                      filename: file.name,
+                    };
+                  }),
+                );
+                const saved = loadDraftState(
+                  ownerPubkey,
+                  uploadChannelId,
+                  uploadParentId,
+                );
+                const next = [...saved.pendingImeta, ...uploaded].slice(0, 10);
+                saveDraft(
+                  ownerPubkey,
+                  uploadChannelId,
+                  uploadParentId,
+                  saved.content,
+                  saved.content.length,
+                  next,
+                );
+                if (contextKeyRef.current === uploadContextKey) {
+                  setAttachments(next);
+                }
+              } catch (error) {
+                toast.error("Could not upload attachment", {
+                  description:
+                    error instanceof Error ? error.message : "Upload failed.",
+                });
+              } finally {
+                setUploading(false);
+              }
             }}
           />
           <textarea
@@ -133,6 +217,7 @@ export function MessageComposer({
                 parent?.id,
                 event.target.value,
                 event.target.selectionStart,
+                attachments,
               );
               if (
                 event.target.value.trim() &&
@@ -159,14 +244,23 @@ export function MessageComposer({
             onAttach={() => fileInput.current?.click()}
             onValueChange={(value, selection) => {
               setDraft(value);
-              saveDraft(ownerPubkey, channel.id, parent?.id, value, selection);
+              saveDraft(
+                ownerPubkey,
+                channel.id,
+                parent?.id,
+                value,
+                selection,
+                attachments,
+              );
             }}
             textareaRef={textareaRef}
             value={draft}
           />
           <Button
             aria-label="Send message"
-            disabled={(!draft.trim() && !files.length) || pending || uploading}
+            disabled={
+              (!draft.trim() && !attachments.length) || pending || uploading
+            }
             size="icon"
             type="submit"
           >

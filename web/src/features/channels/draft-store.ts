@@ -1,4 +1,14 @@
 import { relayWsUrl } from "@/shared/lib/relay-url";
+export type DraftAttachment = {
+  url: string;
+  sha256: string;
+  size: number;
+  type: string;
+  uploaded: number;
+  dim?: string;
+  thumb?: string;
+  filename?: string;
+};
 
 export type WebDraft = {
   key: string;
@@ -7,6 +17,7 @@ export type WebDraft = {
   parentId: string | null;
   createdAt: string;
   updatedAt: string;
+  attachments: DraftAttachment[];
 };
 
 type StoredDraft = {
@@ -16,7 +27,7 @@ type StoredDraft = {
   channelId: string;
   createdAt: string;
   updatedAt: string;
-  pendingImeta: unknown[];
+  pendingImeta: DraftAttachment[];
   mentionRefs: unknown[];
   spoileredAttachmentUrls: string[];
   status: "active";
@@ -59,8 +70,38 @@ function validDraft(value: unknown): value is StoredDraft {
     typeof draft.createdAt === "string" &&
     typeof draft.updatedAt === "string" &&
     Array.isArray(draft.pendingImeta) &&
+    draft.pendingImeta.every(validAttachment) &&
     Array.isArray(draft.spoileredAttachmentUrls) &&
     (draft.status === undefined || draft.status === "active")
+  );
+}
+
+function validAttachment(value: unknown): value is DraftAttachment {
+  if (!value || typeof value !== "object") return false;
+  const attachment = value as Partial<DraftAttachment>;
+  return (
+    typeof attachment.url === "string" &&
+    attachment.url.length <= 8_192 &&
+    /^https?:\/\//i.test(attachment.url) &&
+    typeof attachment.sha256 === "string" &&
+    /^[0-9a-f]{64}$/i.test(attachment.sha256) &&
+    typeof attachment.size === "number" &&
+    Number.isFinite(attachment.size) &&
+    attachment.size >= 0 &&
+    attachment.size <= Number.MAX_SAFE_INTEGER &&
+    typeof attachment.type === "string" &&
+    attachment.type.length <= 255 &&
+    typeof attachment.uploaded === "number" &&
+    Number.isFinite(attachment.uploaded) &&
+    (attachment.dim === undefined ||
+      (typeof attachment.dim === "string" && attachment.dim.length <= 64)) &&
+    (attachment.thumb === undefined ||
+      (typeof attachment.thumb === "string" &&
+        attachment.thumb.length <= 8_192 &&
+        /^https?:\/\//i.test(attachment.thumb))) &&
+    (attachment.filename === undefined ||
+      (typeof attachment.filename === "string" &&
+        attachment.filename.length <= 512))
   );
 }
 
@@ -97,16 +138,31 @@ export function loadDraft(
   return legacy ?? "";
 }
 
+export function loadDraftState(
+  ownerPubkey: string,
+  channelId: string,
+  parentId?: string | null,
+): Pick<StoredDraft, "content" | "pendingImeta"> {
+  loadDraft(ownerPubkey, channelId, parentId);
+  const stored = readStore(ownerPubkey)[draftKey(channelId, parentId)];
+  return {
+    content: stored?.content ?? "",
+    pendingImeta: stored?.pendingImeta ?? [],
+  };
+}
+
 export function saveDraft(
   ownerPubkey: string,
   channelId: string,
   parentId: string | null | undefined,
   content: string,
   selection: number,
+  attachments?: DraftAttachment[],
 ) {
   const key = draftKey(channelId, parentId);
   const store = readStore(ownerPubkey);
-  if (!content.trim()) {
+  const pendingImeta = attachments ?? store[key]?.pendingImeta ?? [];
+  if (!content.trim() && !pendingImeta.length) {
     delete store[key];
     writeStore(ownerPubkey, store);
     return;
@@ -119,7 +175,7 @@ export function saveDraft(
     channelId,
     createdAt: store[key]?.createdAt ?? now,
     updatedAt: now,
-    pendingImeta: [],
+    pendingImeta,
     mentionRefs: [],
     spoileredAttachmentUrls: [],
     status: "active",
@@ -142,6 +198,7 @@ export function listDrafts(ownerPubkey: string): WebDraft[] {
       parentId: key.startsWith("thread:") ? key.slice("thread:".length) : null,
       createdAt: draft.createdAt,
       updatedAt: draft.updatedAt,
+      attachments: draft.pendingImeta,
     }))
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
 }

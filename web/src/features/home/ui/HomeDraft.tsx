@@ -45,7 +45,8 @@ export function HomeDraftRow({
           {draft.parentId ? "Thread draft" : "Draft"}
         </span>
         <span className="mt-1 line-clamp-2 text-sm text-muted-foreground">
-          {draft.content}
+          {draft.content ||
+            `${draft.attachments.length} attachment${draft.attachments.length === 1 ? "" : "s"}`}
         </span>
       </span>
     </button>
@@ -136,6 +137,24 @@ export function HomeDraftDetail({
           <ReactMarkdown remarkPlugins={[remarkGfm]}>
             {draft.content}
           </ReactMarkdown>
+          {draft.attachments.length ? (
+            <div className="not-prose mt-6 space-y-2">
+              {draft.attachments.map((attachment) => (
+                <a
+                  className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted"
+                  href={attachment.url}
+                  key={attachment.url}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  <FileText className="h-4 w-4 text-muted-foreground" />
+                  <span className="min-w-0 flex-1 truncate">
+                    {attachment.filename ?? "Attachment"}
+                  </span>
+                </a>
+              ))}
+            </div>
+          ) : null}
         </article>
       </div>
       {confirming ? (

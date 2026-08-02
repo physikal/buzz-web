@@ -157,6 +157,32 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
       }),
     });
   });
+  await page.route("**/upload", async (route) => {
+    const request = route.request();
+    const bytes = request.postDataBuffer() ?? Buffer.alloc(0);
+    const sha256 = createHash("sha256").update(bytes).digest("hex");
+    const authorization = request.headers().authorization ?? "";
+    expect(authorization).toMatch(/^Nostr /);
+    const event = JSON.parse(
+      Buffer.from(authorization.slice("Nostr ".length), "base64url").toString(
+        "utf8",
+      ),
+    );
+    expect(verifyEvent(event)).toBe(true);
+    expect(event.pubkey).toBe(ownerPubkey);
+    expect(event.kind).toBe(24242);
+    expect(event.tags).toContainEqual(["x", sha256]);
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        url: "https://cdn.example.com/draft-note.txt",
+        sha256,
+        size: bytes.length,
+        type: request.headers()["content-type"],
+      }),
+    });
+  });
   await page.route("**/query", async (route) => {
     const request = route.request();
     const body = request.postData() ?? "";
@@ -1129,6 +1155,15 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await page.getByLabel("Find someone to mention").fill("Relay agent");
   await page.getByRole("button", { name: "Mention Relay agent" }).click();
   await expect(composer).toHaveValue(/@Relay agent/u);
+  await composer
+    .locator("xpath=ancestor::form")
+    .locator('input[type="file"]')
+    .setInputFiles({
+      name: "draft-note.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("Persisted draft attachment"),
+    });
+  await expect(page.getByText("draft-note.txt")).toBeVisible();
   await page.getByRole("button", { name: "Add direct messages" }).click();
   const newMessageDialog = page.getByRole("dialog", { name: "New message" });
   await expect(
@@ -1433,6 +1468,9 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await expect(page.getByText("No agent updates found")).toBeVisible();
   await page.getByLabel("Inbox filter").selectOption("drafts");
   await expect(page.getByText(/@Relay agent/u).first()).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "draft-note.txt" }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Delete draft" }).click();
   await expect(page.getByText("No drafts")).toBeVisible();
   await page.getByRole("link", { name: "Channels" }).click();

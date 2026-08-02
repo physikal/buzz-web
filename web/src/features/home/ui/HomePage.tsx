@@ -25,6 +25,7 @@ import { OwnerConnection } from "@/features/agents/ui/OwnerConnection";
 import {
   ensureStarterChannels,
   listProfiles,
+  mediaImetaTag,
   sendChannelMessage,
   type Channel,
   type UserProfile,
@@ -237,6 +238,19 @@ function HomeWorkspace({
         mentionPubkeys: (agentsQuery.data ?? [])
           .filter((agent) => lower.includes(`@${agent.name.toLowerCase()}`))
           .map((agent) => agent.agent_pubkey),
+        mediaTags: draft.attachments.map((attachment) =>
+          mediaImetaTag(
+            {
+              url: attachment.url,
+              sha256: attachment.sha256,
+              size: attachment.size,
+              type: attachment.type,
+              dimensions: attachment.dim,
+              thumbnailUrl: attachment.thumb,
+            },
+            attachment.filename ?? "attachment",
+          ),
+        ),
         parentId: draft.parentId,
         rootId: draft.parentId,
       });
