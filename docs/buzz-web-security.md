@@ -65,6 +65,15 @@ runtime and does not give an agent process access to Docker.
   sequences, held only in process memory, and never written to the relay
   database or logs. Login sessions expire after 15 minutes. The resulting
   vendor credential files live only in the agent's mode-`0700` data directory.
+- Hosted-agent observer history is stored in a dedicated journal, outside the
+  general event and search tables. Only validated agent-to-owner telemetry is
+  eligible, and the stored value is the original signed NIP-44 ciphertext
+  envelope. Retrieval requires an owner-signed request for that owned agent,
+  returns `no-store`, and the browser re-verifies the Nostr signature and exact
+  routing tags before local decryption. Active journals are trimmed toward the
+  newest 10,000 frames at most once every ten seconds and history older than 30
+  days is reaped; one response is capped at 3,000 frames and 8 MiB. Deleting the
+  hosted agent cascades its history.
 - Each agent runs under a stable, unique Unix UID with a mode `0700` data
   directory. The supervisor uses fenced, short-lived database leases; a stale
   runner terminates when it can no longer renew its lease. During a host pause
@@ -117,6 +126,11 @@ the owner to unlock. Database theft alone yields only authenticated ciphertext,
 but compromise of the live web origin during an unlock can expose owner
 authority. The worker prevents accidental UI access; it cannot defend against
 malicious replacement code from the same origin.
+
+The observer journal adds encrypted telemetry volume, timestamps, and the
+hosted-agent association to database backups. Message, prompt, tool, and result
+content remains NIP-44 ciphertext, but traffic analysis is still possible and
+backups must honor the same 30-day retention policy operationally.
 
 WebAuthn credentials are phishing-resistant and domain-bound, which improves
 login phishing resistance relative to manually pasting an `nsec`. PRF support

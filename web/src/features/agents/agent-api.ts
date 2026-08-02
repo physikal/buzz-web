@@ -1,5 +1,6 @@
 import { makeNip98AuthHeader } from "@/shared/lib/nip98";
 import { relayHttpBaseUrl } from "@/shared/lib/relay-url";
+import type { NostrEvent } from "@/shared/lib/nostr-client";
 
 export type AgentRuntime = "buzz-agent" | "codex" | "claude";
 export type AgentProvider =
@@ -198,6 +199,14 @@ export async function getAgentRuntimeLog(id: string): Promise<AgentRuntimeLog> {
     `/api/agents/${encodeURIComponent(id)}/logs`,
     { cache: "no-store" },
   );
+}
+
+export async function getAgentActivity(id: string): Promise<NostrEvent[]> {
+  const result = await signedRequest<{ events: NostrEvent[] }>(
+    `/api/agents/${encodeURIComponent(id)}/activity`,
+    { cache: "no-store" },
+  );
+  return result.events;
 }
 
 export async function restoreAgentMemory(

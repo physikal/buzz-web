@@ -139,6 +139,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/agents/{id}/auth/input", post(api::agents::auth_input))
         .route("/api/agents/{id}/logs", get(api::agents::agent_logs))
         .route(
+            "/api/agents/{id}/activity",
+            get(api::agents::agent_activity),
+        )
+        .route(
             "/api/agents/{id}/memory",
             post(api::agents::restore_agent_memory),
         )

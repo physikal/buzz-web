@@ -909,6 +909,8 @@ struct AgentObserverRoute {
     direction: AgentObserverDirection,
 }
 
+const MAX_ARCHIVED_OBSERVER_CIPHERTEXT_BYTES: usize = 128 * 1024;
+
 /// Check + bump the per-agent observer telemetry limit (100/sec window).
 ///
 /// Observer frames are ephemeral, but the rejection is visible to the sender.
@@ -1064,6 +1066,21 @@ async fn handle_agent_observer_event(
             ));
             return;
         }
+
+        if let Err(error) = state
+            .db
+            .archive_managed_agent_observer_event(
+                conn.tenant.community(),
+                &route.agent.to_hex(),
+                &route.owner.to_hex(),
+                &event,
+            )
+            .await
+        {
+            // Archival is an owner convenience, not part of live delivery.
+            // Preserve the observer stream during a transient database fault.
+            warn!(%error, event_id = %event_id_hex, "observer archive write failed");
+        }
     }
 
     state.mark_local_event(conn.tenant.community(), &event.id);
@@ -1094,6 +1111,9 @@ async fn handle_agent_observer_event(
 fn agent_observer_route(event: &Event) -> Result<Option<AgentObserverRoute>, String> {
     if !content_looks_like_nip44(&event.content) {
         return Err("invalid: observer content must be NIP-44 encrypted".into());
+    }
+    if event.content.len() > MAX_ARCHIVED_OBSERVER_CIPHERTEXT_BYTES {
+        return Err("invalid: observer ciphertext exceeds 128 KiB".into());
     }
 
     let recipient = parse_single_pubkey_tag(event, "p")?;

@@ -205,6 +205,10 @@ try {
   if (!listed.agents.some((candidate) => candidate.id === agent.id)) {
     throw new Error("Created agent was not returned by the owner list API.");
   }
+  const activity = await request(`/api/agents/${agent.id}/activity`);
+  if (!Array.isArray(activity.events)) {
+    throw new Error("Agent activity API did not return an event list.");
+  }
 
   await submitEvent({
     kind: 9000,

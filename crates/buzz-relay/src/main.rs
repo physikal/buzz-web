@@ -1523,6 +1523,19 @@ async fn run_usage_metrics_tick(
                 warn!(error = %error, "failed to reap expired relay invites");
             }
         }
+        match state
+            .db
+            .reap_managed_agent_observer_events(chrono::Duration::days(30), 10_000)
+            .await
+        {
+            Ok(deleted) if deleted > 0 => {
+                info!(deleted, "reaped managed-agent observer history");
+            }
+            Ok(_) => {}
+            Err(error) => {
+                warn!(error = %error, "failed to reap managed-agent observer history");
+            }
+        }
         run_storage_sweep_tick(state, emission_scope, &host_map).await;
     }
 

@@ -27,7 +27,7 @@ export type NostrEvent = SignedNostrEvent;
 
 const QUERY_TIMEOUT_MS = 10_000;
 
-function validNostrEvent(value: unknown): value is NostrEvent {
+export function validNostrEvent(value: unknown): value is NostrEvent {
   try {
     return Boolean(
       value && typeof value === "object" && verifyEvent(value as NostrEvent),

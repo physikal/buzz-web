@@ -570,7 +570,7 @@ mod tests {
         let mut migrations: Vec<_> = MIGRATOR.iter().collect();
         migrations.sort_by_key(|migration| migration.version);
 
-        assert_eq!(migrations.len(), 31);
+        assert_eq!(migrations.len(), 32);
         assert_eq!(migrations[0].version, 1);
         assert_eq!(&*migrations[0].description, "initial schema");
         assert!(migrations[0]
@@ -593,6 +593,11 @@ mod tests {
         );
         assert_eq!(migrations[30].version, 31);
         assert_eq!(&*migrations[30].description, "managed agent runtime config");
+        assert_eq!(migrations[31].version, 32);
+        assert_eq!(
+            &*migrations[31].description,
+            "managed agent observer archive"
+        );
         assert!(migrations[0]
             .sql
             .as_str()

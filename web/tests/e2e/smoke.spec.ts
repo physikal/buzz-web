@@ -289,6 +289,25 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
       }),
     });
   });
+  await page.route("**/api/agents/*/activity", async (route) => {
+    const request = route.request();
+    const authorization = request.headers().authorization ?? "";
+    const event = JSON.parse(
+      Buffer.from(authorization.slice("Nostr ".length), "base64").toString(
+        "utf8",
+      ),
+    );
+    expect(verifyEvent(event)).toBe(true);
+    expect(event.pubkey).toBe(ownerPubkey);
+    expect(event.tags).toContainEqual(["u", request.url()]);
+    expect(event.tags).toContainEqual(["method", "GET"]);
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      headers: { "Cache-Control": "no-store" },
+      body: JSON.stringify({ events: [] }),
+    });
+  });
   await page.route("**/api/invites", async (route) => {
     const request = route.request();
     const body = request.postData() ?? "";

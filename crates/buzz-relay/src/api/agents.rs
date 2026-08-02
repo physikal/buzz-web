@@ -32,6 +32,8 @@ const MAX_RUNTIME_CONFIG_ENTRIES: usize = 16;
 const MAX_RUNTIME_CONFIG_VALUE_LEN: usize = 2048;
 const MAX_SECRET_COUNT: usize = 32;
 const MAX_SECRET_VALUE_LEN: usize = 16 * 1024;
+const MAX_OBSERVER_HISTORY_EVENTS: i64 = 3_000;
+const MAX_OBSERVER_HISTORY_BYTES: i64 = 8 * 1024 * 1024;
 
 /// Owner-supplied configuration for one centrally hosted agent.
 #[derive(Deserialize)]
@@ -471,6 +473,35 @@ pub async fn agent_logs(
     let mut response_headers = HeaderMap::new();
     response_headers.insert(header::CACHE_CONTROL, "no-store".parse().unwrap());
     Ok((response_headers, payload))
+}
+
+/// Return recent signed observer ciphertext for local owner decryption.
+pub async fn agent_activity(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Result<(HeaderMap, Json<Value>), (StatusCode, Json<Value>)> {
+    let path = format!("/api/agents/{id}/activity");
+    let (tenant, owner) = authorize_owner(&state, &headers, "GET", &path, None, false).await?;
+    let id =
+        Uuid::parse_str(&id).map_err(|_| api_error(StatusCode::BAD_REQUEST, "invalid agent id"))?;
+    let events = state
+        .db
+        .list_owned_managed_agent_observer_events(
+            tenant.community(),
+            &owner.to_hex(),
+            id,
+            MAX_OBSERVER_HISTORY_EVENTS,
+            MAX_OBSERVER_HISTORY_BYTES,
+        )
+        .await
+        .map_err(|error| {
+            tracing::error!(%error, "managed-agent observer history lookup failed");
+            api_error(StatusCode::INTERNAL_SERVER_ERROR, "internal server error")
+        })?;
+    let mut response_headers = HeaderMap::new();
+    response_headers.insert(header::CACHE_CONTROL, "no-store".parse().unwrap());
+    Ok((response_headers, Json(json!({ "events": events }))))
 }
 
 #[derive(Deserialize)]

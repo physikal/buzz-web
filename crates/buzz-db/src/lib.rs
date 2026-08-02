@@ -29,6 +29,7 @@ pub mod feed;
 pub mod git_repo;
 /// Centralized managed-agent configuration and runner leases.
 pub mod managed_agent_host;
+pub mod managed_agent_observer;
 /// Embedded database migrations.
 pub mod migration;
 /// Community moderation: reports, bans/timeouts, audit actions.
@@ -4080,6 +4081,47 @@ impl Db {
         id: Uuid,
     ) -> Result<Option<managed_agent_host::ManagedAgentHostRecord>> {
         managed_agent_host::get(&self.pool, community, id).await
+    }
+
+    /// Store one validated, owner-encrypted observer telemetry envelope.
+    pub async fn archive_managed_agent_observer_event(
+        &self,
+        community: CommunityId,
+        agent_pubkey: &str,
+        owner_pubkey: &str,
+        event: &nostr::Event,
+    ) -> Result<bool> {
+        managed_agent_observer::archive(&self.pool, community, agent_pubkey, owner_pubkey, event)
+            .await
+    }
+
+    /// List recent observer ciphertext envelopes for one owned hosted agent.
+    pub async fn list_owned_managed_agent_observer_events(
+        &self,
+        community: CommunityId,
+        owner_pubkey: &str,
+        agent_id: Uuid,
+        limit: i64,
+        max_bytes: i64,
+    ) -> Result<Vec<serde_json::Value>> {
+        managed_agent_observer::list_owned(
+            &self.pool,
+            community,
+            owner_pubkey,
+            agent_id,
+            limit,
+            max_bytes,
+        )
+        .await
+    }
+
+    /// Reap observer ciphertext beyond the age and per-agent retention caps.
+    pub async fn reap_managed_agent_observer_events(
+        &self,
+        max_age: chrono::Duration,
+        max_per_agent: i64,
+    ) -> Result<u64> {
+        managed_agent_observer::reap(&self.pool, max_age, max_per_agent).await
     }
 
     /// Change the requested runtime state for an owned agent.

@@ -2,7 +2,11 @@ import { OctagonX, RefreshCw, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import { subscribeEvents, type NostrEvent } from "@/shared/lib/nostr-client";
+import {
+  subscribeEvents,
+  type NostrEvent,
+  validNostrEvent,
+} from "@/shared/lib/nostr-client";
 import {
   nip44DecryptFromPeer,
   nip44EncryptToPeer,
@@ -10,7 +14,7 @@ import {
 import { submitEvent } from "@/shared/lib/relay-events";
 import { relayWsUrl } from "@/shared/lib/relay-url";
 import { Button } from "@/shared/ui/button";
-import type { ManagedAgent } from "../agent-api";
+import { getAgentActivity, type ManagedAgent } from "../agent-api";
 import { AgentSessionTranscriptView } from "../session/AgentSessionTranscriptView";
 import {
   buildTranscriptState,
@@ -45,6 +49,25 @@ export function AgentActivityDialog({
     let active = true;
     setFrames([]);
     seen.current.clear();
+    void getAgentActivity(agent.id)
+      .then(async (events) => {
+        const archived = await Promise.all(
+          events.map((event) =>
+            parseObserverFrame(event, agent.agent_pubkey, ownerPubkey),
+          ),
+        );
+        if (!active) return;
+        for (const event of events) seen.current.add(event.id);
+        setFrames((current) =>
+          mergeObserverFrames(
+            current,
+            archived.filter((frame): frame is ObserverFrame => frame !== null),
+          ),
+        );
+      })
+      .catch(() => {
+        // Live telemetry remains available if history retrieval is unavailable.
+      });
     const subscription = subscribeEvents(
       relayWsUrl(),
       {
@@ -59,15 +82,7 @@ export function AgentActivityDialog({
         void parseObserverFrame(event, agent.agent_pubkey, ownerPubkey).then(
           (frame) => {
             if (!active || !frame) return;
-            setFrames((current) =>
-              [...current, frame]
-                .sort(
-                  (a, b) =>
-                    Date.parse(a.timestamp) - Date.parse(b.timestamp) ||
-                    a.seq - b.seq,
-                )
-                .slice(-800),
-            );
+            setFrames((current) => mergeObserverFrames(current, [frame]));
           },
         );
       },
@@ -190,6 +205,7 @@ async function parseObserverFrame(
   const exact = (name: string) =>
     event.tags.filter((tag) => tag.length === 2 && tag[0] === name);
   if (
+    !validNostrEvent(event) ||
     event.kind !== 24200 ||
     event.pubkey !== agentPubkey ||
     exact("p").length !== 1 ||
@@ -263,6 +279,21 @@ async function parseObserverFrame(
   } catch {
     return null;
   }
+}
+
+function mergeObserverFrames(
+  current: ObserverFrame[],
+  incoming: ObserverFrame[],
+): ObserverFrame[] {
+  const byId = new Map(current.map((frame) => [frame.id, frame]));
+  for (const frame of incoming) byId.set(frame.id, frame);
+  return [...byId.values()]
+    .sort(
+      (left, right) =>
+        Date.parse(left.timestamp) - Date.parse(right.timestamp) ||
+        left.seq - right.seq,
+    )
+    .slice(-3_000);
 }
 
 function RawEventRail({ events }: { events: ObserverFrame[] }) {
