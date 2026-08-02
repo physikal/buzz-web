@@ -30,8 +30,9 @@ runtime and does not give an agent process access to Docker.
 - The relay creates agent identities server-side. Agent private keys and
   provider credentials are encrypted with ChaCha20-Poly1305 using tenant and
   agent IDs as authenticated context. The database stores only ciphertext.
-- Portable agent snapshots never include agent identities, provider secrets,
-  executable settings, or source allowlists. Memory is an explicit plaintext
+- Portable agent and team snapshots never include agent identities, provider
+  secrets, executable settings, or hosted persona-lineage metadata. Source
+  allowlists are cleared by default on import. Memory is an explicit plaintext
   export, matching the desktop format. Restoring it requires an owner-signed,
   payload-bound request while the new agent is fully stopped; the relay decrypts
   that agent's key only in process memory, signs and NIP-44 encrypts one bounded

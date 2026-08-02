@@ -8,6 +8,8 @@ import {
   createAgent,
   type CreateAgentInput,
   type ManagedAgent,
+  restoreAgentMemory,
+  setAgentRunning,
 } from "../agent-api";
 import type { AgentPersona } from "../persona-api";
 import type { AgentTeam } from "../team-api";
@@ -21,12 +23,17 @@ export function TeamDeployDialog({
   agentDefaults,
   personas,
   team,
+  snapshotMemoryByPersona = {},
   onClose,
   onDeployed,
 }: {
   agentDefaults?: AgentDefaults;
   personas: AgentPersona[];
   team: AgentTeam;
+  snapshotMemoryByPersona?: Record<
+    string,
+    Array<{ slug: string; body: string }>
+  >;
   onClose: () => void;
   onDeployed: (result: TeamDeployResult) => void;
 }) {
@@ -76,12 +83,46 @@ export function TeamDeployDialog({
       usedNames.add(name);
       return teamAgentInput(persona, team, name, anthropicKey, openAiKey);
     });
-    const results = await Promise.allSettled(inputs.map(createAgent));
+    const results = await Promise.allSettled(
+      inputs.map(async (input, index) => {
+        const memory = snapshotMemoryByPersona[members[index].id] ?? [];
+        let agent = await createAgent({
+          ...input,
+          start_immediately: memory.length ? false : input.start_immediately,
+        });
+        const restoreFailures: string[] = [];
+        for (const entry of memory) {
+          try {
+            await restoreAgentMemory(agent.id, entry);
+          } catch (error) {
+            restoreFailures.push(
+              `${entry.slug}: ${error instanceof Error ? error.message : "restore failed"}`,
+            );
+          }
+        }
+        if (memory.length && input.credential_mode === "api-key") {
+          try {
+            agent = await setAgentRunning(agent.id, true);
+          } catch (error) {
+            restoreFailures.push(
+              `start: ${error instanceof Error ? error.message : "start failed"}`,
+            );
+          }
+        }
+        return { agent, restoreFailures };
+      }),
+    );
     const agents: ManagedAgent[] = [];
     const failures: string[] = [];
     results.forEach((result, index) => {
-      if (result.status === "fulfilled") agents.push(result.value);
-      else
+      if (result.status === "fulfilled") {
+        agents.push(result.value.agent);
+        failures.push(
+          ...result.value.restoreFailures.map(
+            (failure) => `${members[index].displayName}: ${failure}`,
+          ),
+        );
+      } else
         failures.push(
           `${members[index].displayName}: ${result.reason instanceof Error ? result.reason.message : "deployment failed"}`,
         );
@@ -218,6 +259,7 @@ function teamAgentInput(
   }
   return {
     name,
+    persona_id: persona.id,
     system_prompt: systemPrompt,
     runtime,
     model: persona.model ?? undefined,

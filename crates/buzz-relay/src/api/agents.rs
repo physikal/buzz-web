@@ -35,6 +35,8 @@ const MAX_SECRET_VALUE_LEN: usize = 16 * 1024;
 pub struct CreateAgentRequest {
     name: String,
     #[serde(default)]
+    persona_id: Option<String>,
+    #[serde(default)]
     system_prompt: String,
     runtime: String,
     #[serde(default)]
@@ -148,6 +150,7 @@ pub async fn create_agent(
     validate_create(&input)?;
     let CreateAgentRequest {
         name,
+        persona_id,
         system_prompt,
         runtime,
         model,
@@ -205,6 +208,7 @@ pub async fn create_agent(
                 id,
                 owner_pubkey: &owner_pubkey,
                 agent_pubkey: &agent_pubkey,
+                persona_id: persona_id.as_deref(),
                 name: name.trim(),
                 system_prompt: system_prompt.trim(),
                 runtime: &runtime,
@@ -292,6 +296,7 @@ pub async fn update_agent(
     }
     let validation = CreateAgentRequest {
         name: input.name.unwrap_or_else(|| existing.record.name.clone()),
+        persona_id: existing.record.persona_id.clone(),
         system_prompt: input
             .system_prompt
             .unwrap_or_else(|| existing.record.system_prompt.clone()),
@@ -798,6 +803,17 @@ fn validate_create(input: &CreateAgentRequest) -> Result<(), (StatusCode, Json<V
     if name.is_empty() || name.len() > MAX_NAME_LEN {
         return Err(api_error(StatusCode::BAD_REQUEST, "invalid agent name"));
     }
+    if input.persona_id.as_deref().is_some_and(|id| {
+        id.is_empty()
+            || id.len() > 64
+            || !id.bytes().enumerate().all(|(index, byte)| {
+                byte.is_ascii_lowercase()
+                    || byte.is_ascii_digit()
+                    || (index > 0 && matches!(byte, b'_' | b'-'))
+            })
+    }) {
+        return Err(api_error(StatusCode::BAD_REQUEST, "invalid persona id"));
+    }
     if input.system_prompt.len() > MAX_SYSTEM_PROMPT_LEN {
         return Err(api_error(
             StatusCode::BAD_REQUEST,
@@ -866,6 +882,7 @@ mod tests {
     fn valid_request() -> CreateAgentRequest {
         CreateAgentRequest {
             name: "Build agent".into(),
+            persona_id: None,
             system_prompt: "Review pull requests.".into(),
             runtime: "codex".into(),
             model: None,
@@ -925,6 +942,18 @@ mod tests {
         }))
         .unwrap();
         assert!(!stopped.start_immediately);
+    }
+
+    #[test]
+    fn persona_lineage_is_optional_and_strictly_validated() {
+        let mut request = valid_request();
+        request.persona_id = Some("review_lead-2".into());
+        assert!(validate_create(&request).is_ok());
+
+        for invalid in ["", "ReviewLead", "-review", "review/lead", "review lead"] {
+            request.persona_id = Some(invalid.into());
+            assert!(validate_create(&request).is_err(), "accepted {invalid:?}");
+        }
     }
 
     #[test]

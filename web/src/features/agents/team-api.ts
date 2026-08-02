@@ -113,7 +113,7 @@ export async function saveTeam(input: TeamInput, existing?: AgentTeam) {
   });
   if (new TextEncoder().encode(content).length > 160 * 1024)
     throw new Error("Team configuration is too large.");
-  await submitEvent({
+  const { event } = await submitEvent({
     kind: TEAM_KIND,
     created_at: existing
       ? Math.max(Math.floor(Date.now() / 1000), existing.createdAt + 1)
@@ -124,6 +124,9 @@ export async function saveTeam(input: TeamInput, existing?: AgentTeam) {
     ],
     content,
   });
+  const team = parseTeam(event);
+  if (!team) throw new Error("The saved team could not be read back.");
+  return team;
 }
 
 export async function deleteTeam(ownerPubkey: string, team: AgentTeam) {

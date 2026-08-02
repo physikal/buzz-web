@@ -55,6 +55,7 @@ const PREVIEW_AGENTS: ManagedAgent[] = [
     owner_pubkey:
       "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
     agent_pubkey: "02".repeat(32),
+    persona_id: null,
     name: "Fizz",
     system_prompt: "Review changes and keep the project moving.",
     runtime: "buzz-agent",
@@ -73,6 +74,7 @@ const PREVIEW_AGENTS: ManagedAgent[] = [
     owner_pubkey:
       "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
     agent_pubkey: "03".repeat(32),
+    persona_id: null,
     name: "Release notes",
     system_prompt: "Draft release notes from merged changes.",
     runtime: "codex",
@@ -457,7 +459,13 @@ function AgentsWorkspace({
             setSnapshotMemory([]);
             return;
           }
-          await createMutation.mutateAsync({ input, memory: snapshotMemory });
+          await createMutation.mutateAsync({
+            input: {
+              ...input,
+              ...(personaToDeploy ? { persona_id: personaToDeploy.id } : {}),
+            },
+            memory: snapshotMemory,
+          });
         }}
       />
       <AddAgentToChannelDialog

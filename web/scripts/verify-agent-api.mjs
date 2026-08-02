@@ -121,6 +121,7 @@ const created = await request("/api/agents", {
   method: "POST",
   body: JSON.stringify({
     name,
+    persona_id: "smoke-persona",
     system_prompt: "Wait for owner instructions.",
     runtime: "codex",
     respond_to: "owner-only",
@@ -130,7 +131,7 @@ const created = await request("/api/agents", {
   }),
 });
 const agent = created?.agent;
-if (!agent?.id || agent.name !== name)
+if (!agent?.id || agent.name !== name || agent.persona_id !== "smoke-persona")
   throw new Error("Create response is invalid.");
 if (
   "sandbox_uid" in agent ||

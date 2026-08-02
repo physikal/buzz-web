@@ -179,9 +179,11 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
           "66666666-6666-4666-8666-666666666666",
           "77777777-7777-4777-8777-777777777777",
           "88888888-8888-4888-8888-888888888888",
+          "99999999-9999-4999-8999-999999999999",
         ][managedAgents.length],
         owner_pubkey: ownerPubkey,
         agent_pubkey: agentPubkey,
+        persona_id: input.persona_id ?? null,
         name: input.name,
         system_prompt: input.system_prompt,
         runtime: input.runtime,
@@ -1159,7 +1161,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   expect(snapshotBytes.includes(Buffer.from("test-persona-api-key"))).toBe(
     false,
   );
-  await page.locator('input[type="file"]').setInputFiles({
+  await page.getByLabel("Import agent snapshot file").setInputFiles({
     name: "review-lead.agent.png",
     mimeType: "image/png",
     buffer: snapshotBytes,
@@ -1199,7 +1201,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
       },
     }),
   );
-  await page.locator('input[type="file"]').setInputFiles({
+  await page.getByLabel("Import agent snapshot file").setInputFiles({
     name: "snapshot-auditor.agent.json",
     mimeType: "application/json",
     buffer: craftedSnapshot,
@@ -1315,6 +1317,99 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     .fill("team-api-key");
   await page.getByRole("button", { name: "Deploy team", exact: true }).click();
   await expect.poll(() => managedAgents.length).toBe(3);
+  await page.getByRole("button", { name: "Export Review crew" }).click();
+  const teamExportDialog = page.getByRole("dialog", {
+    name: "Export Review crew",
+  });
+  await teamExportDialog.getByLabel("Memories").selectOption("everything");
+  await teamExportDialog.getByLabel("File format").selectOption("json");
+  await expect(teamExportDialog.getByText("1 of 1 members")).toBeVisible();
+  const teamDownload = page.waitForEvent("download");
+  await teamExportDialog.getByRole("button", { name: "Export" }).click();
+  const exportedTeam = JSON.parse(
+    (await downloadedBytes(await teamDownload)).toString("utf8"),
+  ) as {
+    format: string;
+    version: number;
+    team: { name: string };
+    members: Array<{
+      definition: Record<string, unknown>;
+      profile: Record<string, unknown>;
+      memory: {
+        level: string;
+        entries: Array<{ slug: string; body: string }>;
+      };
+    }>;
+  };
+  expect(exportedTeam).toMatchObject({
+    format: "buzz-team-snapshot",
+    version: 1,
+    team: { name: "Review crew" },
+    members: [
+      {
+        profile: { displayName: "Review lead" },
+        memory: {
+          level: "everything",
+          entries: [
+            {
+              slug: "core",
+              body: "Review carefully and preserve user intent.",
+            },
+          ],
+        },
+      },
+    ],
+  });
+  expect(JSON.stringify(exportedTeam)).not.toMatch(
+    /team-api-key|persona_id|agent_pubkey|private_key|credential_mode/u,
+  );
+  exportedTeam.team.name = "Portable crew";
+  exportedTeam.members[0].definition.name = "Portable reviewer";
+  exportedTeam.members[0].definition.respondTo = "allowlist";
+  exportedTeam.members[0].definition.respondToAllowlist = ["bb".repeat(32)];
+  exportedTeam.members[0].definition.privateKeyNsec = "nsec1must-not-import";
+  exportedTeam.members[0].profile.displayName = "Portable reviewer";
+  await page.getByLabel("Import team snapshot file").setInputFiles({
+    name: "portable-crew.team.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(exportedTeam)),
+  });
+  const teamImportDialog = page.getByRole("dialog", {
+    name: "Import team snapshot",
+  });
+  await expect(teamImportDialog.getByText("Portable crew")).toBeVisible();
+  await expect(
+    teamImportDialog.getByText("1 plaintext memory entry", { exact: false }),
+  ).toBeVisible();
+  await teamImportDialog.getByRole("button", { name: "Import" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Deploy Portable crew" }),
+  ).toBeVisible();
+  await expect
+    .poll(() => {
+      const imported = submittedEvents.find(
+        (event) =>
+          event.kind === 30175 &&
+          event.content.includes('"display_name":"Portable reviewer"'),
+      );
+      return (
+        imported?.content.includes('"respond_to":"owner-only"') === true &&
+        !imported.content.includes("respond_to_allowlist") &&
+        !imported.content.includes("must-not-import")
+      );
+    })
+    .toBe(true);
+  await page
+    .getByLabel("Anthropic API key", { exact: true })
+    .fill("portable-team-api-key");
+  await page.getByRole("button", { name: "Deploy team", exact: true }).click();
+  await expect.poll(() => managedAgents.length).toBe(4);
+  await expect
+    .poll(() => restoredMemory)
+    .toEqual([
+      { slug: "core", body: "Remember imported reviews." },
+      { slug: "core", body: "Review carefully and preserve user intent." },
+    ]);
   const reviewAgentCard = page
     .locator("article")
     .filter({
@@ -1478,7 +1573,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     .getByLabel("Anthropic API key", { exact: true })
     .fill("template-api-key");
   await page.getByRole("button", { name: "Add agents" }).click();
-  await expect.poll(() => managedAgents.length).toBe(4);
+  await expect.poll(() => managedAgents.length).toBe(5);
   await expect
     .poll(() => {
       const canvas = submittedEvents.find(

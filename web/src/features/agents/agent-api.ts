@@ -9,6 +9,7 @@ export type ManagedAgent = {
   id: string;
   owner_pubkey: string;
   agent_pubkey: string;
+  persona_id: string | null;
   name: string;
   system_prompt: string;
   runtime: AgentRuntime;
@@ -31,6 +32,7 @@ export type ManagedAgent = {
 
 export type CreateAgentInput = {
   name: string;
+  persona_id?: string;
   system_prompt: string;
   runtime: AgentRuntime;
   model?: string;

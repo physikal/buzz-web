@@ -5,10 +5,14 @@ import {
 } from "./persona-api";
 import type { ManagedAgent } from "./agent-api";
 import { listAgentMemory } from "./agent-memory-api";
+import {
+  encodeSnapshotPng,
+  PNG_SIGNATURE,
+  readSnapshotPng,
+} from "./snapshot-codec";
 
 const JSON_LIMIT = 5 * 1024 * 1024;
 const PNG_LIMIT = 10 * 1024 * 1024;
-const PNG_SIGNATURE = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
 const SNAPSHOT_KEYWORD = "buzz_agent_snapshot";
 const LEGACY_SUFFIXES = [
   ".persona.md",
@@ -114,7 +118,7 @@ function validMemorySlug(slug: string): boolean {
   );
 }
 
-function parseSnapshot(value: unknown): AgentSnapshot {
+export function parseAgentSnapshot(value: unknown): AgentSnapshot {
   const root = object(value);
   const definition = object(root?.definition);
   const profile = object(root?.profile);
@@ -212,129 +216,6 @@ function parseSnapshot(value: unknown): AgentSnapshot {
   };
 }
 
-function bytesToBase64(bytes: Uint8Array): string {
-  let binary = "";
-  for (let offset = 0; offset < bytes.length; offset += 32_768)
-    binary += String.fromCharCode(...bytes.subarray(offset, offset + 32_768));
-  return btoa(binary);
-}
-
-function bytesToLatin1(bytes: Uint8Array): string {
-  let value = "";
-  for (let offset = 0; offset < bytes.length; offset += 32_768)
-    value += String.fromCharCode(...bytes.subarray(offset, offset + 32_768));
-  return value;
-}
-
-function base64ToBytes(value: string): Uint8Array {
-  if (!/^[A-Za-z0-9+/]*={0,2}$/u.test(value) || value.length % 4 !== 0)
-    throw new Error("Snapshot PNG contains invalid base64 metadata.");
-  const binary = atob(value);
-  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
-}
-
-function crc32(bytes: Uint8Array): number {
-  let crc = 0xffffffff;
-  for (const byte of bytes) {
-    crc ^= byte;
-    for (let bit = 0; bit < 8; bit += 1)
-      crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
-  }
-  return (crc ^ 0xffffffff) >>> 0;
-}
-
-function pngChunk(type: string, data: Uint8Array): Uint8Array {
-  const typeBytes = new TextEncoder().encode(type);
-  const result = new Uint8Array(12 + data.length);
-  const view = new DataView(result.buffer);
-  view.setUint32(0, data.length);
-  result.set(typeBytes, 4);
-  result.set(data, 8);
-  view.setUint32(8 + data.length, crc32(result.subarray(4, 8 + data.length)));
-  return result;
-}
-
-function readPngSnapshot(bytes: Uint8Array): Uint8Array {
-  if (bytes.length > PNG_LIMIT)
-    throw new Error("PNG snapshots must be under 10 MiB.");
-  if (!PNG_SIGNATURE.every((byte, index) => bytes[index] === byte))
-    throw new Error("Snapshot PNG signature is invalid.");
-  let offset = PNG_SIGNATURE.length;
-  let manifest: Uint8Array | null = null;
-  let ended = false;
-  while (offset + 12 <= bytes.length) {
-    const view = new DataView(bytes.buffer, bytes.byteOffset + offset);
-    const length = view.getUint32(0);
-    if (length > bytes.length - offset - 12)
-      throw new Error("Snapshot PNG is truncated.");
-    const typeBytes = bytes.subarray(offset + 4, offset + 8);
-    const type = String.fromCharCode(...typeBytes);
-    const data = bytes.subarray(offset + 8, offset + 8 + length);
-    const expected = view.getUint32(8 + length);
-    const actual = crc32(bytes.subarray(offset + 4, offset + 8 + length));
-    if (expected !== actual)
-      throw new Error("Snapshot PNG failed its integrity check.");
-    if (type === "tEXt") {
-      const separator = data.indexOf(0);
-      if (separator === SNAPSHOT_KEYWORD.length) {
-        const keywordMatches = [...SNAPSHOT_KEYWORD].every(
-          (character, index) => data[index] === character.charCodeAt(0),
-        );
-        if (keywordMatches) {
-          if (manifest)
-            throw new Error("Snapshot PNG contains duplicate manifests.");
-          const encoded = bytesToLatin1(data.subarray(separator + 1)).trim();
-          manifest = base64ToBytes(encoded);
-        }
-      }
-    }
-    offset += 12 + length;
-    if (type === "IEND") {
-      ended = true;
-      break;
-    }
-  }
-  if (!ended || offset !== bytes.length)
-    throw new Error("Snapshot PNG has an invalid structure.");
-  if (!manifest) throw new Error("PNG does not contain a Buzz agent snapshot.");
-  if (manifest.length > JSON_LIMIT)
-    throw new Error("Embedded snapshot metadata is too large.");
-  return manifest;
-}
-
-async function transparentPng(): Promise<Uint8Array> {
-  const canvas = document.createElement("canvas");
-  canvas.width = 1;
-  canvas.height = 1;
-  const blob = await new Promise<Blob | null>((resolve) =>
-    canvas.toBlob(resolve, "image/png"),
-  );
-  if (!blob) throw new Error("Could not create snapshot PNG.");
-  return new Uint8Array(await blob.arrayBuffer());
-}
-
-async function encodePng(snapshotBytes: Uint8Array): Promise<Uint8Array> {
-  const source = await transparentPng();
-  const encoded = new TextEncoder().encode(bytesToBase64(snapshotBytes));
-  const keyword = new TextEncoder().encode(SNAPSHOT_KEYWORD);
-  const text = new Uint8Array(keyword.length + 1 + encoded.length);
-  text.set(keyword);
-  text[keyword.length] = 0;
-  text.set(encoded, keyword.length + 1);
-  const chunk = pngChunk("tEXt", text);
-  const ihdrLength = new DataView(
-    source.buffer,
-    source.byteOffset + 8,
-  ).getUint32(0);
-  const insertAt = 8 + 12 + ihdrLength;
-  const result = new Uint8Array(source.length + chunk.length);
-  result.set(source.subarray(0, insertAt));
-  result.set(chunk, insertAt);
-  result.set(source.subarray(insertAt), insertAt + chunk.length);
-  if (result.length > PNG_LIMIT) throw new Error("Snapshot PNG is too large.");
-  return result;
-}
-
 export function snapshotFromPersona(persona: AgentPersona): AgentSnapshot {
   const avatar = safePersonaAvatarUrl(persona.avatarUrl);
   return {
@@ -398,7 +279,13 @@ async function downloadAgentSnapshot(
 ) {
   const json = new TextEncoder().encode(JSON.stringify(snapshot, null, 2));
   if (json.length > JSON_LIMIT) throw new Error("Snapshot JSON is too large.");
-  const bytes = format === "png" ? await encodePng(json) : json;
+  const bytes =
+    format === "png"
+      ? await encodeSnapshotPng(json, {
+          keyword: SNAPSHOT_KEYWORD,
+          pngLimit: PNG_LIMIT,
+        })
+      : json;
   const safeName =
     displayName
       .trim()
@@ -470,7 +357,13 @@ export async function decodeAgentSnapshot(
   const isPng = PNG_SIGNATURE.every((byte, index) => bytes[index] === byte);
   if (!isPng && bytes.length > JSON_LIMIT)
     throw new Error("JSON snapshots must be under 5 MiB.");
-  const jsonBytes = isPng ? readPngSnapshot(bytes) : bytes;
+  const jsonBytes = isPng
+    ? readSnapshotPng(bytes, {
+        keyword: SNAPSHOT_KEYWORD,
+        pngLimit: PNG_LIMIT,
+        jsonLimit: JSON_LIMIT,
+      })
+    : bytes;
   let value: unknown;
   try {
     value = JSON.parse(
@@ -479,7 +372,10 @@ export async function decodeAgentSnapshot(
   } catch {
     throw new Error("Snapshot JSON is invalid.");
   }
-  return { snapshot: parseSnapshot(value), source: isPng ? "png" : "json" };
+  return {
+    snapshot: parseAgentSnapshot(value),
+    source: isPng ? "png" : "json",
+  };
 }
 
 export function snapshotPersonaInput(

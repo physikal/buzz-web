@@ -1,12 +1,25 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Pencil, Play, Plus, Trash2, Users } from "lucide-react";
-import { useState } from "react";
+import {
+  Download,
+  Pencil,
+  Play,
+  Plus,
+  Trash2,
+  Upload,
+  Users,
+} from "lucide-react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/shared/ui/button";
 import type { AgentDefaults } from "../agent-defaults-api";
-import type { ManagedAgent } from "../agent-api";
-import { listPersonas } from "../persona-api";
+import { listAgents, type ManagedAgent } from "../agent-api";
+import {
+  deletePersona,
+  type AgentPersona,
+  listPersonas,
+  savePersona,
+} from "../persona-api";
 import {
   deleteTeam,
   type AgentTeam,
@@ -16,6 +29,16 @@ import {
 } from "../team-api";
 import { TeamDeployDialog } from "./TeamDeployDialog";
 import { TeamDialog } from "./TeamDialog";
+import {
+  decodeTeamSnapshot,
+  type DecodedTeamSnapshot,
+  exportTeamSnapshot,
+  teamSnapshotInput,
+  teamSnapshotMemoryByPersona,
+  teamSnapshotPersonaInputs,
+} from "../team-snapshot";
+import { TeamSnapshotExportDialog } from "./TeamSnapshotExportDialog";
+import { TeamSnapshotImportDialog } from "./TeamSnapshotImportDialog";
 
 export function TeamsSection({
   agentDefaults,
@@ -28,6 +51,16 @@ export function TeamsSection({
   const [editing, setEditing] = useState<AgentTeam | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [deploying, setDeploying] = useState<AgentTeam | null>(null);
+  const [exporting, setExporting] = useState<AgentTeam | null>(null);
+  const [snapshotImport, setSnapshotImport] =
+    useState<DecodedTeamSnapshot | null>(null);
+  const [snapshotDeployPersonas, setSnapshotDeployPersonas] = useState<
+    AgentPersona[]
+  >([]);
+  const [snapshotMemory, setSnapshotMemory] = useState<
+    Record<string, Array<{ slug: string; body: string }>>
+  >({});
+  const snapshotInput = useRef<HTMLInputElement>(null);
   const teams = useQuery({
     queryKey: ["agent-teams", ownerPubkey],
     queryFn: () => listTeams(ownerPubkey),
@@ -37,6 +70,11 @@ export function TeamsSection({
     queryKey: ["agent-personas", ownerPubkey],
     queryFn: () => listPersonas(ownerPubkey),
     staleTime: 30_000,
+  });
+  const agents = useQuery({
+    queryKey: ["managed-agents", ownerPubkey],
+    queryFn: listAgents,
+    staleTime: 15_000,
   });
   const refresh = () =>
     queryClient.invalidateQueries({ queryKey: ["agent-teams", ownerPubkey] });
@@ -61,26 +99,114 @@ export function TeamsSection({
     onError: (error) =>
       toast.error("Could not delete team", { description: error.message }),
   });
+  const importSnapshot = useMutation({
+    mutationFn: async (keepAllowlist: boolean) => {
+      if (!snapshotImport) throw new Error("Choose a team snapshot.");
+      const created: AgentPersona[] = [];
+      try {
+        for (const input of teamSnapshotPersonaInputs(
+          snapshotImport.snapshot,
+          keepAllowlist,
+        ))
+          created.push(await savePersona(input));
+        const team = await saveTeam(
+          teamSnapshotInput(
+            snapshotImport.snapshot,
+            created.map((persona) => persona.id),
+          ),
+        );
+        return {
+          team,
+          personas: created,
+          memory: teamSnapshotMemoryByPersona(snapshotImport.snapshot, created),
+        };
+      } catch (error) {
+        const cleanupErrors: string[] = [];
+        for (const persona of created) {
+          try {
+            await deletePersona(ownerPubkey, persona);
+          } catch (cleanupError) {
+            cleanupErrors.push(
+              cleanupError instanceof Error
+                ? cleanupError.message
+                : "persona cleanup failed",
+            );
+          }
+        }
+        if (cleanupErrors.length)
+          throw new Error(
+            `${error instanceof Error ? error.message : "Import failed."} Cleanup also failed: ${cleanupErrors.join("; ")}`,
+          );
+        throw error;
+      }
+    },
+    onSuccess: ({ team, personas: imported, memory }) => {
+      setSnapshotImport(null);
+      setSnapshotDeployPersonas(imported);
+      setSnapshotMemory(memory);
+      setDeploying(team);
+      void refresh();
+      void queryClient.invalidateQueries({
+        queryKey: ["agent-personas", ownerPubkey],
+      });
+      toast.success("Team snapshot imported", {
+        description: "Configure credentials to deploy its hosted agents.",
+      });
+    },
+    onError: (error) =>
+      toast.error("Could not import team snapshot", {
+        description: error.message,
+      }),
+  });
 
   return (
     <section className="space-y-3">
-      <header className="flex items-center justify-between gap-4">
+      <header className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
         <div>
           <h2 className="text-lg font-semibold">Teams</h2>
           <p className="text-sm text-muted-foreground">
             Deploy groups of personas with shared instructions.
           </p>
         </div>
-        <Button
-          onClick={() => {
-            setEditing(null);
-            setFormOpen(true);
-          }}
-          size="sm"
-          variant="outline"
-        >
-          <Plus /> Create team
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <input
+            accept=".team.json,.team.png,application/json,image/png"
+            aria-label="Import team snapshot file"
+            className="hidden"
+            onChange={async (event) => {
+              const file = event.target.files?.[0];
+              event.target.value = "";
+              if (!file) return;
+              try {
+                setSnapshotImport(await decodeTeamSnapshot(file));
+              } catch (error) {
+                toast.error("Could not read team snapshot", {
+                  description:
+                    error instanceof Error ? error.message : "Invalid file.",
+                });
+              }
+            }}
+            ref={snapshotInput}
+            type="file"
+          />
+          <Button
+            onClick={() => snapshotInput.current?.click()}
+            size="sm"
+            variant="outline"
+          >
+            <Upload /> Import snapshot
+          </Button>
+          <Button
+            onClick={() => {
+              setEditing(null);
+              setFormOpen(true);
+            }}
+            size="sm"
+            variant="outline"
+          >
+            <Plus /> Create team
+          </Button>
+        </div>
       </header>
       {teams.isLoading ? (
         <p className="py-5 text-sm text-muted-foreground">Loading teams…</p>
@@ -127,6 +253,15 @@ export function TeamsSection({
                   <Pencil />
                 </Button>
                 <Button
+                  aria-label={`Export ${team.name}`}
+                  onClick={() => setExporting(team)}
+                  size="icon"
+                  title="Export team snapshot"
+                  variant="ghost"
+                >
+                  <Download />
+                </Button>
+                <Button
                   aria-label={`Delete ${team.name}`}
                   disabled={remove.isPending}
                   onClick={() => {
@@ -158,32 +293,85 @@ export function TeamsSection({
             setFormOpen(false);
             setEditing(null);
           }}
-          onSave={(input) =>
-            save.mutateAsync({ input, team: editing ?? undefined })
-          }
+          onSave={async (input) => {
+            await save.mutateAsync({ input, team: editing ?? undefined });
+          }}
         />
       ) : null}
       {deploying ? (
         <TeamDeployDialog
           agentDefaults={agentDefaults}
-          personas={personas.data ?? []}
+          personas={
+            snapshotDeployPersonas.length
+              ? snapshotDeployPersonas
+              : (personas.data ?? [])
+          }
+          snapshotMemoryByPersona={snapshotMemory}
           team={deploying}
-          onClose={() => setDeploying(null)}
+          onClose={() => {
+            setDeploying(null);
+            setSnapshotDeployPersonas([]);
+            setSnapshotMemory({});
+          }}
           onDeployed={({ agents, failures }) => {
             queryClient.setQueryData<ManagedAgent[]>(
               ["managed-agents", ownerPubkey],
               (current = []) => [...current, ...agents],
             );
             setDeploying(null);
+            setSnapshotDeployPersonas([]);
+            setSnapshotMemory({});
             if (agents.length)
               toast.success(
                 `${agents.length} team agent${agents.length === 1 ? "" : "s"} created`,
               );
             if (failures.length)
-              toast.error(`${failures.length} agent deployments failed`, {
+              toast.error(`${failures.length} team agent issues`, {
                 description: failures.join("\n"),
               });
           }}
+        />
+      ) : null}
+      {exporting ? (
+        <TeamSnapshotExportDialog
+          linkedMembers={
+            new Set(
+              (agents.data ?? [])
+                .filter((agent) =>
+                  exporting.personaIds.includes(agent.persona_id ?? ""),
+                )
+                .map((agent) => agent.persona_id),
+            ).size
+          }
+          team={exporting}
+          onClose={() => setExporting(null)}
+          onExport={async (memoryLevel, format) => {
+            try {
+              await exportTeamSnapshot(
+                exporting,
+                personas.data ?? [],
+                agents.data ?? [],
+                ownerPubkey,
+                memoryLevel,
+                format,
+              );
+              toast.success("Team snapshot exported");
+            } catch (error) {
+              toast.error("Could not export team snapshot", {
+                description:
+                  error instanceof Error ? error.message : "Export failed.",
+              });
+              throw error;
+            }
+          }}
+        />
+      ) : null}
+      {snapshotImport ? (
+        <TeamSnapshotImportDialog
+          decoded={snapshotImport}
+          pending={importSnapshot.isPending}
+          onClose={() => setSnapshotImport(null)}
+          onImport={(keepAllowlist) => importSnapshot.mutate(keepAllowlist)}
         />
       ) : null}
     </section>

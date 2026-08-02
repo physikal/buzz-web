@@ -139,6 +139,7 @@ export function PersonasSection({
         <div className="flex flex-wrap gap-2">
           <input
             accept=".agent.json,.agent.png,application/json,image/png"
+            aria-label="Import agent snapshot file"
             className="hidden"
             onChange={async (event) => {
               const file = event.target.files?.[0];

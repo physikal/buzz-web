@@ -21,6 +21,8 @@ pub struct ManagedAgentHostRecord {
     pub owner_pubkey: String,
     /// Agent Nostr public key.
     pub agent_pubkey: String,
+    /// Relay-synced persona definition this instance was deployed from.
+    pub persona_id: Option<String>,
     /// Human-readable agent name.
     pub name: String,
     /// Instructions supplied to the harness as the agent system prompt.
@@ -70,6 +72,8 @@ pub struct NewManagedAgentHost<'a> {
     pub owner_pubkey: &'a str,
     /// Agent public key.
     pub agent_pubkey: &'a str,
+    /// Optional source persona definition id.
+    pub persona_id: Option<&'a str>,
     /// Display name.
     pub name: &'a str,
     /// Agent instructions.
@@ -122,6 +126,7 @@ fn row_to_record(row: &sqlx::postgres::PgRow) -> Result<ManagedAgentHostRecord> 
         sandbox_uid: row.try_get("sandbox_uid")?,
         owner_pubkey: row.try_get("owner_pubkey")?,
         agent_pubkey: row.try_get("agent_pubkey")?,
+        persona_id: row.try_get("persona_id")?,
         name: row.try_get("name")?,
         system_prompt: row.try_get("system_prompt")?,
         runtime: row.try_get("runtime")?,
@@ -179,10 +184,10 @@ pub async fn create(
 
     let row = sqlx::query(
         "INSERT INTO managed_agent_hosts \
-         (community_id, id, owner_pubkey, agent_pubkey, name, system_prompt, runtime, model, credential_mode, respond_to, \
+         (community_id, id, owner_pubkey, agent_pubkey, persona_id, name, system_prompt, runtime, model, credential_mode, respond_to, \
           respond_to_allowlist, secret_nonce, secret_ciphertext, desired_state, observed_state) \
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,CASE WHEN $14 = 'stopped' THEN 'stopped' ELSE 'pending' END) RETURNING \
-         community_id, id, sandbox_uid, owner_pubkey, agent_pubkey, name, system_prompt, runtime, model, credential_mode, respond_to, \
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,CASE WHEN $15 = 'stopped' THEN 'stopped' ELSE 'pending' END) RETURNING \
+         community_id, id, sandbox_uid, owner_pubkey, agent_pubkey, persona_id, name, system_prompt, runtime, model, credential_mode, respond_to, \
          respond_to_allowlist, desired_state, observed_state, lease_epoch, runtime_pid, \
          last_error, created_at, updated_at",
     )
@@ -190,6 +195,7 @@ pub async fn create(
         .bind(input.id)
         .bind(input.owner_pubkey)
         .bind(input.agent_pubkey)
+        .bind(input.persona_id)
         .bind(input.name)
         .bind(input.system_prompt)
         .bind(input.runtime)
@@ -214,7 +220,7 @@ pub async fn list_owned(
     owner_pubkey: &str,
 ) -> Result<Vec<ManagedAgentHostRecord>> {
     let rows = sqlx::query(
-        "SELECT community_id, id, sandbox_uid, owner_pubkey, agent_pubkey, name, system_prompt, runtime, model, credential_mode, respond_to, \
+        "SELECT community_id, id, sandbox_uid, owner_pubkey, agent_pubkey, persona_id, name, system_prompt, runtime, model, credential_mode, respond_to, \
          respond_to_allowlist, desired_state, observed_state, lease_epoch, runtime_pid, \
          last_error, created_at, updated_at FROM managed_agent_hosts \
          WHERE community_id = $1 AND owner_pubkey = $2 ORDER BY created_at",
@@ -234,7 +240,7 @@ pub async fn get_owned(
     id: Uuid,
 ) -> Result<Option<ManagedAgentHostRecord>> {
     let row = sqlx::query(
-        "SELECT community_id, id, sandbox_uid, owner_pubkey, agent_pubkey, name, system_prompt, runtime, model, credential_mode, respond_to, \
+        "SELECT community_id, id, sandbox_uid, owner_pubkey, agent_pubkey, persona_id, name, system_prompt, runtime, model, credential_mode, respond_to, \
          respond_to_allowlist, desired_state, observed_state, lease_epoch, runtime_pid, \
          last_error, created_at, updated_at FROM managed_agent_hosts \
          WHERE community_id = $1 AND owner_pubkey = $2 AND id = $3",
@@ -255,7 +261,7 @@ pub async fn get_owned_with_secret(
     id: Uuid,
 ) -> Result<Option<ManagedAgentLease>> {
     let row = sqlx::query(
-        "SELECT community_id, id, sandbox_uid, owner_pubkey, agent_pubkey, name, system_prompt, runtime, model, credential_mode, respond_to, \
+        "SELECT community_id, id, sandbox_uid, owner_pubkey, agent_pubkey, persona_id, name, system_prompt, runtime, model, credential_mode, respond_to, \
          respond_to_allowlist, desired_state, observed_state, lease_epoch, runtime_pid, \
          last_error, created_at, updated_at, secret_nonce, secret_ciphertext FROM managed_agent_hosts \
          WHERE community_id = $1 AND owner_pubkey = $2 AND id = $3",
@@ -291,7 +297,7 @@ pub async fn update_owned(
          secret_ciphertext = $9, last_error = NULL, updated_at = NOW() \
          WHERE community_id = $10 AND owner_pubkey = $11 AND id = $12 \
            AND desired_state = 'stopped' AND lease_expires_at IS NULL \
-         RETURNING community_id, id, sandbox_uid, owner_pubkey, agent_pubkey, name, system_prompt, runtime, model, credential_mode, respond_to, \
+         RETURNING community_id, id, sandbox_uid, owner_pubkey, agent_pubkey, persona_id, name, system_prompt, runtime, model, credential_mode, respond_to, \
          respond_to_allowlist, desired_state, observed_state, lease_epoch, runtime_pid, last_error, created_at, updated_at",
     )
     .bind(input.name)
@@ -318,7 +324,7 @@ pub async fn get(
     id: Uuid,
 ) -> Result<Option<ManagedAgentHostRecord>> {
     let row = sqlx::query(
-        "SELECT community_id, id, sandbox_uid, owner_pubkey, agent_pubkey, name, system_prompt, runtime, model, credential_mode, respond_to, \
+        "SELECT community_id, id, sandbox_uid, owner_pubkey, agent_pubkey, persona_id, name, system_prompt, runtime, model, credential_mode, respond_to, \
          respond_to_allowlist, desired_state, observed_state, lease_epoch, runtime_pid, \
          last_error, created_at, updated_at FROM managed_agent_hosts \
          WHERE community_id = $1 AND id = $2",
@@ -346,7 +352,7 @@ pub async fn set_desired_state(
              WHEN $1 = 'stopped' AND observed_state IN ('pending','starting','running') THEN 'stopping' \
              ELSE observed_state END \
          WHERE community_id = $2 AND owner_pubkey = $3 AND id = $4 RETURNING \
-         community_id, id, sandbox_uid, owner_pubkey, agent_pubkey, name, system_prompt, runtime, model, credential_mode, respond_to, \
+         community_id, id, sandbox_uid, owner_pubkey, agent_pubkey, persona_id, name, system_prompt, runtime, model, credential_mode, respond_to, \
          respond_to_allowlist, desired_state, observed_state, lease_epoch, runtime_pid, \
          last_error, created_at, updated_at",
     )
@@ -419,7 +425,7 @@ pub async fn claim_next(
            lease_expires_at = NOW() + make_interval(secs => $2), observed_state = 'starting', \
            last_error = NULL, updated_at = NOW() FROM candidate c \
          WHERE a.community_id = c.community_id AND a.id = c.id \
-         RETURNING a.community_id, a.id, a.sandbox_uid, a.owner_pubkey, a.agent_pubkey, a.name, a.runtime, \
+         RETURNING a.community_id, a.id, a.sandbox_uid, a.owner_pubkey, a.agent_pubkey, a.persona_id, a.name, a.runtime, \
          a.system_prompt, a.model, a.credential_mode, a.respond_to, a.respond_to_allowlist, a.desired_state, a.observed_state, \
          a.lease_epoch, a.runtime_pid, a.last_error, a.created_at, a.updated_at, \
          a.secret_nonce, a.secret_ciphertext",
