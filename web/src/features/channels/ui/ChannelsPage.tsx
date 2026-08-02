@@ -66,6 +66,7 @@ import { useLiveChannels } from "../use-live-channels";
 import { useChannelMutes } from "../use-channel-mutes";
 import { useChannelStars } from "../use-channel-stars";
 import { useChannelSort } from "../use-channel-sort";
+import { useChannelSections } from "../use-channel-sections";
 import { useThreadFollows } from "../use-thread-follows";
 import { useTypingIndicators } from "../use-typing";
 import { ChannelSidebar } from "./ChannelSidebar";
@@ -184,6 +185,7 @@ function ChannelsWorkspace({
   const { mutedChannelIds, setMuted } = useChannelMutes(ownerPubkey);
   const { starredChannelIds, setStarred } = useChannelStars(ownerPubkey);
   const { sortModeFor, setSortMode } = useChannelSort(ownerPubkey);
+  const channelSections = useChannelSections(ownerPubkey);
   const { followedRootIds, mutedRootIds, followThread, unfollowThread } =
     useThreadFollows(ownerPubkey);
   const selected =
@@ -574,6 +576,13 @@ function ChannelsWorkspace({
         lastActivity={lastActivity}
         sortModeFor={sortModeFor}
         onSortModeChange={setSortMode}
+        sections={channelSections.sections}
+        assignments={channelSections.assignments}
+        onCreateSection={channelSections.createSection}
+        onRenameSection={channelSections.renameSection}
+        onDeleteSection={channelSections.deleteSection}
+        onAssignChannel={channelSections.assignChannel}
+        onMoveSection={channelSections.moveSection}
         onCreate={() => setCreateOpen(true)}
         onNewDm={() => setDmOpen(true)}
         onBrowse={() => setBrowserOpen(true)}

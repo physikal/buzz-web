@@ -1077,6 +1077,62 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await expect(page.getByRole("heading", { name: "general" })).toBeVisible();
   await expect(page.getByText("Welcome to Buzz Web.")).toBeVisible();
   await expect(page.getByLabel("Message #general")).toBeVisible();
+  expect(ownerPubkey).toMatch(/^[0-9a-f]{64}$/);
+  await expect(page.getByText(/is typing…$/)).toBeVisible();
+  await page.getByLabel("Message #general").fill("Typing interoperability");
+  await expect
+    .poll(() =>
+      submittedEvents.some(
+        (event) =>
+          event.kind === 20002 &&
+          event.tags.some(
+            (tag) =>
+              tag[0] === "h" &&
+              tag[1] === "44444444-4444-4444-8444-444444444444",
+          ),
+      ),
+    )
+    .toBe(true);
+  await page.getByLabel("Message #general").fill("");
+  expect(submittedEvents.some((event) => event.kind === 20001)).toBe(true);
+  await page.getByRole("button", { name: "Create section" }).click();
+  const createSectionDialog = page.getByRole("dialog", {
+    name: "Create section",
+  });
+  await createSectionDialog.getByLabel("Name").fill("Launch");
+  await createSectionDialog.getByLabel("Icon (optional)").fill("🚀");
+  await createSectionDialog
+    .getByRole("button", { name: "Create", exact: true })
+    .click();
+  await expect(page.getByText("🚀 Launch", { exact: true })).toBeVisible();
+  await page
+    .getByLabel("Move #general to section")
+    .selectOption({ label: "Launch" });
+  await expect
+    .poll(() =>
+      submittedEvents.some(
+        (event) =>
+          event.kind === 30078 &&
+          event.tags.some(
+            (tag) => tag[0] === "d" && tag[1] === "channel-sections",
+          ) &&
+          event.tags.some(
+            (tag) => tag[0] === "t" && tag[1] === "channel-sections",
+          ) &&
+          !event.content.includes("Launch") &&
+          !event.content.includes("general"),
+      ),
+    )
+    .toBe(true);
+  await page.getByRole("button", { name: "Rename 🚀 Launch" }).click();
+  const renameSectionDialog = page.getByRole("dialog", {
+    name: "Rename section",
+  });
+  await renameSectionDialog.getByLabel("Name").fill("Release");
+  await renameSectionDialog
+    .getByRole("button", { name: "Save", exact: true })
+    .click();
+  await expect(page.getByText("🚀 Release", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Star #general" }).click();
   await expect(page.getByText("Starred", { exact: true })).toBeVisible();
   await expect(
@@ -1159,24 +1215,6 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
       .getByRole("button", { name: "Message", exact: true }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Close" }).click();
-  expect(ownerPubkey).toMatch(/^[0-9a-f]{64}$/);
-  await expect(page.getByText(/is typing…$/)).toBeVisible();
-  await page.getByLabel("Message #general").fill("Typing interoperability");
-  await expect
-    .poll(() =>
-      submittedEvents.some(
-        (event) =>
-          event.kind === 20002 &&
-          event.tags.some(
-            (tag) =>
-              tag[0] === "h" &&
-              tag[1] === "44444444-4444-4444-8444-444444444444",
-          ),
-      ),
-    )
-    .toBe(true);
-  await page.getByLabel("Message #general").fill("");
-  expect(submittedEvents.some((event) => event.kind === 20001)).toBe(true);
   const welcomeMessage = page.locator("article").filter({
     hasText: "Welcome to Buzz Web.",
   });

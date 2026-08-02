@@ -14,7 +14,12 @@ const STORAGE_PREFIX = "buzz-channel-sort.v1";
 const DEBOUNCE_MS = 2_000;
 
 export type ChannelSortMode = "alpha" | "recent";
-export type ChannelSortGroup = "starred" | "channels" | "forums" | "dms";
+export type ChannelSortGroup =
+  | "starred"
+  | "channels"
+  | "forums"
+  | "dms"
+  | `section:${string}`;
 type SortStore = { version: 1; groups: Record<string, ChannelSortMode> };
 
 const EMPTY_STORE: SortStore = { version: 1, groups: {} };
