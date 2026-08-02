@@ -326,6 +326,8 @@ export function ChannelSettingsDialog({
   onLeave,
   onArchive,
   onDelete,
+  isMuted,
+  onMutedChange,
 }: {
   open: boolean;
   channel: Channel | null;
@@ -340,6 +342,8 @@ export function ChannelSettingsDialog({
   onLeave: () => void;
   onArchive: () => void;
   onDelete: () => void;
+  isMuted: boolean;
+  onMutedChange: (muted: boolean) => void;
 }) {
   if (!channel) return null;
   return (
@@ -355,6 +359,8 @@ export function ChannelSettingsDialog({
         onLeave,
         onArchive,
         onDelete,
+        isMuted,
+        onMutedChange,
       }}
     />
   );
@@ -370,6 +376,8 @@ function ChannelSettingsForm({
   onLeave,
   onArchive,
   onDelete,
+  isMuted,
+  onMutedChange,
 }: {
   open: boolean;
   channel: Channel;
@@ -384,6 +392,8 @@ function ChannelSettingsForm({
   onLeave: () => void;
   onArchive: () => void;
   onDelete: () => void;
+  isMuted: boolean;
+  onMutedChange: (muted: boolean) => void;
 }) {
   const [name, setName] = useState(channel.name);
   const [description, setDescription] = useState(channel.description);
@@ -435,6 +445,20 @@ function ChannelSettingsForm({
           </Button>
         </div>
       </form>
+      <label className="mt-6 flex items-center justify-between gap-4 border-t pt-5">
+        <span>
+          <span className="block text-sm font-semibold">Mute channel</span>
+          <span className="block text-sm text-muted-foreground">
+            Suppress ordinary browser alerts. Direct mentions still notify you.
+          </span>
+        </span>
+        <input
+          aria-label="Mute channel"
+          checked={isMuted}
+          type="checkbox"
+          onChange={(event) => onMutedChange(event.target.checked)}
+        />
+      </label>
       {channel.channelType !== "dm" ? (
         <section className="mt-6 border-t pt-5">
           <h3 className="mb-3 text-sm font-semibold">Canvas</h3>

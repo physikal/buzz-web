@@ -1,4 +1,11 @@
-import { Archive, Hash, LayoutList, MessageCircle, Plus } from "lucide-react";
+import {
+  Archive,
+  BellOff,
+  Hash,
+  LayoutList,
+  MessageCircle,
+  Plus,
+} from "lucide-react";
 
 import { Button } from "@/shared/ui/button";
 import type { Channel } from "../channel-api";
@@ -7,6 +14,7 @@ export function ChannelSidebar({
   channels,
   selectedId,
   unread,
+  mutedChannelIds,
   onSelect,
   onCreate,
   onNewDm,
@@ -15,6 +23,7 @@ export function ChannelSidebar({
   channels: Channel[];
   selectedId: string | null;
   unread: Record<string, number>;
+  mutedChannelIds: ReadonlySet<string>;
   onSelect: (id: string) => void;
   onCreate: () => void;
   onNewDm: () => void;
@@ -42,6 +51,7 @@ export function ChannelSidebar({
             channel={channel}
             key={channel.id}
             selected={selectedId === channel.id}
+            muted={mutedChannelIds.has(channel.id)}
             unread={unread[channel.id] ?? 0}
             onClick={() => onSelect(channel.id)}
           />
@@ -54,6 +64,7 @@ export function ChannelSidebar({
             channel={channel}
             key={channel.id}
             selected={selectedId === channel.id}
+            muted={mutedChannelIds.has(channel.id)}
             unread={unread[channel.id] ?? 0}
             onClick={() => onSelect(channel.id)}
           />
@@ -114,11 +125,13 @@ function ChannelButton({
   channel,
   selected,
   unread,
+  muted,
   onClick,
 }: {
   channel: Channel;
   selected: boolean;
   unread: number;
+  muted: boolean;
   onClick: () => void;
 }) {
   const Icon =
@@ -135,6 +148,9 @@ function ChannelButton({
     >
       <Icon className="h-4 w-4 shrink-0" />
       <span className="min-w-0 flex-1 truncate">{channel.name}</span>
+      {muted ? (
+        <BellOff aria-label="Muted" className="h-3.5 w-3.5 shrink-0" />
+      ) : null}
       {unread ? (
         <span className="min-w-5 rounded-full bg-primary px-1.5 py-0.5 text-center text-[0.65rem] text-primary-foreground">
           {Math.min(unread, 99)}

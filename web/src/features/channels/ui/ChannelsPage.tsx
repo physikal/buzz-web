@@ -68,6 +68,7 @@ import {
   type ChannelMessage,
 } from "../channel-api";
 import { useLiveChannels } from "../use-live-channels";
+import { useChannelMutes } from "../use-channel-mutes";
 import { useTypingIndicators } from "../use-typing";
 import { ChannelSidebar } from "./ChannelSidebar";
 import {
@@ -181,6 +182,7 @@ function ChannelsWorkspace({
     () => allChannels.filter((channel) => !channel.archived),
     [allChannels],
   );
+  const { mutedChannelIds, setMuted } = useChannelMutes(ownerPubkey);
   const selected =
     channels.find((channel) => channel.id === selectedId) ??
     channels[0] ??
@@ -222,6 +224,7 @@ function ChannelsWorkspace({
     channels,
     selectedChannelId: selected?.id ?? null,
     onChannelEvent: handleLiveChannelEvent,
+    mutedChannelIds,
   });
 
   const reactionEventIds = useMemo(
@@ -550,6 +553,7 @@ function ChannelsWorkspace({
       <ChannelSidebar
         channels={channels}
         selectedId={selected?.id ?? null}
+        mutedChannelIds={mutedChannelIds}
         unread={unread}
         onCreate={() => setCreateOpen(true)}
         onNewDm={() => setDmOpen(true)}
@@ -810,6 +814,7 @@ function ChannelsWorkspace({
       />
       <ChannelSettingsDialog
         channel={selected}
+        isMuted={selected ? mutedChannelIds.has(selected.id) : false}
         open={settingsOpen}
         ownerPubkey={ownerPubkey}
         pending={settingsMutation.isPending || removeChannelMutation.isPending}
@@ -820,6 +825,9 @@ function ChannelsWorkspace({
             removeChannelMutation.mutate("delete");
         }}
         onLeave={() => removeChannelMutation.mutate("leave")}
+        onMutedChange={(muted) => {
+          if (selected) setMuted(selected.id, muted);
+        }}
         onSave={(input) =>
           selected
             ? settingsMutation.mutateAsync({ channelId: selected.id, ...input })

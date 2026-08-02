@@ -44,11 +44,13 @@ export function useLiveChannels({
   channels,
   selectedChannelId,
   onChannelEvent,
+  mutedChannelIds,
 }: {
   ownerPubkey: string;
   channels: Channel[];
   selectedChannelId: string | null;
   onChannelEvent: (channelId: string) => void;
+  mutedChannelIds?: ReadonlySet<string>;
 }) {
   const [status, setStatus] = useState<RelayLiveStatus>("connecting");
   const [activity, setActivity] = useState<Activity>({});
@@ -138,10 +140,14 @@ export function useLiveChannels({
         }
         if (CONTENT_KINDS.includes(event.kind)) {
           const settings = readNotificationSettings();
+          const directlyMentioned = event.tags.some(
+            (tag) => tag[0] === "p" && tag[1] === ownerPubkey,
+          );
           const shouldNotify =
             settings.enabled &&
             (channelId !== selectedChannelId || settings.notifyWhileViewing) &&
             event.pubkey !== ownerPubkey &&
+            (!mutedChannelIds?.has(channelId) || directlyMentioned) &&
             typeof Notification !== "undefined" &&
             Notification.permission === "granted";
           if (shouldNotify) {
@@ -163,7 +169,14 @@ export function useLiveChannels({
       { requireNip07: true, onStatus: setStatus },
     );
     return subscription.close;
-  }, [channelIds, channels, onChannelEvent, ownerPubkey, selectedChannelId]);
+  }, [
+    channelIds,
+    channels,
+    mutedChannelIds,
+    onChannelEvent,
+    ownerPubkey,
+    selectedChannelId,
+  ]);
 
   const unread = useMemo(() => {
     const result: Record<string, number> = {};

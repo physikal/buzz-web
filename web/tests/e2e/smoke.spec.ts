@@ -1122,7 +1122,24 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
       ),
     )
     .toBe(true);
+  await page.getByLabel("Mute channel").check();
   await page.getByRole("button", { name: "Close" }).click();
+  await expect(page.getByRole("img", { name: "Muted" })).toBeVisible();
+  await expect
+    .poll(() =>
+      submittedEvents.some(
+        (event) =>
+          event.kind === 30078 &&
+          event.content.length > 0 &&
+          event.tags.some(
+            (tag) => tag[0] === "d" && tag[1] === "channel-mutes",
+          ) &&
+          event.tags.some(
+            (tag) => tag[0] === "t" && tag[1] === "channel-mutes",
+          ),
+      ),
+    )
+    .toBe(true);
   await welcomeMessage.hover();
   await welcomeMessage.getByRole("button", { name: "Remind me later" }).click();
   await page.getByLabel("Private note (optional)").fill("Follow up privately");
