@@ -1077,6 +1077,26 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await expect(page.getByRole("heading", { name: "general" })).toBeVisible();
   await expect(page.getByText("Welcome to Buzz Web.")).toBeVisible();
   await expect(page.getByLabel("Message #general")).toBeVisible();
+  await page.getByRole("button", { name: "Star #general" }).click();
+  await expect(page.getByText("Starred", { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Unstar #general" }),
+  ).toBeVisible();
+  await expect
+    .poll(() =>
+      submittedEvents.some(
+        (event) =>
+          event.kind === 30078 &&
+          event.tags.some(
+            (tag) => tag[0] === "d" && tag[1] === "channel-stars",
+          ) &&
+          event.tags.some(
+            (tag) => tag[0] === "t" && tag[1] === "channel-stars",
+          ) &&
+          !event.content.includes("44444444-4444-4444-8444-444444444444"),
+      ),
+    )
+    .toBe(true);
   await page.getByRole("button", { name: "Search messages" }).click();
   await page
     .getByLabel("Search query")

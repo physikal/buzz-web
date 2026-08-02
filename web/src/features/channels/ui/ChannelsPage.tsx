@@ -74,6 +74,7 @@ import {
 } from "../channel-api";
 import { useLiveChannels } from "../use-live-channels";
 import { useChannelMutes } from "../use-channel-mutes";
+import { useChannelStars } from "../use-channel-stars";
 import { useTypingIndicators } from "../use-typing";
 import { ChannelSidebar } from "./ChannelSidebar";
 import {
@@ -188,6 +189,7 @@ function ChannelsWorkspace({
     [allChannels],
   );
   const { mutedChannelIds, setMuted } = useChannelMutes(ownerPubkey);
+  const { starredChannelIds, setStarred } = useChannelStars(ownerPubkey);
   const selected =
     channels.find((channel) => channel.id === selectedId) ??
     channels[0] ??
@@ -561,11 +563,13 @@ function ChannelsWorkspace({
         channels={channels}
         selectedId={selected?.id ?? null}
         mutedChannelIds={mutedChannelIds}
+        starredChannelIds={starredChannelIds}
         unread={unread}
         onCreate={() => setCreateOpen(true)}
         onNewDm={() => setDmOpen(true)}
         onBrowse={() => setBrowserOpen(true)}
         onSelect={setSelectedId}
+        onStarredChange={setStarred}
       />
       <main className="flex min-w-0 flex-1 flex-col">
         <header className="flex min-h-16 items-center gap-2 border-b px-3 sm:px-5">
