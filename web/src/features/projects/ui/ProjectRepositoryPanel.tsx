@@ -1,4 +1,7 @@
-import { GitBranch, Users } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { GitBranch, Tag, Users } from "lucide-react";
+import { useState } from "react";
+import { toast } from "sonner";
 
 import {
   useGitLog,
@@ -11,7 +14,17 @@ import { RepoReadmeSection } from "@/features/repos/ui/RepoReadmeSection";
 import { RepoRefsSection } from "@/features/repos/ui/RepoRefsSection";
 import { RepoTreeSection } from "@/features/repos/ui/RepoTreeSection";
 import { truncatePubkey } from "@/shared/lib/pubkey";
-import type { Project } from "../project-api";
+import { DestructiveConfirmDialog } from "@/shared/ui/destructive-confirm-dialog";
+import {
+  createProjectRemoteBranch,
+  deleteProjectRemoteBranch,
+} from "../project-branches";
+import { listProjectPullRequests, type Project } from "../project-api";
+import {
+  CreateBranchDialog,
+  ProjectRepositoryRefControls,
+  type RepositoryRefControlsProps,
+} from "./ProjectRepositoryRefControls";
 
 export type ProjectRepositoryView =
   | "overview"
@@ -26,24 +39,185 @@ export function ProjectRepositoryPanel({
   project: Project;
   view: ProjectRepositoryView;
 }) {
+  const queryClient = useQueryClient();
   const refsQuery = useRepoRefs(project.dtag);
-  const ref = refsQuery.data?.head?.ref ?? project.defaultBranch;
+  const pullRequestsQuery = useQuery({
+    queryKey: ["project-pull-requests", project.repoAddress],
+    queryFn: () => listProjectPullRequests(project),
+  });
+  const [selectedRef, setSelectedRef] = useState<{
+    type: "branch" | "tag";
+    name: string;
+  } | null>(null);
+  const [localBranchCommits, setLocalBranchCommits] = useState<
+    Record<string, string>
+  >({});
+  const [hiddenBranches, setHiddenBranches] = useState<string[]>([]);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+
+  const branchCommits = {
+    ...(refsQuery.data?.branchCommits ?? {}),
+    ...localBranchCommits,
+  };
+  for (const branch of hiddenBranches) delete branchCommits[branch];
+  const defaultBranch = refsQuery.data?.head?.ref ?? project.defaultBranch;
+  const branches = [...new Set([...Object.keys(branchCommits), defaultBranch])]
+    .filter(Boolean)
+    .sort();
+  const activeBranch =
+    selectedRef?.type === "branch" ? selectedRef.name : defaultBranch;
+  const refName = selectedRef?.name ?? defaultBranch;
+  const activeCommit = branchCommits[activeBranch] ?? null;
+  const hasOpenPullRequest = (pullRequestsQuery.data ?? []).some(
+    (pullRequest) =>
+      pullRequest.branchName === activeBranch &&
+      (pullRequest.status === "open" || pullRequest.status === "draft"),
+  );
+  const deleteReason =
+    activeBranch === defaultBranch
+      ? "The repository's default branch cannot be deleted."
+      : !activeCommit
+        ? "Only a published remote branch can be deleted."
+        : hasOpenPullRequest
+          ? "Close the branch's pull request before deleting it."
+          : null;
+  const refreshRefs = () =>
+    queryClient.invalidateQueries({ queryKey: ["repo-refs", project.dtag] });
+
+  const createMutation = useMutation({
+    mutationFn: (newBranch: string) => {
+      if (!activeCommit) {
+        throw new Error("Refresh the source branch before creating a branch.");
+      }
+      return createProjectRemoteBranch(project, {
+        sourceBranch: activeBranch,
+        expectedCommit: activeCommit,
+        newBranch,
+      });
+    },
+    onSuccess: async (result) => {
+      setLocalBranchCommits((current) => ({
+        ...current,
+        [result.branch]: result.commit,
+      }));
+      setHiddenBranches((current) =>
+        current.filter((branch) => branch !== result.branch),
+      );
+      setSelectedRef({ type: "branch", name: result.branch });
+      setCreateOpen(false);
+      await refreshRefs();
+      toast.success(result.message);
+    },
+  });
+  const deleteMutation = useMutation({
+    mutationFn: () => {
+      if (!activeCommit || deleteReason) {
+        throw new Error(deleteReason ?? "Choose a remote branch.");
+      }
+      return deleteProjectRemoteBranch(project, {
+        branch: activeBranch,
+        expectedCommit: activeCommit,
+      });
+    },
+    onSuccess: async (result) => {
+      setLocalBranchCommits((current) => {
+        const next = { ...current };
+        delete next[result.branch];
+        return next;
+      });
+      setHiddenBranches((current) => [...new Set([...current, result.branch])]);
+      setSelectedRef({ type: "branch", name: defaultBranch });
+      setDeleteOpen(false);
+      await refreshRefs();
+      toast.success(result.message);
+    },
+    onError: (error) =>
+      toast.error("Could not delete branch", { description: error.message }),
+  });
+
+  const refControls: RepositoryRefControlsProps = {
+    activeCommit,
+    branches,
+    createPending: createMutation.isPending,
+    deletePending: deleteMutation.isPending,
+    deleteReason,
+    isRefreshing: refsQuery.isFetching,
+    onCreate: () => {
+      createMutation.reset();
+      setCreateOpen(true);
+    },
+    onDelete: () => setDeleteOpen(true),
+    onRefresh: () => void refsQuery.refetch(),
+    onSelect: (value) => {
+      const separator = value.indexOf(":");
+      const type = value.slice(0, separator);
+      const name = value.slice(separator + 1);
+      if ((type === "branch" || type === "tag") && name) {
+        setSelectedRef({ type, name });
+      }
+    },
+    selectedValue: `${selectedRef?.type ?? "branch"}:${refName}`,
+    tagCommits: refsQuery.data?.tagCommits ?? {},
+    tags: refsQuery.data?.tags ?? [],
+  };
+
   return (
-    <section className="mt-6">
-      {view === "overview" ? (
-        <ProjectOverview
-          project={project}
-          refName={ref}
-          refsQuery={refsQuery}
-        />
-      ) : view === "files" ? (
-        <ProjectFiles project={project} refName={ref} refsQuery={refsQuery} />
-      ) : view === "commits" ? (
-        <ProjectCommits project={project} refName={ref} refsQuery={refsQuery} />
-      ) : (
-        <ProjectContributors project={project} />
-      )}
-    </section>
+    <>
+      <section className="mt-6">
+        {view === "overview" ? (
+          <ProjectOverview
+            project={project}
+            refControls={refControls}
+            refName={refName}
+            refsQuery={refsQuery}
+          />
+        ) : view === "files" ? (
+          <ProjectFiles
+            project={project}
+            refControls={refControls}
+            refName={refName}
+            refsQuery={refsQuery}
+          />
+        ) : view === "commits" ? (
+          <ProjectCommits
+            project={project}
+            refName={refName}
+            refType={selectedRef?.type ?? "branch"}
+            refsQuery={refsQuery}
+          />
+        ) : (
+          <ProjectContributors project={project} />
+        )}
+      </section>
+      <CreateBranchDialog
+        activeBranch={activeBranch}
+        activeCommit={activeCommit}
+        branches={branches}
+        error={createMutation.error}
+        onClose={() => setCreateOpen(false)}
+        onCreate={(branch) => createMutation.mutateAsync(branch)}
+        open={createOpen}
+        pending={createMutation.isPending}
+      />
+      <DestructiveConfirmDialog
+        confirmLabel="Delete branch"
+        description={
+          <>
+            Delete the remote branch{" "}
+            <span className="font-mono text-foreground">{activeBranch}</span>.
+            This cannot be undone and may be rejected by repository protection
+            rules.
+          </>
+        }
+        onClose={() => setDeleteOpen(false)}
+        onConfirm={() => deleteMutation.mutate()}
+        open={deleteOpen}
+        pending={deleteMutation.isPending}
+        pendingLabel="Deleting..."
+        title="Delete branch?"
+      />
+    </>
   );
 }
 
@@ -51,16 +225,19 @@ type RefsQuery = ReturnType<typeof useRepoRefs>;
 
 function ProjectOverview({
   project,
+  refControls,
   refName,
   refsQuery,
 }: {
   project: Project;
+  refControls: RepositoryRefControlsProps;
   refName: string;
   refsQuery: RefsQuery;
 }) {
   const readme = useGitReadme(project.owner, project.dtag, refName);
   return (
     <>
+      <ProjectRepositoryRefControls {...refControls} />
       <RepoRefsSection isLoading={refsQuery.isLoading} refs={refsQuery.data} />
       <RepositoryError error={refsQuery.error ?? readme.error} />
       <RepoReadmeSection isLoading={readme.isLoading} readme={readme.data} />
@@ -75,20 +252,19 @@ function ProjectOverview({
 
 function ProjectFiles({
   project,
+  refControls,
   refName,
   refsQuery,
 }: {
   project: Project;
+  refControls: RepositoryRefControlsProps;
   refName: string;
   refsQuery: RefsQuery;
 }) {
   const tree = useGitTree(project.owner, project.dtag, refName);
   return (
     <>
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <GitBranch className="h-4 w-4" />
-        {refName}
-      </div>
+      <ProjectRepositoryRefControls {...refControls} />
       <RepositoryError error={refsQuery.error ?? tree.error} />
       <RepoTreeSection
         entries={tree.data}
@@ -107,17 +283,20 @@ function ProjectFiles({
 function ProjectCommits({
   project,
   refName,
+  refType,
   refsQuery,
 }: {
   project: Project;
   refName: string;
+  refType: "branch" | "tag";
   refsQuery: RefsQuery;
 }) {
   const commits = useGitLog(project.owner, project.dtag, refName);
+  const RefIcon = refType === "tag" ? Tag : GitBranch;
   return (
     <>
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <GitBranch className="h-4 w-4" />
+        <RefIcon className="h-4 w-4" />
         {refName}
       </div>
       <RepositoryError error={refsQuery.error ?? commits.error} />

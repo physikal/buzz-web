@@ -1012,6 +1012,8 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
                         (createdPullRequestExists ? "bd" : "bc").repeat(20),
                       ],
                       ["refs/heads/feature/web-parity", "ab".repeat(20)],
+                      ["refs/heads/../escape", "de".repeat(20)],
+                      ["refs/tags/v0.1.0", "aa".repeat(20)],
                       ["HEAD", "ref: refs/heads/main"],
                       ["p", catalogPubkey],
                     ],
@@ -2355,6 +2357,57 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   ).toBeVisible();
   await expect(page.getByText("3 branches")).toBeVisible();
   await expect(page.getByText("attacker-branch")).toHaveCount(0);
+  const repositoryRef = page.getByLabel("Repository branch or tag");
+  await expect(repositoryRef).toHaveValue("branch:main");
+  await expect(
+    repositoryRef.locator('option[value="branch:../escape"]'),
+  ).toHaveCount(0);
+  await expect(repositoryRef.locator('option[value="tag:v0.1.0"]')).toHaveCount(
+    1,
+  );
+  await repositoryRef.selectOption("branch:feature/web-parity");
+  await expect(
+    page.getByRole("button", { name: "Delete branch" }),
+  ).toBeDisabled();
+  await repositoryRef.selectOption("branch:feature/create-pr");
+  await page.getByRole("button", { name: "Delete branch" }).click();
+  const deleteBranchDialog = page.getByRole("dialog", {
+    name: "Delete branch?",
+  });
+  await expect(deleteBranchDialog).toContainText("feature/create-pr");
+  await page.keyboard.press("Escape");
+  await expect(deleteBranchDialog).toBeHidden();
+  await repositoryRef.selectOption("tag:v0.1.0");
+  await expect(page.getByRole("button", { name: "Create branch" })).toHaveCount(
+    0,
+  );
+  await repositoryRef.selectOption("branch:main");
+  await expect(
+    page.getByRole("button", { name: "Delete branch" }),
+  ).toBeDisabled();
+  await page.getByRole("button", { name: "Create branch" }).click();
+  const createBranchDialog = page.getByRole("dialog", {
+    name: "Create branch",
+  });
+  await createBranchDialog.getByLabel("Branch name").fill("../escape");
+  await expect(
+    createBranchDialog.getByText("Enter a valid Git branch name."),
+  ).toBeVisible();
+  await expect(
+    createBranchDialog.getByRole("button", { name: "Create branch" }),
+  ).toBeDisabled();
+  await createBranchDialog.getByLabel("Branch name").fill("feature/safe");
+  await createBranchDialog
+    .getByRole("button", { name: "Create branch" })
+    .click();
+  await expect(
+    createBranchDialog.getByText(
+      'Remote did not reply using the "smart" HTTP protocol.',
+      { exact: false },
+    ),
+  ).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(createBranchDialog).toBeHidden();
   await page.getByRole("button", { name: "Contributors", exact: true }).click();
   await expect(page.getByText("Repository owner")).toBeVisible();
   await page.getByRole("button", { name: "Issues", exact: true }).click();

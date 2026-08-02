@@ -152,7 +152,11 @@ function eventProject(event: NostrEvent): Project {
     description: tag(event, "description") ?? event.content,
     owner: event.pubkey,
     defaultBranch: tag(event, "default-branch") ?? "main",
-    contributors: tags(event, "p").map((pubkey) => pubkey.toLowerCase()),
+    contributors: event.tags
+      .filter(
+        (item) => item[0] === "p" && /^[0-9a-f]{64}$/iu.test(item[1] ?? ""),
+      )
+      .map((item) => (item[1] ?? "").toLowerCase()),
     cloneUrls,
     webUrl: tag(event, "web") ?? null,
     createdAt: event.created_at,
