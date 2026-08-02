@@ -53,6 +53,7 @@ export function MessageTimeline({
   agentNames,
   loading,
   selectedMessageId,
+  matchingMessageIds,
   customEmoji,
   actions,
 }: {
@@ -64,6 +65,7 @@ export function MessageTimeline({
   agentNames: Map<string, string>;
   loading: boolean;
   selectedMessageId?: string | null;
+  matchingMessageIds?: ReadonlySet<string>;
   customEmoji: CustomEmoji[];
   actions: MessageActions;
 }) {
@@ -107,6 +109,7 @@ export function MessageTimeline({
           agentNames={agentNames}
           forum={channel.channelType === "forum"}
           highlighted={selectedMessageId === message.id}
+          matched={matchingMessageIds?.has(message.id) ?? false}
           customEmoji={customEmoji}
           key={message.id}
           message={message}
@@ -129,6 +132,7 @@ function MessageRow({
   replyCount,
   forum,
   highlighted,
+  matched,
   customEmoji,
   actions,
 }: {
@@ -140,6 +144,7 @@ function MessageRow({
   replyCount: number;
   forum: boolean;
   highlighted: boolean;
+  matched: boolean;
   customEmoji: CustomEmoji[];
   actions: MessageActions;
 }) {
@@ -156,7 +161,7 @@ function MessageRow({
 
   return (
     <article
-      className={`group relative flex gap-3 px-3 py-2 ${forum ? "rounded-md border bg-card py-4" : "rounded-md hover:bg-muted/40"} ${highlighted ? "bg-primary/10 ring-1 ring-primary/30" : ""}`}
+      className={`group relative flex gap-3 px-3 py-2 ${forum ? "rounded-md border bg-card py-4" : "rounded-md hover:bg-muted/40"} ${matched ? "bg-amber-500/10" : ""} ${highlighted ? "bg-primary/10 ring-1 ring-primary/30" : ""}`}
       id={`message-${message.id}`}
     >
       <button
@@ -504,6 +509,8 @@ export function ThreadPanel({
   onUnfollow,
   onTyping,
   onSubmit,
+  selectedMessageId,
+  matchingMessageIds,
 }: {
   channel: Channel;
   root: ChannelMessage;
@@ -523,6 +530,8 @@ export function ThreadPanel({
   onUnfollow: () => void;
   onTyping: () => void;
   onSubmit: (payload: ComposerPayload) => Promise<void>;
+  selectedMessageId?: string | null;
+  matchingMessageIds?: ReadonlySet<string>;
 }) {
   const replies = messages.filter((message) => message.rootId === root.id);
   return (
@@ -559,7 +568,8 @@ export function ThreadPanel({
             customEmoji={customEmoji}
             agentNames={agentNames}
             forum={false}
-            highlighted={false}
+            highlighted={selectedMessageId === message.id}
+            matched={matchingMessageIds?.has(message.id) ?? false}
             key={message.id}
             message={message}
             ownerPubkey={ownerPubkey}

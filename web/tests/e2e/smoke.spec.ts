@@ -1212,6 +1212,14 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   const shortcutModifier = await page.evaluate(() =>
     /Mac|iPhone|iPad|iPod/u.test(navigator.platform) ? "Meta" : "Control",
   );
+  await page.keyboard.press(`${shortcutModifier}+F`);
+  const channelFind = page.getByLabel("Find in channel");
+  await expect(channelFind).toBeVisible();
+  await channelFind.fill("Welcome to Buzz");
+  await expect(page.getByText("1 of 1", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Next match" })).toBeEnabled();
+  await channelFind.press("Escape");
+  await expect(channelFind).toBeHidden();
   await composer.fill("keyboard bold");
   await composer.selectText();
   await composer.press(`${shortcutModifier}+B`);

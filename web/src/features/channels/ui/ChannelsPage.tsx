@@ -35,18 +35,16 @@ import {
   StartHuddleDialog,
 } from "@/features/huddles/HuddleControls";
 import { useHuddle } from "@/features/huddles/use-huddle";
+import { useChannelFind } from "../use-channel-find";
 import { useChannelReadShortcuts } from "../use-channel-read-shortcuts";
+import { useChannelActions } from "../use-channel-actions";
 import { getCustomEmoji } from "@/features/settings/custom-emoji-api";
 import { submitModerationReport } from "@/features/settings/moderation-api";
 import { subscribeEvents } from "@/shared/lib/nostr-client";
 import { truncatePubkey } from "@/shared/lib/pubkey";
 import { relayWsUrl } from "@/shared/lib/relay-url";
 import { Button } from "@/shared/ui/button";
-import {
-  CHANNEL_ACTION_EVENT,
-  type ChannelAction,
-  isChannelAction,
-} from "../channel-actions";
+import type { ChannelAction } from "../channel-actions";
 import {
   addReaction,
   archiveChannel,
@@ -78,6 +76,7 @@ import { useThreadFollows } from "../use-thread-follows";
 import { useTypingIndicators } from "../use-typing";
 import { buildDmCandidates } from "../dm-candidates";
 import { ChannelSidebar } from "./ChannelSidebar";
+import { ChannelFindBar } from "./ChannelFindBar";
 import { ChannelsPrimarySidebar } from "./ChannelsPrimarySidebar";
 import {
   ChannelBrowserDialog,
@@ -156,22 +155,13 @@ function ChannelsWorkspace({
     channelId: string;
     templateId: string;
   } | null>(null);
-
-  useEffect(() => {
-    const open = (action: ChannelAction) => {
-      if (action === "browse") setBrowserOpen(true);
-      if (action === "create") setCreateOpen(true);
-      if (action === "dm") setDmOpen(true);
-      if (action === "search") setSearchOpen(true);
-    };
-    if (initialAction) open(initialAction);
-    const handleAction = (event: Event) => {
-      const action = (event as CustomEvent<unknown>).detail;
-      if (isChannelAction(action)) open(action);
-    };
-    window.addEventListener(CHANNEL_ACTION_EVENT, handleAction);
-    return () => window.removeEventListener(CHANNEL_ACTION_EVENT, handleAction);
-  }, [initialAction]);
+  const openChannelAction = useCallback((action: ChannelAction) => {
+    if (action === "browse") setBrowserOpen(true);
+    if (action === "create") setCreateOpen(true);
+    if (action === "dm") setDmOpen(true);
+    if (action === "search") setSearchOpen(true);
+  }, []);
+  useChannelActions(initialAction, openChannelAction);
 
   const channelsQuery = useQuery({
     queryKey: ["channels", ownerPubkey],
@@ -243,6 +233,14 @@ function ChannelsWorkspace({
     retry: false,
   });
   const messages = messagesQuery.data ?? [];
+  const channelFind = useChannelFind({
+    channelId: selected?.id ?? null,
+    messages,
+    onActivate: useCallback((match) => {
+      setThreadRootId(match.rootId);
+      setHighlightedId(match.id);
+    }, []),
+  });
   const typingEntries = useTypingIndicators({
     channelId: selected?.id ?? null,
     channelType: selected?.channelType ?? null,
@@ -709,6 +707,7 @@ function ChannelsWorkspace({
             <Plus />
           </Button>
         </header>
+        {channelFind.open ? <ChannelFindBar find={channelFind} /> : null}
         <section
           aria-label="Messages"
           className="min-h-0 flex-1 overflow-y-auto px-0 py-3 sm:px-3"
@@ -726,6 +725,7 @@ function ChannelsWorkspace({
               channel={selected}
               customEmoji={customEmojiQuery.data?.community ?? []}
               loading={messagesQuery.isLoading}
+              matchingMessageIds={channelFind.matchingIds}
               messages={messages}
               ownerPubkey={ownerPubkey}
               presence={presence}
@@ -799,9 +799,11 @@ function ChannelsWorkspace({
           }
           ownerPubkey={ownerPubkey}
           pending={sendMutation.isPending}
+          matchingMessageIds={channelFind.matchingIds}
           presence={presence}
           profiles={profiles}
           root={threadRoot}
+          selectedMessageId={highlightedId}
           typingPubkeys={typingEntries
             .filter((entry) => entry.threadId === threadRoot.id)
             .map((entry) => entry.pubkey)}
