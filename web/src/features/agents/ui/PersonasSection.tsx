@@ -319,7 +319,7 @@ export function PersonasSection({
       ) : null}
       {exporting ? (
         <AgentSnapshotExportDialog
-          persona={exporting}
+          name={exporting.displayName}
           onClose={() => setExporting(null)}
           onExport={async (format) => {
             try {

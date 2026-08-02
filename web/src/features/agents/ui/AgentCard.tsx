@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   Bot,
   Brain,
+  Download,
   EllipsisVertical,
   KeyRound,
   Logs,
@@ -32,6 +33,7 @@ export function AgentCard({
   onAuthenticate,
   onDelete,
   onEdit,
+  onExport,
   onViewActivity,
   onViewMemory,
   onViewLogs,
@@ -43,6 +45,7 @@ export function AgentCard({
   onAuthenticate: () => void;
   onDelete: () => void;
   onEdit: () => void;
+  onExport: () => void;
   onViewActivity: () => void;
   onViewMemory: () => void;
   onViewLogs: () => void;
@@ -108,6 +111,17 @@ export function AgentCard({
               type="button"
             >
               <Pencil className="h-4 w-4" /> Edit agent
+            </button>
+            <button
+              className="flex h-9 w-full items-center gap-2 rounded px-2 text-sm hover:bg-accent"
+              disabled={pending}
+              onClick={() => {
+                setMenuOpen(false);
+                onExport();
+              }}
+              type="button"
+            >
+              <Download className="h-4 w-4" /> Export snapshot
             </button>
             <button
               className="flex h-9 w-full items-center gap-2 rounded px-2 text-sm hover:bg-accent"

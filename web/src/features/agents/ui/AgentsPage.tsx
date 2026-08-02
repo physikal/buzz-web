@@ -46,6 +46,8 @@ import { OwnerConnection } from "./OwnerConnection";
 import { PersonasSection } from "./PersonasSection";
 import { TeamsSection } from "./TeamsSection";
 import type { AgentPersona } from "../persona-api";
+import { exportManagedAgentSnapshot } from "../agent-snapshot";
+import { AgentSnapshotExportDialog } from "./AgentSnapshotExportDialog";
 
 const PREVIEW_AGENTS: ManagedAgent[] = [
   {
@@ -164,6 +166,7 @@ function AgentsWorkspace({
   const [agentToAuthenticate, setAgentToAuthenticate] =
     useState<ManagedAgent | null>(null);
   const [agentToEdit, setAgentToEdit] = useState<ManagedAgent | null>(null);
+  const [agentToExport, setAgentToExport] = useState<ManagedAgent | null>(null);
   const [agentToInspect, setAgentToInspect] = useState<ManagedAgent | null>(
     null,
   );
@@ -392,6 +395,7 @@ function AgentsWorkspace({
                     onAuthenticate={() => setAgentToAuthenticate(agent)}
                     onDelete={() => deleteMutation.mutate(agent.id)}
                     onEdit={() => setAgentToEdit(agent)}
+                    onExport={() => setAgentToExport(agent)}
                     onViewActivity={() => setAgentActivity(agent)}
                     onViewMemory={() => setAgentToInspect(agent)}
                     onViewLogs={() => setAgentLog(agent)}
@@ -491,6 +495,30 @@ function AgentsWorkspace({
         ownerPubkey={ownerPubkey}
         onClose={() => setAgentToInspect(null)}
       />
+      {agentToExport ? (
+        <AgentSnapshotExportDialog
+          memoryAvailable
+          name={agentToExport.name}
+          onClose={() => setAgentToExport(null)}
+          onExport={async (format, memoryLevel) => {
+            try {
+              await exportManagedAgentSnapshot(
+                agentToExport,
+                ownerPubkey,
+                memoryLevel,
+                format,
+              );
+              toast.success("Agent snapshot exported");
+            } catch (error) {
+              toast.error("Could not export snapshot", {
+                description:
+                  error instanceof Error ? error.message : "Export failed.",
+              });
+              throw error;
+            }
+          }}
+        />
+      ) : null}
       <AgentActivityDialog
         agent={agentActivity}
         ownerPubkey={ownerPubkey}

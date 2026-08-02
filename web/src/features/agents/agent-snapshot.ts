@@ -3,6 +3,8 @@ import {
   type AgentPersona,
   type PersonaInput,
 } from "./persona-api";
+import type { ManagedAgent } from "./agent-api";
+import { listAgentMemory } from "./agent-memory-api";
 
 const JSON_LIMIT = 5 * 1024 * 1024;
 const PNG_LIMIT = 10 * 1024 * 1024;
@@ -363,16 +365,42 @@ export function snapshotFromPersona(persona: AgentPersona): AgentSnapshot {
   };
 }
 
-export async function exportAgentSnapshot(
-  persona: AgentPersona,
+export function snapshotFromManagedAgent(
+  agent: ManagedAgent,
+  memoryLevel: SnapshotMemoryLevel,
+  memoryEntries: Array<{ slug: string; body: string }>,
+): AgentSnapshot {
+  return {
+    format: "buzz-agent-snapshot",
+    version: 1,
+    definition: {
+      name: agent.name,
+      ...(agent.system_prompt ? { systemPrompt: agent.system_prompt } : {}),
+      runtime: agent.runtime,
+      ...(agent.model ? { model: agent.model } : {}),
+      respondTo: agent.respond_to,
+      ...(agent.respond_to_allowlist.length
+        ? { respondToAllowlist: agent.respond_to_allowlist }
+        : {}),
+    },
+    profile: { displayName: agent.name },
+    memory: {
+      level: memoryLevel,
+      ...(memoryEntries.length ? { entries: memoryEntries } : {}),
+    },
+  };
+}
+
+async function downloadAgentSnapshot(
+  snapshot: AgentSnapshot,
+  displayName: string,
   format: "json" | "png",
 ) {
-  const snapshot = snapshotFromPersona(persona);
   const json = new TextEncoder().encode(JSON.stringify(snapshot, null, 2));
   if (json.length > JSON_LIMIT) throw new Error("Snapshot JSON is too large.");
   const bytes = format === "png" ? await encodePng(json) : json;
   const safeName =
-    persona.displayName
+    displayName
       .trim()
       .replace(/[^a-z0-9_-]+/giu, "-")
       .replace(/^-+|-+$/g, "") || "agent";
@@ -393,6 +421,41 @@ export async function exportAgentSnapshot(
   anchor.click();
   anchor.remove();
   setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+export async function exportAgentSnapshot(
+  persona: AgentPersona,
+  format: "json" | "png",
+) {
+  await downloadAgentSnapshot(
+    snapshotFromPersona(persona),
+    persona.displayName,
+    format,
+  );
+}
+
+export async function exportManagedAgentSnapshot(
+  agent: ManagedAgent,
+  ownerPubkey: string,
+  memoryLevel: SnapshotMemoryLevel,
+  format: "json" | "png",
+) {
+  let entries: Array<{ slug: string; body: string }> = [];
+  if (memoryLevel !== "none") {
+    const memory = await listAgentMemory(agent.agent_pubkey, ownerPubkey);
+    if (memory.limitReached)
+      throw new Error(
+        "Memory listing reached the relay limit. Export a config-only snapshot or remove older memory first.",
+      );
+    entries = memory.entries
+      .filter((entry) => memoryLevel === "everything" || entry.core)
+      .map((entry) => ({ slug: entry.slug, body: entry.value }));
+  }
+  await downloadAgentSnapshot(
+    snapshotFromManagedAgent(agent, memoryLevel, entries),
+    agent.name,
+    format,
+  );
 }
 
 export async function decodeAgentSnapshot(

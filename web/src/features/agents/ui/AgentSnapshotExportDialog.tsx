@@ -1,33 +1,37 @@
-import { Download, FileType2, ShieldCheck, X } from "lucide-react";
+import { Brain, Download, FileType2, ShieldCheck, X } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@/shared/ui/button";
-import type { AgentPersona } from "../persona-api";
+import type { SnapshotMemoryLevel } from "../agent-snapshot";
 
 export function AgentSnapshotExportDialog({
-  persona,
+  name,
+  memoryAvailable = false,
   onClose,
   onExport,
 }: {
-  persona: AgentPersona;
+  name: string;
+  memoryAvailable?: boolean;
   onClose: () => void;
-  onExport: (format: "json" | "png") => Promise<void>;
+  onExport: (
+    format: "json" | "png",
+    memoryLevel: SnapshotMemoryLevel,
+  ) => Promise<void>;
 }) {
   const [format, setFormat] = useState<"json" | "png">("png");
+  const [memoryLevel, setMemoryLevel] = useState<SnapshotMemoryLevel>("none");
   const [pending, setPending] = useState(false);
 
   return (
     <div
-      aria-label={`Export ${persona.displayName}`}
+      aria-label={`Export ${name}`}
       aria-modal="true"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
       role="dialog"
     >
       <div className="w-full max-w-md rounded-lg bg-background p-6 shadow-2xl">
         <header className="flex items-center justify-between gap-4">
-          <h2 className="truncate text-lg font-semibold">
-            Export {persona.displayName}
-          </h2>
+          <h2 className="truncate text-lg font-semibold">Export {name}</h2>
           <Button
             aria-label="Close"
             disabled={pending}
@@ -64,6 +68,33 @@ export function AgentSnapshotExportDialog({
               <option value="json">JSON</option>
             </select>
           </label>
+          {memoryAvailable ? (
+            <label className="flex min-h-10 items-center justify-between gap-4 text-sm">
+              <span className="flex items-center gap-2 font-medium">
+                <Brain className="h-4 w-4 text-muted-foreground" />
+                Memory
+              </span>
+              <select
+                aria-label="Memory to include"
+                className="h-9 rounded-md border bg-background px-3"
+                disabled={pending}
+                onChange={(event) =>
+                  setMemoryLevel(event.target.value as SnapshotMemoryLevel)
+                }
+                value={memoryLevel}
+              >
+                <option value="none">None</option>
+                <option value="core">Core only</option>
+                <option value="everything">Everything</option>
+              </select>
+            </label>
+          ) : null}
+          {memoryLevel !== "none" ? (
+            <p className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-800 dark:text-amber-200">
+              Included memory is decrypted and stored as plaintext. Anyone with
+              this file can read it.
+            </p>
+          ) : null}
           <p className="text-xs text-muted-foreground">
             Private keys, API credentials, subscription sessions, and
             server-local commands are never included.
@@ -78,7 +109,7 @@ export function AgentSnapshotExportDialog({
             onClick={async () => {
               setPending(true);
               try {
-                await onExport(format);
+                await onExport(format, memoryLevel);
                 onClose();
               } catch {
                 // The parent reports the export error and keeps this dialog open.

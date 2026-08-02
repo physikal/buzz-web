@@ -1338,6 +1338,50 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await reviewAgentCard
     .getByRole("button", { name: "Review lead actions" })
     .click();
+  await reviewAgentCard
+    .getByRole("button", { name: "Export snapshot" })
+    .click();
+  const deployedExport = page.getByRole("dialog", {
+    name: "Export Review lead",
+  });
+  await deployedExport.getByLabel("File format").selectOption("json");
+  await deployedExport
+    .getByLabel("Memory to include")
+    .selectOption("everything");
+  await expect(
+    deployedExport.getByText("stored as plaintext", { exact: false }),
+  ).toBeVisible();
+  const deployedDownload = page.waitForEvent("download");
+  await deployedExport.getByRole("button", { name: "Export" }).click();
+  const deployedSnapshot = JSON.parse(
+    (await downloadedBytes(await deployedDownload)).toString("utf8"),
+  ) as Record<string, unknown>;
+  expect(deployedSnapshot).toMatchObject({
+    format: "buzz-agent-snapshot",
+    version: 1,
+    definition: {
+      name: "Review lead",
+      systemPrompt: "Review changes carefully and report risks.",
+      runtime: "buzz-agent",
+      model: "claude-sonnet-4-6",
+    },
+    profile: { displayName: "Review lead" },
+    memory: {
+      level: "everything",
+      entries: [
+        {
+          slug: "core",
+          body: "Review carefully and preserve user intent.",
+        },
+      ],
+    },
+  });
+  expect(JSON.stringify(deployedSnapshot)).not.toMatch(
+    /test-persona-api-key|private_key|agent_pubkey|credential_mode/u,
+  );
+  await reviewAgentCard
+    .getByRole("button", { name: "Review lead actions" })
+    .click();
   await reviewAgentCard.getByRole("button", { name: "View activity" }).click();
   await expect(
     page.getByRole("heading", { name: "Review lead activity" }),
