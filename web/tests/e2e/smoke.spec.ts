@@ -1095,6 +1095,24 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     .toBe(true);
   await page.getByLabel("Message #general").fill("");
   expect(submittedEvents.some((event) => event.kind === 20001)).toBe(true);
+  await page.getByRole("button", { name: "Add direct messages" }).click();
+  const newMessageDialog = page.getByRole("dialog", { name: "New message" });
+  await expect(
+    newMessageDialog.getByRole("button", { name: "Add Relay agent" }),
+  ).toBeVisible();
+  await newMessageDialog
+    .getByLabel("Find people and agents")
+    .fill("Relay agent");
+  await newMessageDialog
+    .getByRole("button", { name: "Add Relay agent" })
+    .click();
+  await expect(
+    newMessageDialog.getByRole("button", { name: "Open conversation" }),
+  ).toBeEnabled();
+  await expect(
+    newMessageDialog.getByRole("button", { name: "Remove Relay agent" }),
+  ).toBeVisible();
+  await newMessageDialog.getByRole("button", { name: "Close" }).click();
   await page.getByRole("button", { name: "Create section" }).click();
   const createSectionDialog = page.getByRole("dialog", {
     name: "Create section",

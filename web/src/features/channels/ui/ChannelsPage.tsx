@@ -24,6 +24,7 @@ import { lockOwnerVault } from "@/features/owner-vault/lib/vault-worker-client";
 import { useWorkspacePresence } from "@/features/presence/use-presence";
 import { UserProfileDialog } from "@/features/profile/UserProfileDialog";
 import { ReminderDialog } from "@/features/reminders/ui/ReminderDialog";
+import { getCommunityMembership } from "@/features/settings/community-api";
 import {
   resolveMessageSearchInput,
   toMessageSearchResult,
@@ -69,6 +70,7 @@ import { useChannelSort } from "../use-channel-sort";
 import { useChannelSections } from "../use-channel-sections";
 import { useThreadFollows } from "../use-thread-follows";
 import { useTypingIndicators } from "../use-typing";
+import { buildDmCandidates } from "../dm-candidates";
 import { ChannelSidebar } from "./ChannelSidebar";
 import { ChannelsPrimarySidebar } from "./ChannelsPrimarySidebar";
 import {
@@ -154,6 +156,12 @@ function ChannelsWorkspace({
     queryKey: ["managed-agents", ownerPubkey],
     queryFn: listAgents,
     staleTime: 10_000,
+    retry: false,
+  });
+  const communityQuery = useQuery({
+    queryKey: ["community-members", ownerPubkey],
+    queryFn: () => getCommunityMembership(ownerPubkey),
+    staleTime: 30_000,
     retry: false,
   });
   const templatesQuery = useQuery({
@@ -324,6 +332,21 @@ function ChannelsWorkspace({
       ),
     [agentsQuery.data],
   );
+  const dmCandidates = useMemo(() => {
+    return buildDmCandidates({
+      ownerPubkey,
+      pubkeys: allPubkeys,
+      profiles,
+      agents: agentsQuery.data ?? [],
+      members: communityQuery.data?.members ?? [],
+    });
+  }, [
+    agentsQuery.data,
+    allPubkeys,
+    communityQuery.data?.members,
+    ownerPubkey,
+    profiles,
+  ]);
 
   const refreshSelected = useCallback(async () => {
     if (!selected) return;
@@ -831,7 +854,9 @@ function ChannelsWorkspace({
         />
       ) : null}
       <NewDmDialog
+        candidates={dmCandidates}
         open={dmOpen}
+        ownerPubkey={ownerPubkey}
         pending={dmMutation.isPending}
         onClose={() => setDmOpen(false)}
         onSubmit={(pubkeys) =>

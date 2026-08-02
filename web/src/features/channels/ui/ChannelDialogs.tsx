@@ -1,5 +1,7 @@
 import {
   Archive,
+  Bot,
+  Check,
   Hash,
   MessageCircle,
   Search,
@@ -8,10 +10,11 @@ import {
 } from "lucide-react";
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 
-import { parsePubkey } from "@/shared/lib/pubkey";
+import { parsePubkey, truncatePubkey } from "@/shared/lib/pubkey";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import type { Channel } from "../channel-api";
+import type { DmCandidate } from "../dm-candidates";
 import { ChannelCanvas } from "./ChannelCanvas";
 import { ChannelMembersSection } from "./ChannelMembersSection";
 
@@ -63,24 +66,71 @@ function DialogFrame({
 }
 
 export function NewDmDialog({
+  candidates,
   open,
+  ownerPubkey,
   pending,
   onClose,
   onSubmit,
 }: {
+  candidates: DmCandidate[];
   open: boolean;
+  ownerPubkey: string;
   pending: boolean;
   onClose: () => void;
   onSubmit: (pubkeys: string[]) => Promise<void>;
 }) {
   const [value, setValue] = useState("");
+  const [selected, setSelected] = useState<DmCandidate[]>([]);
   const entries = value
     .split(/[\s,]+/)
     .map((item) => item.trim())
     .filter(Boolean);
-  const pubkeys = entries
-    .map(parsePubkey)
-    .filter((pubkey): pubkey is string => Boolean(pubkey));
+  const parsedEntries = entries.map(parsePubkey);
+  const pastedPubkeys = [
+    ...new Set(
+      parsedEntries.filter(
+        (pubkey): pubkey is string =>
+          Boolean(pubkey) &&
+          pubkey !== ownerPubkey &&
+          !selected.some((item) => item.pubkey === pubkey),
+      ),
+    ),
+  ];
+  const query = value.trim().toLowerCase();
+  const visibleCandidates = candidates
+    .filter(
+      (candidate) =>
+        candidate.pubkey !== ownerPubkey &&
+        !selected.some((item) => item.pubkey === candidate.pubkey) &&
+        (!query ||
+          candidate.displayName.toLowerCase().includes(query) ||
+          candidate.pubkey.includes(query)),
+    )
+    .slice(0, 30);
+  const addPasted = () => {
+    const byPubkey = new Map(candidates.map((item) => [item.pubkey, item]));
+    setSelected((current) => [
+      ...current,
+      ...pastedPubkeys
+        .filter((_, index) => index < 8 - current.length)
+        .map(
+          (pubkey) =>
+            byPubkey.get(pubkey) ?? {
+              pubkey,
+              displayName: truncatePubkey(pubkey),
+              avatarUrl: null,
+              isAgent: false,
+            },
+        ),
+    ]);
+    setValue("");
+  };
+  useEffect(() => {
+    if (open) return;
+    setValue("");
+    setSelected([]);
+  }, [open]);
   return (
     <DialogFrame
       open={open}
@@ -92,34 +142,125 @@ export function NewDmDialog({
         className="mt-5"
         onSubmit={async (event) => {
           event.preventDefault();
-          await onSubmit(pubkeys);
+          if (!selected.length) return;
+          await onSubmit(selected.map((item) => item.pubkey));
           setValue("");
+          setSelected([]);
         }}
       >
         <label className="text-sm font-medium" htmlFor="dm-participants">
-          Participant public keys
+          To
         </label>
-        <textarea
-          className="mt-2 min-h-28 w-full resize-y rounded-md border bg-background px-3 py-2 font-mono text-xs outline-none focus:ring-1 focus:ring-ring"
+        {selected.length ? (
+          <div className="mt-2 flex flex-wrap gap-2">
+            {selected.map((candidate) => (
+              <span
+                className="inline-flex max-w-full items-center gap-1.5 rounded-md bg-muted px-2 py-1 text-xs"
+                key={candidate.pubkey}
+              >
+                <span className="truncate">{candidate.displayName}</span>
+                <button
+                  aria-label={`Remove ${candidate.displayName}`}
+                  disabled={pending}
+                  onClick={() =>
+                    setSelected((current) =>
+                      current.filter(
+                        (item) => item.pubkey !== candidate.pubkey,
+                      ),
+                    )
+                  }
+                  type="button"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </span>
+            ))}
+          </div>
+        ) : null}
+        <Input
+          aria-label="Find people and agents"
+          className="mt-2"
           disabled={pending}
           id="dm-participants"
-          placeholder="Paste one or more public keys"
+          placeholder="Search by name or paste an npub"
           value={value}
           onChange={(event) => setValue(event.target.value)}
         />
+        <div className="mt-3 max-h-64 overflow-y-auto rounded-md border">
+          {pastedPubkeys.length > 0 && parsedEntries.every(Boolean) ? (
+            <button
+              className="flex w-full items-center gap-3 border-b px-3 py-3 text-left hover:bg-muted/50"
+              disabled={pending || selected.length >= 8}
+              onClick={addPasted}
+              type="button"
+            >
+              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-muted font-mono text-xs">
+                +
+              </span>
+              <span className="min-w-0 flex-1 text-sm">
+                Add{" "}
+                {pastedPubkeys.length === 1
+                  ? "public key"
+                  : `${pastedPubkeys.length} public keys`}
+              </span>
+              <Check className="h-4 w-4 text-muted-foreground" />
+            </button>
+          ) : null}
+          {visibleCandidates.map((candidate) => (
+            <button
+              aria-label={`Add ${candidate.displayName}`}
+              className="flex w-full items-center gap-3 border-b px-3 py-3 text-left last:border-b-0 hover:bg-muted/50"
+              disabled={pending || selected.length >= 8}
+              key={candidate.pubkey}
+              onClick={() => {
+                setSelected((current) => [...current, candidate]);
+                setValue("");
+              }}
+              type="button"
+            >
+              {candidate.avatarUrl ? (
+                <img
+                  alt=""
+                  className="h-8 w-8 rounded-full object-cover"
+                  loading="lazy"
+                  referrerPolicy="no-referrer"
+                  src={candidate.avatarUrl}
+                />
+              ) : (
+                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-muted text-xs font-medium uppercase">
+                  {candidate.displayName.slice(0, 2)}
+                </span>
+              )}
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-medium">
+                  {candidate.displayName}
+                </span>
+                <span className="block truncate font-mono text-xs text-muted-foreground">
+                  {truncatePubkey(candidate.pubkey)}
+                </span>
+              </span>
+              {candidate.isAgent ? (
+                <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                  <Bot className="h-3.5 w-3.5" /> agent
+                </span>
+              ) : null}
+            </button>
+          ))}
+          {!visibleCandidates.length && !pastedPubkeys.length ? (
+            <p className="px-4 py-8 text-center text-sm text-muted-foreground">
+              {query ? "No matching people or agents" : "No contacts available"}
+            </p>
+          ) : null}
+        </div>
         <p className="mt-2 text-xs text-muted-foreground">
-          Separate group participants with commas or spaces.
+          Add up to eight people or agents. You can paste multiple public keys,
+          separated by spaces.
         </p>
         <div className="mt-5 flex justify-end gap-2">
           <Button onClick={onClose} type="button" variant="outline">
             Cancel
           </Button>
-          <Button
-            disabled={
-              pending || !pubkeys.length || pubkeys.length !== entries.length
-            }
-            type="submit"
-          >
+          <Button disabled={pending || !selected.length} type="submit">
             {pending ? "Opening…" : "Open conversation"}
           </Button>
         </div>
