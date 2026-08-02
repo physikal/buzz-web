@@ -24,8 +24,10 @@ test("home page loads with Buzz branding", async ({ page }) => {
   ).toBeVisible();
 });
 
-test("home page shows repositories section", async ({ page }) => {
-  await page.goto("/");
+test("repositories page remains available from its desktop route", async ({
+  page,
+}) => {
+  await page.goto("/repos");
   await expect(page.getByText("Repositories")).toBeVisible();
 });
 
@@ -195,6 +197,25 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
         ),
       );
     }
+    if (
+      filters.some(
+        (filter) => filter.kinds?.includes(9) && Array.isArray(filter["#p"]),
+      )
+    )
+      events.push(
+        finalizeEvent(
+          {
+            kind: 9,
+            created_at: Math.floor(Date.now() / 1000),
+            content: "Owner mention from inbox",
+            tags: [
+              ["h", "44444444-4444-4444-8444-444444444444"],
+              ["p", ownerPubkey],
+            ],
+          },
+          catalogSecret,
+        ),
+      );
     if (kinds.includes(20001))
       events.push(
         finalizeEvent(
@@ -2021,6 +2042,23 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
       () => document.documentElement.scrollWidth <= window.innerWidth,
     ),
   ).toBe(true);
+
+  await page.goto(`${testOrigin}/`);
+  await page.getByRole("button", { name: "Unlock with passkey" }).click();
+  await expect(page.getByRole("heading", { name: "Inbox" })).toBeVisible();
+  await expect(
+    page.getByText("Owner mention from inbox").first(),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Back" })).toBeHidden();
+  await page.getByText("Owner mention from inbox").first().click();
+  await expect(page.getByRole("button", { name: "Back" })).toBeVisible();
+  await expect(page.getByText("Owner mention from inbox").last()).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({ path: "/tmp/buzz-web-inbox-mobile.png" });
 });
 
 test("invite requires age and legal consent before opening Buzz", async ({

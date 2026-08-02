@@ -9,6 +9,7 @@ import {
   FileStack,
   FolderKanban,
   GitFork,
+  Inbox,
   LogOut,
   MessageSquare,
   MonitorCog,
@@ -91,7 +92,8 @@ function SettingsWorkspace({
           <span className="font-semibold">Buzz</span>
         </div>
         <nav className="mt-4 space-y-1 text-sm">
-          <Nav href="/" icon={<BookMarked />} label="Repositories" />
+          <Nav href="/" icon={<Inbox />} label="Inbox" />
+          <Nav href="/repos" icon={<BookMarked />} label="Repositories" />
           <Nav href="/channels" icon={<MessageSquare />} label="Channels" />
           <Nav href="/pulse" icon={<Zap />} label="Pulse" />
           <Nav href="/projects" icon={<FolderKanban />} label="Projects" />
@@ -558,6 +560,7 @@ function Nav({
 }: {
   href:
     | "/"
+    | "/repos"
     | "/channels"
     | "/pulse"
     | "/projects"

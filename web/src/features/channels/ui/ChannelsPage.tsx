@@ -7,6 +7,7 @@ import {
   FolderKanban,
   GitFork,
   Hash,
+  Inbox,
   LayoutList,
   LogOut,
   MessageCircle,
@@ -895,7 +896,8 @@ function PrimarySidebar({
         <span className="font-semibold">Buzz</span>
       </div>
       <nav className="mt-4 space-y-1 text-sm">
-        <SidebarLink href="/" icon={<BookMarked />} label="Repositories" />
+        <SidebarLink href="/" icon={<Inbox />} label="Inbox" />
+        <SidebarLink href="/repos" icon={<BookMarked />} label="Repositories" />
         <SidebarLink
           active
           href="/channels"
@@ -936,6 +938,7 @@ function SidebarLink({
 }: {
   href:
     | "/"
+    | "/repos"
     | "/channels"
     | "/pulse"
     | "/projects"

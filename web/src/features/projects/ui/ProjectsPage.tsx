@@ -5,6 +5,7 @@ import {
   BookMarked,
   FolderKanban,
   GitFork,
+  Inbox,
   LogOut,
   MessageSquare,
   Plus,
@@ -326,7 +327,8 @@ function ProjectNav({
         <span className="font-semibold">Buzz</span>
       </div>
       <nav className="mt-4 space-y-1 text-sm">
-        <Nav to="/" icon={<BookMarked />} label="Repositories" />
+        <Nav to="/" icon={<Inbox />} label="Inbox" />
+        <Nav to="/repos" icon={<BookMarked />} label="Repositories" />
         <Nav to="/channels" icon={<MessageSquare />} label="Channels" />
         <Nav to="/pulse" icon={<Zap />} label="Pulse" />
         <Nav to="/projects" icon={<FolderKanban />} label="Projects" active />
@@ -353,6 +355,7 @@ function Nav({
 }: {
   to:
     | "/"
+    | "/repos"
     | "/channels"
     | "/pulse"
     | "/projects"

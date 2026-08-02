@@ -5,6 +5,7 @@ import {
   BookMarked,
   FolderKanban,
   GitFork,
+  Inbox,
   LogOut,
   MessageSquare,
   Plus,
@@ -330,6 +331,9 @@ function AgentsWorkspace({
         </div>
         <nav className="mt-4 space-y-1 text-sm">
           <Link to="/" className="block">
+            <SidebarItem icon={<Inbox />} label="Inbox" />
+          </Link>
+          <Link to="/repos" className="block">
             <SidebarItem icon={<BookMarked />} label="Repositories" />
           </Link>
           <Link to="/channels" className="block">
