@@ -27,6 +27,7 @@ import { Button } from "@/shared/ui/button";
 import { DestructiveConfirmDialog } from "@/shared/ui/destructive-confirm-dialog";
 import { Input } from "@/shared/ui/input";
 import { SidebarToggleButton } from "@/shared/ui/sidebar-toggle-button";
+import { ProjectPullRequestsPanel } from "./ProjectPullRequestsPanel";
 import {
   createProject,
   createProjectIssue,
@@ -218,6 +219,9 @@ function ProjectDetail({
   const queryClient = useQueryClient();
   const [issueOpen, setIssueOpen] = useState(false);
   const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
+  const [workItemView, setWorkItemView] = useState<"issues" | "pull-requests">(
+    "issues",
+  );
   const issuesQuery = useQuery({
     queryKey: ["project-issues", project.repoAddress],
     queryFn: () => listProjectIssues(project),
@@ -298,60 +302,88 @@ function ProjectDetail({
         </div>
       </header>
       <section className="mt-8">
-        <h2 className="text-lg font-semibold">Issues</h2>
-        <div className="mt-3 divide-y overflow-hidden rounded-md border">
-          {issuesQuery.isLoading ? (
-            <p className="p-4 text-sm text-muted-foreground">Loading issues…</p>
-          ) : (issuesQuery.data ?? []).length ? (
-            issuesQuery.data?.map((issue) => (
-              <article className="flex items-start gap-3 p-4" key={issue.id}>
-                <div className="min-w-0 flex-1">
-                  <h3 className="font-medium">
-                    <button
-                      className="text-left hover:underline"
-                      onClick={() => setSelectedIssueId(issue.id)}
-                      type="button"
-                    >
-                      {issue.title}
-                    </button>
-                  </h3>
-                  <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
-                    {issue.content}
-                  </p>
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    {issue.status} · {truncatePubkey(issue.author)}
-                    {issue.comments.length
-                      ? ` · ${issue.comments.length} ${issue.comments.length === 1 ? "comment" : "comments"}`
-                      : ""}
-                  </p>
-                </div>
-                {project.owner === ownerPubkey ? (
-                  <select
-                    aria-label={`Status for ${issue.title}`}
-                    className="h-8 rounded-md border bg-background px-2 text-xs"
-                    disabled={statusMutation.isPending}
-                    value={issue.status}
-                    onChange={(event) =>
-                      statusMutation.mutate({
-                        id: issue.id,
-                        status: event.target.value as typeof issue.status,
-                      })
-                    }
-                  >
-                    <option value="open">Open</option>
-                    <option value="draft">Triage</option>
-                    <option value="merged">Done</option>
-                    <option value="closed">Closed</option>
-                  </select>
-                ) : null}
-              </article>
-            ))
-          ) : (
-            <p className="p-6 text-center text-sm text-muted-foreground">
-              No issues yet.
-            </p>
-          )}
+        <div className="flex gap-1 border-b">
+          <Button
+            onClick={() => setWorkItemView("issues")}
+            variant={workItemView === "issues" ? "secondary" : "ghost"}
+          >
+            Issues
+          </Button>
+          <Button
+            onClick={() => setWorkItemView("pull-requests")}
+            variant={workItemView === "pull-requests" ? "secondary" : "ghost"}
+          >
+            Pull requests
+          </Button>
         </div>
+        {workItemView === "issues" ? (
+          <>
+            <h2 className="mt-6 text-lg font-semibold">Issues</h2>
+            <div className="mt-3 divide-y overflow-hidden rounded-md border">
+              {issuesQuery.isLoading ? (
+                <p className="p-4 text-sm text-muted-foreground">
+                  Loading issues…
+                </p>
+              ) : (issuesQuery.data ?? []).length ? (
+                issuesQuery.data?.map((issue) => (
+                  <article
+                    className="flex items-start gap-3 p-4"
+                    key={issue.id}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <h3 className="font-medium">
+                        <button
+                          className="text-left hover:underline"
+                          onClick={() => setSelectedIssueId(issue.id)}
+                          type="button"
+                        >
+                          {issue.title}
+                        </button>
+                      </h3>
+                      <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
+                        {issue.content}
+                      </p>
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        {issue.status} · {truncatePubkey(issue.author)}
+                        {issue.comments.length
+                          ? ` · ${issue.comments.length} ${issue.comments.length === 1 ? "comment" : "comments"}`
+                          : ""}
+                      </p>
+                    </div>
+                    {project.owner === ownerPubkey ? (
+                      <select
+                        aria-label={`Status for ${issue.title}`}
+                        className="h-8 rounded-md border bg-background px-2 text-xs"
+                        disabled={statusMutation.isPending}
+                        value={issue.status}
+                        onChange={(event) =>
+                          statusMutation.mutate({
+                            id: issue.id,
+                            status: event.target.value as typeof issue.status,
+                          })
+                        }
+                      >
+                        <option value="open">Open</option>
+                        <option value="draft">Triage</option>
+                        <option value="merged">Done</option>
+                        <option value="closed">Closed</option>
+                      </select>
+                    ) : null}
+                  </article>
+                ))
+              ) : (
+                <p className="p-6 text-center text-sm text-muted-foreground">
+                  No issues yet.
+                </p>
+              )}
+            </div>
+          </>
+        ) : (
+          <ProjectPullRequestsPanel
+            ownerPubkey={ownerPubkey}
+            project={project}
+          />
+        )}
       </section>
       <CreateIssueDialog
         open={issueOpen}

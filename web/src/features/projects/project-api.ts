@@ -33,6 +33,29 @@ export type ProjectIssueComment = {
   createdAt: number;
 };
 
+export type ProjectPullRequest = {
+  id: string;
+  title: string;
+  content: string;
+  author: string;
+  recipients: string[];
+  labels: string[];
+  status: "open" | "draft" | "merged" | "closed";
+  branchName: string | null;
+  targetBranch: string | null;
+  commit: string | null;
+  cloneUrls: string[];
+  createdAt: number;
+  updatedAt: number;
+  statusCreatedAt: number | null;
+  comments: ProjectIssueComment[];
+};
+
+export type ProjectPullRequestLifecycleStatus = Exclude<
+  ProjectPullRequest["status"],
+  "merged"
+>;
+
 function tag(event: NostrEvent, name: string) {
   return event.tags.find((item) => item[0] === name)?.[1];
 }
@@ -265,6 +288,159 @@ export async function createProjectIssueComment(
       ["e", issue.id, "", "root"],
       ["a", project.repoAddress],
       ...[...new Set([project.owner, issue.author])].map((pubkey) => [
+        "p",
+        pubkey.toLowerCase(),
+      ]),
+    ],
+  });
+}
+
+export async function listProjectPullRequests(
+  project: Project,
+): Promise<ProjectPullRequest[]> {
+  const events = await queryEvents(
+    relayWsUrl(),
+    [
+      { kinds: [1618], "#a": [project.repoAddress], limit: 500 },
+      { kinds: [1619], "#a": [project.repoAddress], limit: 1000 },
+      {
+        kinds: [1630, 1631, 1632, 1633],
+        "#a": [project.repoAddress],
+        limit: 1000,
+      },
+      { kinds: [1], "#a": [project.repoAddress], limit: 1000 },
+    ],
+    { requireNip07: true },
+  );
+  const updates = events.filter((event) => event.kind === 1619);
+  const statuses = events.filter(
+    (event) => event.kind >= 1630 && event.kind <= 1633,
+  );
+  return events
+    .filter((event) => event.kind === 1618)
+    .map((event) => {
+      const allowedActors = new Set([
+        event.pubkey.toLowerCase(),
+        project.owner.toLowerCase(),
+      ]);
+      const latestUpdate = updates
+        .filter(
+          (candidate) =>
+            allowedActors.has(candidate.pubkey.toLowerCase()) &&
+            candidate.tags.some(
+              (value) => value[0] === "E" && value[1] === event.id,
+            ),
+        )
+        .sort((a, b) => b.created_at - a.created_at)[0];
+      const latestStatus = statuses
+        .filter(
+          (candidate) =>
+            allowedActors.has(candidate.pubkey.toLowerCase()) &&
+            candidate.tags.some(
+              (value) =>
+                (value[0] === "e" || value[0] === "E") && value[1] === event.id,
+            ),
+        )
+        .sort((a, b) => b.created_at - a.created_at)[0];
+      const comments = events
+        .filter(
+          (candidate) =>
+            candidate.kind === 1 &&
+            candidate.tags.some(
+              (value) =>
+                (value[0] === "e" || value[0] === "E") && value[1] === event.id,
+            ),
+        )
+        .sort((a, b) => a.created_at - b.created_at)
+        .map((comment) => ({
+          id: comment.id,
+          content: comment.content,
+          author: comment.pubkey,
+          createdAt: comment.created_at,
+        }));
+      const source = latestUpdate ?? event;
+      const status =
+        (
+          {
+            1630: "open",
+            1631: "merged",
+            1632: "closed",
+            1633: "draft",
+          } as const
+        )[latestStatus?.kind as 1630 | 1631 | 1632 | 1633] ??
+        (tags(event, "t").some((label) => label.toLowerCase() === "draft")
+          ? "draft"
+          : "open");
+      return {
+        id: event.id,
+        title:
+          tag(event, "subject") ??
+          event.content.split("\n")[0] ??
+          "Untitled pull request",
+        content: event.content,
+        author: event.pubkey,
+        recipients: tags(event, "p").map((pubkey) => pubkey.toLowerCase()),
+        labels: tags(event, "t"),
+        status,
+        branchName: tag(event, "branch-name") ?? null,
+        targetBranch: tag(event, "target-branch") ?? null,
+        commit: tag(source, "c") ?? null,
+        cloneUrls: tags(source, "clone"),
+        createdAt: event.created_at,
+        updatedAt: Math.max(
+          event.created_at,
+          latestUpdate?.created_at ?? 0,
+          latestStatus?.created_at ?? 0,
+          ...comments.map((comment) => comment.createdAt),
+        ),
+        statusCreatedAt: latestStatus?.created_at ?? null,
+        comments,
+      } satisfies ProjectPullRequest;
+    })
+    .sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+export async function createProjectPullRequestComment(
+  project: Project,
+  pullRequest: ProjectPullRequest,
+  content: string,
+): Promise<void> {
+  const body = content.trim();
+  if (!body) throw new Error("Comment cannot be empty.");
+  await submitEvent({
+    kind: 1,
+    content: body,
+    tags: [
+      ["e", pullRequest.id, "", "root"],
+      ["a", project.repoAddress],
+      ...[
+        ...new Set([
+          project.owner.toLowerCase(),
+          pullRequest.author.toLowerCase(),
+          ...pullRequest.recipients,
+        ]),
+      ].map((pubkey) => ["p", pubkey]),
+    ],
+  });
+}
+
+export async function setProjectPullRequestStatus(
+  project: Project,
+  pullRequest: ProjectPullRequest,
+  status: ProjectPullRequestLifecycleStatus,
+): Promise<void> {
+  const kind = { open: 1630, closed: 1632, draft: 1633 }[status];
+  await submitEvent({
+    kind,
+    content: "",
+    created_at: Math.max(
+      Math.floor(Date.now() / 1000),
+      (pullRequest.statusCreatedAt ?? 0) + 1,
+    ),
+    tags: [
+      ["e", pullRequest.id, "", "root"],
+      ["a", project.repoAddress],
+      ...[...new Set([project.owner, pullRequest.author])].map((pubkey) => [
         "p",
         pubkey.toLowerCase(),
       ]),

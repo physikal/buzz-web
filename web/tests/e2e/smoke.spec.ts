@@ -978,6 +978,61 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
             ))
               socket.send(JSON.stringify(["EVENT", subscriptionId, event]));
           }
+          if (filters.includes("1618")) {
+            const pullRequest = finalizeEvent(
+              {
+                kind: 1618,
+                created_at: createdAt,
+                content: "Bring the browser project view to parity.",
+                tags: [
+                  ["a", `30617:${catalogPubkey}:relay-project`],
+                  ["p", catalogPubkey],
+                  ["subject", "Browser parity pull request"],
+                  ["c", "ab".repeat(20)],
+                  ["clone", "https://example.com/relay-project.git"],
+                  ["branch-name", "feature/web-parity"],
+                  ["target-branch", "main"],
+                ],
+              },
+              signer,
+            );
+            socket.send(JSON.stringify(["EVENT", subscriptionId, pullRequest]));
+            for (const unauthorizedEvent of [
+              finalizeEvent(
+                {
+                  kind: 1619,
+                  created_at: createdAt + 30,
+                  content: "",
+                  tags: [
+                    ["a", `30617:${catalogPubkey}:relay-project`],
+                    ["E", pullRequest.id],
+                    ["c", "cd".repeat(20)],
+                    ["clone", "https://attacker.invalid/repo.git"],
+                  ],
+                },
+                agentSecret,
+              ),
+              finalizeEvent(
+                {
+                  kind: 1632,
+                  created_at: createdAt + 30,
+                  content: "",
+                  tags: [
+                    ["a", `30617:${catalogPubkey}:relay-project`],
+                    ["e", pullRequest.id, "", "root"],
+                  ],
+                },
+                agentSecret,
+              ),
+            ])
+              socket.send(
+                JSON.stringify(["EVENT", subscriptionId, unauthorizedEvent]),
+              );
+            for (const event of submittedEvents.filter((candidate) =>
+              [1618, 1619, 1630, 1631, 1632, 1633].includes(candidate.kind),
+            ))
+              socket.send(JSON.stringify(["EVENT", subscriptionId, event]));
+          }
           if (filters.includes('"kinds":[1]')) {
             const pulseNote = finalizeEvent(
               {
@@ -2205,6 +2260,62 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await page.screenshot({ path: "/tmp/buzz-web-project-issue.png" });
   await page.getByRole("button", { name: "Back to issues" }).click();
   await expect(page.getByText("1 comment", { exact: false })).toBeVisible();
+  await page.getByRole("button", { name: "Pull requests" }).click();
+  await expect(
+    page.getByRole("button", { name: "Browser parity pull request" }),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByRole("button", { name: "Browser parity pull request" })
+      .locator("xpath=ancestor::article[1]"),
+  ).toContainText("open");
+  await page
+    .getByRole("button", { name: "Browser parity pull request" })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Back to pull requests" }),
+  ).toBeVisible();
+  await expect(page.getByText("feature/web-parity → main")).toBeVisible();
+  await expect(page.getByText("abababa", { exact: false })).toBeVisible();
+  await expect(page.getByText("cdcdcdc", { exact: false })).toHaveCount(0);
+  await page
+    .getByLabel("Add pull request comment")
+    .fill("Reviewed the pull request from web");
+  await page.getByRole("button", { name: "Comment", exact: true }).click();
+  await expect
+    .poll(() =>
+      submittedEvents.some(
+        (event) =>
+          event.kind === 1 &&
+          event.content === "Reviewed the pull request from web" &&
+          event.tags.some((tag) => tag[0] === "e" && tag[3] === "root") &&
+          event.tags.some(
+            (tag) =>
+              tag[0] === "a" &&
+              tag[1] === `30617:${catalogPubkey}:relay-project`,
+          ),
+      ),
+    )
+    .toBe(true);
+  await expect(
+    page
+      .locator("article")
+      .filter({ hasText: "Reviewed the pull request from web" }),
+  ).toBeVisible();
+  await page.screenshot({ path: "/tmp/buzz-web-project-pr.png" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(
+    page.getByRole("heading", { name: "Browser parity pull request" }),
+  ).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({ path: "/tmp/buzz-web-project-pr-mobile.png" });
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.getByRole("button", { name: "Back to pull requests" }).click();
+  await expect(page.getByText("1", { exact: true })).toBeVisible();
   await page.getByRole("link", { name: "Workflows" }).click();
   await expect(page.getByRole("heading", { name: "Workflows" })).toBeVisible();
   await page.getByRole("button", { name: "Create workflow" }).click();
