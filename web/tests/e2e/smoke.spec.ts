@@ -1694,6 +1694,19 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     })
     .toBe(true);
   await page.getByRole("button", { name: "Agents" }).click();
+  const runtimePanel = page.getByRole("region", { name: "Agent runtimes" });
+  await expect(runtimePanel).toBeVisible();
+  await expect(
+    runtimePanel.getByText("Buzz Agent", { exact: true }),
+  ).toBeVisible();
+  await expect(runtimePanel.getByText("Codex", { exact: true })).toBeVisible();
+  await expect(
+    runtimePanel.getByText("Claude Code", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    runtimePanel.getByText("Gemini ACP", { exact: true }),
+  ).toBeVisible();
+  await runtimePanel.getByRole("button", { name: "Check again" }).click();
   await expect(
     page.getByRole("heading", { name: "Agent defaults" }),
   ).toBeVisible();

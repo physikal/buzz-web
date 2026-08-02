@@ -35,6 +35,7 @@ import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { CommunityMembersPanel } from "./CommunityMembersPanel";
 import { AgentDefaultsPanel } from "./AgentDefaultsPanel";
+import { AgentRuntimesPanel } from "./AgentRuntimesPanel";
 import { CustomEmojiPanel } from "./CustomEmojiPanel";
 import { KeyboardShortcutsPanel } from "./KeyboardShortcutsPanel";
 import { ModerationPanel } from "./ModerationPanel";
@@ -126,7 +127,10 @@ function SettingsWorkspace({
           {section === "appearance" ? <AppearancePanel /> : null}
           {section === "shortcuts" ? <KeyboardShortcutsPanel /> : null}
           {section === "agents" ? (
-            <AgentDefaultsPanel ownerPubkey={ownerPubkey} />
+            <div className="space-y-12">
+              <AgentRuntimesPanel />
+              <AgentDefaultsPanel ownerPubkey={ownerPubkey} />
+            </div>
           ) : null}
           {section === "channel-templates" ? (
             <ChannelTemplatesPanel ownerPubkey={ownerPubkey} />
