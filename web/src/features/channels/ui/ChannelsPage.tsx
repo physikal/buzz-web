@@ -31,6 +31,12 @@ import {
 import { TemplateDeployDialog } from "@/features/channel-templates/ui/TemplateDeployDialog";
 import { lockOwnerVault } from "@/features/owner-vault/lib/vault-worker-client";
 import { ReminderDialog } from "@/features/reminders/ui/ReminderDialog";
+import {
+  HuddleBar,
+  HuddleHeaderButton,
+  StartHuddleDialog,
+} from "@/features/huddles/HuddleControls";
+import { useHuddle } from "@/features/huddles/use-huddle";
 import { getCustomEmoji } from "@/features/settings/custom-emoji-api";
 import { submitModerationReport } from "@/features/settings/moderation-api";
 import { subscribeEvents } from "@/shared/lib/nostr-client";
@@ -125,6 +131,7 @@ function ChannelsWorkspace({
   const [searchOpen, setSearchOpen] = useState(false);
   const [browserOpen, setBrowserOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [huddleStartOpen, setHuddleStartOpen] = useState(false);
   const [reportTarget, setReportTarget] = useState<ChannelMessage | null>(null);
   const [reminderTarget, setReminderTarget] = useState<ChannelMessage | null>(
     null,
@@ -176,6 +183,10 @@ function ChannelsWorkspace({
     channels.find((channel) => channel.id === selectedId) ??
     channels[0] ??
     null;
+  const huddle = useHuddle({
+    channelId: selected?.id ?? null,
+    channelName: selected?.name ?? null,
+  });
   const templateSetupDefinition = templateSetup
     ? templatesQuery.data?.find((item) => item.id === templateSetup.templateId)
     : null;
@@ -271,9 +282,16 @@ function ChannelsWorkspace({
       ownerPubkey,
       ...messages.map((message) => message.pubkey),
       ...(selected?.participantPubkeys ?? []),
+      ...(huddle.joined?.participants ?? []),
       ...(agentsQuery.data ?? []).map((agent) => agent.agent_pubkey),
     ],
-    [agentsQuery.data, messages, ownerPubkey, selected?.participantPubkeys],
+    [
+      agentsQuery.data,
+      huddle.joined?.participants,
+      messages,
+      ownerPubkey,
+      selected?.participantPubkeys,
+    ],
   );
   const profileKey = [...new Set(allPubkeys)].sort().join(",");
   const profilesQuery = useQuery({
@@ -586,6 +604,11 @@ function ChannelsWorkspace({
           >
             <Search />
           </Button>
+          <HuddleHeaderButton
+            disabled={!selected?.isMember}
+            huddle={huddle}
+            onStart={() => setHuddleStartOpen(true)}
+          />
           {selected ? (
             <Button
               aria-label="Channel settings"
@@ -630,6 +653,18 @@ function ChannelsWorkspace({
             />
           )}
         </section>
+        <HuddleBar
+          agentNames={agentNames}
+          channelName={
+            allChannels.find(
+              (channel) => channel.id === huddle.joined?.parentChannelId,
+            )?.name ??
+            selected?.name ??
+            null
+          }
+          huddle={huddle}
+          profiles={profiles}
+        />
         {selected ? (
           selected.isMember ? (
             <div className="border-t">
@@ -698,6 +733,12 @@ function ChannelsWorkspace({
         onSubmit={(input) =>
           createMutation.mutateAsync(input).then(() => undefined)
         }
+      />
+      <StartHuddleDialog
+        agents={agentsQuery.data ?? []}
+        huddle={huddle}
+        open={huddleStartOpen}
+        onClose={() => setHuddleStartOpen(false)}
       />
       <ChannelBrowserDialog
         channels={allChannels}
