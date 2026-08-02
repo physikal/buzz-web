@@ -1,5 +1,11 @@
-import { FileText, Send, X } from "lucide-react";
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import { FileText, Send, UploadCloud, X } from "lucide-react";
+import {
+  type DragEvent,
+  type FormEvent,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { toast } from "sonner";
 
 import type { CustomEmoji } from "@/features/settings/custom-emoji-api";
@@ -30,6 +36,10 @@ export type ComposerPayload = {
   mentionPubkeys: string[];
 };
 
+function isFileDrag(event: DragEvent<HTMLElement>) {
+  return Array.from(event.dataTransfer.types).includes("Files");
+}
+
 export function MessageComposer({
   channel,
   parent,
@@ -59,8 +69,10 @@ export function MessageComposer({
     () => loadDraftState(ownerPubkey, channel.id, parent?.id).mentionRefs,
   );
   const [uploading, setUploading] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const dragDepthRef = useRef(0);
   const draftRef = useRef(draft);
   const contextKey = `${channel.id}:${parent?.id ?? "root"}`;
   const contextKeyRef = useRef(contextKey);
@@ -73,7 +85,70 @@ export function MessageComposer({
     setDraft(saved.content);
     setAttachments(saved.pendingImeta);
     setMentionRefs(saved.mentionRefs);
+    dragDepthRef.current = 0;
+    setIsDragOver(false);
   }, [channel.id, ownerPubkey, parent?.id]);
+
+  useEffect(() => {
+    const resetDragState = () => {
+      dragDepthRef.current = 0;
+      setIsDragOver(false);
+    };
+    window.addEventListener("drop", resetDragState);
+    window.addEventListener("dragend", resetDragState);
+    return () => {
+      window.removeEventListener("drop", resetDragState);
+      window.removeEventListener("dragend", resetDragState);
+    };
+  }, []);
+
+  async function uploadFiles(selected: File[]) {
+    if (!selected.length || pending || uploading) return;
+    const uploadChannelId = channel.id;
+    const uploadParentId = parent?.id;
+    const uploadContextKey = contextKey;
+    setUploading(true);
+    try {
+      const uploaded = await Promise.all(
+        selected.map(async (file): Promise<DraftAttachment> => {
+          const media = await uploadMedia(file);
+          return {
+            url: media.url,
+            sha256: media.sha256,
+            size: media.size,
+            type: media.type,
+            uploaded: Math.floor(Date.now() / 1_000),
+            dim: media.dimensions,
+            thumb: media.thumbnailUrl,
+            filename: file.name,
+          };
+        }),
+      );
+      const saved = loadDraftState(
+        ownerPubkey,
+        uploadChannelId,
+        uploadParentId,
+      );
+      const next = [...saved.pendingImeta, ...uploaded];
+      saveDraft(
+        ownerPubkey,
+        uploadChannelId,
+        uploadParentId,
+        saved.content,
+        saved.content.length,
+        next,
+      );
+      if (contextKeyRef.current === uploadContextKey) {
+        setAttachments(next);
+      }
+    } catch (error) {
+      toast.error("Could not upload attachment", {
+        description: error instanceof Error ? error.message : "Upload failed.",
+      });
+    } finally {
+      setUploading(false);
+    }
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -120,7 +195,41 @@ export function MessageComposer({
         : `Message #${channel.name}`;
 
   return (
-    <form className="border-t p-3 sm:p-4" onSubmit={submit}>
+    <form
+      className="relative border-t p-3 sm:p-4"
+      onDragEnter={(event) => {
+        if (!isFileDrag(event) || pending || uploading) return;
+        event.preventDefault();
+        dragDepthRef.current += 1;
+        if (dragDepthRef.current === 1) setIsDragOver(true);
+      }}
+      onDragLeave={(event) => {
+        if (!isFileDrag(event)) return;
+        event.preventDefault();
+        dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+        if (dragDepthRef.current === 0) setIsDragOver(false);
+      }}
+      onDragOver={(event) => {
+        if (!isFileDrag(event) || pending || uploading) return;
+        event.preventDefault();
+      }}
+      onDrop={(event) => {
+        if (!isFileDrag(event) || pending || uploading) return;
+        event.preventDefault();
+        dragDepthRef.current = 0;
+        setIsDragOver(false);
+        void uploadFiles(Array.from(event.dataTransfer.files));
+      }}
+      onSubmit={submit}
+    >
+      {isDragOver ? (
+        <div className="pointer-events-none absolute inset-3 z-20 flex items-center justify-center rounded-md border-2 border-dashed border-primary bg-primary/10">
+          <span className="flex items-center gap-2 rounded-full bg-foreground px-4 py-2 text-sm font-semibold text-background shadow-sm">
+            <UploadCloud className="h-4 w-4" />
+            <span>Drop files to upload</span>
+          </span>
+        </div>
+      ) : null}
       <div className="mx-auto max-w-4xl rounded-md border bg-background shadow-xs focus-within:ring-1 focus-within:ring-ring">
         {attachments.length ? (
           <div className="flex flex-wrap gap-2 border-b p-2">
@@ -167,57 +276,9 @@ export function MessageComposer({
             ref={fileInput}
             type="file"
             onChange={async (event) => {
-              const selected = [...(event.target.files ?? [])].slice(
-                0,
-                Math.max(0, 10 - attachments.length),
-              );
+              const selected = [...(event.target.files ?? [])];
               event.target.value = "";
-              if (!selected.length) return;
-              const uploadChannelId = channel.id;
-              const uploadParentId = parent?.id;
-              const uploadContextKey = contextKey;
-              setUploading(true);
-              try {
-                const uploaded = await Promise.all(
-                  selected.map(async (file): Promise<DraftAttachment> => {
-                    const media = await uploadMedia(file);
-                    return {
-                      url: media.url,
-                      sha256: media.sha256,
-                      size: media.size,
-                      type: media.type,
-                      uploaded: Math.floor(Date.now() / 1_000),
-                      dim: media.dimensions,
-                      thumb: media.thumbnailUrl,
-                      filename: file.name,
-                    };
-                  }),
-                );
-                const saved = loadDraftState(
-                  ownerPubkey,
-                  uploadChannelId,
-                  uploadParentId,
-                );
-                const next = [...saved.pendingImeta, ...uploaded].slice(0, 10);
-                saveDraft(
-                  ownerPubkey,
-                  uploadChannelId,
-                  uploadParentId,
-                  saved.content,
-                  saved.content.length,
-                  next,
-                );
-                if (contextKeyRef.current === uploadContextKey) {
-                  setAttachments(next);
-                }
-              } catch (error) {
-                toast.error("Could not upload attachment", {
-                  description:
-                    error instanceof Error ? error.message : "Upload failed.",
-                });
-              } finally {
-                setUploading(false);
-              }
+              await uploadFiles(selected);
             }}
           />
           <textarea
@@ -228,6 +289,15 @@ export function MessageComposer({
             rows={1}
             ref={textareaRef}
             value={draft}
+            onPaste={(event) => {
+              const files = Array.from(event.clipboardData.items)
+                .filter((item) => item.kind === "file")
+                .map((item) => item.getAsFile())
+                .filter((file): file is File => file !== null);
+              if (!files.length || pending || uploading) return;
+              event.preventDefault();
+              void uploadFiles(files);
+            }}
             onChange={(event) => {
               const nextMentionRefs = reconcileMentionRefs(
                 event.target.value,

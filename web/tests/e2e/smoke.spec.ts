@@ -176,7 +176,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
-        url: "https://cdn.example.com/draft-note.txt",
+        url: `https://cdn.example.com/${sha256}`,
         sha256,
         size: bytes.length,
         type: request.headers()["content-type"],
@@ -1164,6 +1164,41 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
       buffer: Buffer.from("Persisted draft attachment"),
     });
   await expect(page.getByText("draft-note.txt")).toBeVisible();
+  const composerForm = composer.locator("xpath=ancestor::form");
+  await composerForm.evaluate((form) => {
+    const dataTransfer = new DataTransfer();
+    dataTransfer.items.add(
+      new File(["Dropped draft attachment"], "dropped-note.txt", {
+        type: "text/plain",
+      }),
+    );
+    form.dispatchEvent(
+      new DragEvent("dragenter", { bubbles: true, dataTransfer }),
+    );
+  });
+  await expect(page.getByText("Drop files to upload")).toBeVisible();
+  await composerForm.evaluate((form) => {
+    const dataTransfer = new DataTransfer();
+    dataTransfer.items.add(
+      new File(["Dropped draft attachment"], "dropped-note.txt", {
+        type: "text/plain",
+      }),
+    );
+    form.dispatchEvent(new DragEvent("drop", { bubbles: true, dataTransfer }));
+  });
+  await expect(page.getByText("dropped-note.txt")).toBeVisible();
+  await composer.evaluate((textarea) => {
+    const clipboardData = new DataTransfer();
+    clipboardData.items.add(
+      new File(["Pasted draft attachment"], "pasted-note.txt", {
+        type: "text/plain",
+      }),
+    );
+    textarea.dispatchEvent(
+      new ClipboardEvent("paste", { bubbles: true, clipboardData }),
+    );
+  });
+  await expect(page.getByText("pasted-note.txt")).toBeVisible();
   await page.getByRole("button", { name: "Add direct messages" }).click();
   const newMessageDialog = page.getByRole("dialog", { name: "New message" });
   await expect(
@@ -1470,6 +1505,12 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await expect(page.getByText(/@Relay agent/u).first()).toBeVisible();
   await expect(
     page.getByRole("link", { name: "draft-note.txt" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "dropped-note.txt" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "pasted-note.txt" }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Delete draft" }).click();
   await expect(page.getByText("No drafts")).toBeVisible();
