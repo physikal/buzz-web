@@ -1488,7 +1488,13 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await page.getByLabel("Inbox filter").selectOption("drafts");
   await expect(page.getByText("No drafts")).toBeVisible();
   await page.getByRole("link", { name: "Channels" }).click();
-  await page.getByLabel("Message #general").fill("Send from the web inbox");
+  await page.getByLabel("Message #general").fill("Send from the web inbox to ");
+  await page.getByRole("button", { name: "Mention someone" }).click();
+  await page.getByLabel("Find someone to mention").fill("Relay agent");
+  await page.getByRole("button", { name: "Mention Relay agent" }).click();
+  await expect(page.getByLabel("Message #general")).toHaveValue(
+    "Send from the web inbox to @Relay agent ",
+  );
   await page.getByRole("link", { name: "Inbox" }).click();
   await page.getByLabel("Inbox filter").selectOption("drafts");
   await page.getByRole("button", { name: "Send draft" }).click();
@@ -1498,10 +1504,17 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     .poll(() =>
       submittedEvents.some(
         (event) =>
-          event.kind === 9 && event.content === "Send from the web inbox",
+          event.kind === 9 &&
+          event.content === "Send from the web inbox to @Relay agent",
       ),
     )
     .toBe(true);
+  const sentDraft = submittedEvents.find(
+    (event) =>
+      event.kind === 9 &&
+      event.content === "Send from the web inbox to @Relay agent",
+  );
+  expect(sentDraft?.tags).toContainEqual(["p", catalogPubkey]);
   await expect(page.getByText("No drafts")).toBeVisible();
   await page.getByLabel("Inbox filter").selectOption("reminders");
   await expect(page.getByText("Follow up privately")).toBeVisible();

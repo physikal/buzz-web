@@ -13,15 +13,21 @@ import {
 import {
   deleteDraft,
   type DraftAttachment,
+  type DraftMentionRef,
   loadDraftState,
   saveDraft,
 } from "../draft-store";
 import type { DmCandidate } from "../dm-candidates";
+import {
+  reconcileMentionRefs,
+  resolveMentionPubkeys,
+} from "../mention-routing";
 import { ComposerToolbar } from "./ComposerToolbar";
 
 export type ComposerPayload = {
   content: string;
   mediaTags: string[][];
+  mentionPubkeys: string[];
 };
 
 export function MessageComposer({
@@ -49,6 +55,9 @@ export function MessageComposer({
   const [attachments, setAttachments] = useState<DraftAttachment[]>(
     () => loadDraftState(ownerPubkey, channel.id, parent?.id).pendingImeta,
   );
+  const [mentionRefs, setMentionRefs] = useState<DraftMentionRef[]>(
+    () => loadDraftState(ownerPubkey, channel.id, parent?.id).mentionRefs,
+  );
   const [uploading, setUploading] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -63,6 +72,7 @@ export function MessageComposer({
     const saved = loadDraftState(ownerPubkey, channel.id, parent?.id);
     setDraft(saved.content);
     setAttachments(saved.pendingImeta);
+    setMentionRefs(saved.mentionRefs);
   }, [channel.id, ownerPubkey, parent?.id]);
 
   async function submit(event: FormEvent) {
@@ -83,9 +93,18 @@ export function MessageComposer({
           attachment.filename ?? "attachment",
         ),
       );
-      await onSubmit({ content: draft, mediaTags });
+      await onSubmit({
+        content: draft,
+        mediaTags,
+        mentionPubkeys: resolveMentionPubkeys(
+          draft,
+          mentionRefs,
+          mentionCandidates,
+        ),
+      });
       setDraft("");
       setAttachments([]);
+      setMentionRefs([]);
       deleteDraft(ownerPubkey, parent?.id ? `thread:${parent.id}` : channel.id);
     } finally {
       setUploading(false);
@@ -210,7 +229,12 @@ export function MessageComposer({
             ref={textareaRef}
             value={draft}
             onChange={(event) => {
+              const nextMentionRefs = reconcileMentionRefs(
+                event.target.value,
+                mentionRefs,
+              );
               setDraft(event.target.value);
+              setMentionRefs(nextMentionRefs);
               saveDraft(
                 ownerPubkey,
                 channel.id,
@@ -218,6 +242,7 @@ export function MessageComposer({
                 event.target.value,
                 event.target.selectionStart,
                 attachments,
+                nextMentionRefs,
               );
               if (
                 event.target.value.trim() &&
@@ -242,8 +267,14 @@ export function MessageComposer({
             key={`${channel.id}:${parent?.id ?? "root"}`}
             mentionCandidates={mentionCandidates}
             onAttach={() => fileInput.current?.click()}
-            onValueChange={(value, selection) => {
+            onValueChange={(value, selection, selectedMention) => {
+              const nextMentionRefs = reconcileMentionRefs(
+                value,
+                mentionRefs,
+                selectedMention,
+              );
               setDraft(value);
+              setMentionRefs(nextMentionRefs);
               saveDraft(
                 ownerPubkey,
                 channel.id,
@@ -251,6 +282,7 @@ export function MessageComposer({
                 value,
                 selection,
                 attachments,
+                nextMentionRefs,
               );
             }}
             textareaRef={textareaRef}

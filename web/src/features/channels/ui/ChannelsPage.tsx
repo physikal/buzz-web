@@ -529,21 +529,12 @@ function ChannelsWorkspace({
     (event) => toMessageSearchResult(event, channels, agentNames, profiles),
   );
 
-  function mentionsFor(content: string): string[] {
-    const lower = content.toLowerCase();
-    return dmCandidates
-      .filter((candidate) =>
-        lower.includes(`@${candidate.displayName.toLowerCase()}`),
-      )
-      .map((candidate) => candidate.pubkey);
-  }
-
   async function submitRoot(payload: ComposerPayload) {
     if (!selected) return;
     await sendMutation.mutateAsync({
       channelId: selected.id,
       content: payload.content,
-      mentionPubkeys: mentionsFor(payload.content),
+      mentionPubkeys: payload.mentionPubkeys,
       forumPost: selected.channelType === "forum",
       mediaTags: payload.mediaTags,
     });
@@ -781,7 +772,7 @@ function ChannelsWorkspace({
             await sendMutation.mutateAsync({
               channelId: selected.id,
               content: payload.content,
-              mentionPubkeys: mentionsFor(payload.content),
+              mentionPubkeys: payload.mentionPubkeys,
               parentId: threadRoot.id,
               rootId: threadRoot.id,
               mediaTags: payload.mediaTags,

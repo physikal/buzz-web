@@ -10,6 +10,12 @@ export type DraftAttachment = {
   filename?: string;
 };
 
+export type DraftMentionRef = {
+  displayName: string;
+  pubkey: string;
+  isAgent: boolean;
+};
+
 export type WebDraft = {
   key: string;
   content: string;
@@ -18,6 +24,7 @@ export type WebDraft = {
   createdAt: string;
   updatedAt: string;
   attachments: DraftAttachment[];
+  mentionRefs: DraftMentionRef[];
 };
 
 type StoredDraft = {
@@ -28,7 +35,7 @@ type StoredDraft = {
   createdAt: string;
   updatedAt: string;
   pendingImeta: DraftAttachment[];
-  mentionRefs: unknown[];
+  mentionRefs?: DraftMentionRef[];
   spoileredAttachmentUrls: string[];
   status: "active";
 };
@@ -71,8 +78,24 @@ function validDraft(value: unknown): value is StoredDraft {
     typeof draft.updatedAt === "string" &&
     Array.isArray(draft.pendingImeta) &&
     draft.pendingImeta.every(validAttachment) &&
+    (draft.mentionRefs === undefined ||
+      (Array.isArray(draft.mentionRefs) &&
+        draft.mentionRefs.every(validMentionRef))) &&
     Array.isArray(draft.spoileredAttachmentUrls) &&
     (draft.status === undefined || draft.status === "active")
+  );
+}
+
+function validMentionRef(value: unknown): value is DraftMentionRef {
+  if (!value || typeof value !== "object") return false;
+  const ref = value as Partial<DraftMentionRef>;
+  return (
+    typeof ref.displayName === "string" &&
+    ref.displayName.trim().length > 0 &&
+    ref.displayName.length <= 200 &&
+    typeof ref.pubkey === "string" &&
+    /^[0-9a-f]{64}$/i.test(ref.pubkey) &&
+    typeof ref.isAgent === "boolean"
   );
 }
 
@@ -142,12 +165,17 @@ export function loadDraftState(
   ownerPubkey: string,
   channelId: string,
   parentId?: string | null,
-): Pick<StoredDraft, "content" | "pendingImeta"> {
+): {
+  content: string;
+  pendingImeta: DraftAttachment[];
+  mentionRefs: DraftMentionRef[];
+} {
   loadDraft(ownerPubkey, channelId, parentId);
   const stored = readStore(ownerPubkey)[draftKey(channelId, parentId)];
   return {
     content: stored?.content ?? "",
     pendingImeta: stored?.pendingImeta ?? [],
+    mentionRefs: stored?.mentionRefs ?? [],
   };
 }
 
@@ -158,10 +186,12 @@ export function saveDraft(
   content: string,
   selection: number,
   attachments?: DraftAttachment[],
+  mentionRefs?: DraftMentionRef[],
 ) {
   const key = draftKey(channelId, parentId);
   const store = readStore(ownerPubkey);
   const pendingImeta = attachments ?? store[key]?.pendingImeta ?? [];
+  const selectedMentions = mentionRefs ?? store[key]?.mentionRefs ?? [];
   if (!content.trim() && !pendingImeta.length) {
     delete store[key];
     writeStore(ownerPubkey, store);
@@ -176,7 +206,7 @@ export function saveDraft(
     createdAt: store[key]?.createdAt ?? now,
     updatedAt: now,
     pendingImeta,
-    mentionRefs: [],
+    mentionRefs: selectedMentions,
     spoileredAttachmentUrls: [],
     status: "active",
   };
@@ -199,6 +229,7 @@ export function listDrafts(ownerPubkey: string): WebDraft[] {
       createdAt: draft.createdAt,
       updatedAt: draft.updatedAt,
       attachments: draft.pendingImeta,
+      mentionRefs: draft.mentionRefs ?? [],
     }))
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
 }

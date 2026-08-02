@@ -34,7 +34,11 @@ export function ComposerToolbar({
   disabled: boolean;
   mentionCandidates: DmCandidate[];
   onAttach: () => void;
-  onValueChange: (value: string, selection: number) => void;
+  onValueChange: (
+    value: string,
+    selection: number,
+    selectedMention?: DmCandidate,
+  ) => void;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
   value: string;
 }) {
@@ -47,19 +51,25 @@ export function ComposerToolbar({
     content: string,
     selectionStart: number,
     selectionEnd: number,
+    selectedMention?: DmCandidate,
   ) => {
-    onValueChange(content, selectionEnd);
+    onValueChange(content, selectionEnd, selectedMention);
     requestAnimationFrame(() => {
       textareaRef.current?.focus();
       textareaRef.current?.setSelectionRange(selectionStart, selectionEnd);
     });
   };
-  const insert = (text: string) => {
+  const insert = (text: string, selectedMention?: DmCandidate) => {
     const textarea = textareaRef.current;
     const start = textarea?.selectionStart ?? value.length;
     const end = textarea?.selectionEnd ?? start;
     const next = `${value.slice(0, start)}${text}${value.slice(end)}`;
-    replaceSelection(next, start + text.length, start + text.length);
+    replaceSelection(
+      next,
+      start + text.length,
+      start + text.length,
+      selectedMention,
+    );
   };
   const wrap = (before: string, after: string, placeholder: string) => {
     const textarea = textareaRef.current;
@@ -175,7 +185,7 @@ export function ComposerToolbar({
                     className="flex w-full items-center gap-2 rounded px-2 py-2 text-left hover:bg-muted"
                     key={candidate.pubkey}
                     onClick={() => {
-                      insert(`@${candidate.displayName} `);
+                      insert(`@${candidate.displayName} `, candidate);
                       setMentionQuery("");
                       setPanel(null);
                     }}

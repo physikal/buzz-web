@@ -30,6 +30,7 @@ import {
   type Channel,
   type UserProfile,
 } from "@/features/channels/channel-api";
+import { resolveMentionPubkeys } from "@/features/channels/mention-routing";
 import { ReadStateManager } from "@/features/channels/read-state";
 import {
   deleteDraft,
@@ -231,13 +232,19 @@ function HomeWorkspace({
         channel.channelType === "forum"
       )
         throw new Error("Open this draft before sending it.");
-      const lower = draft.content.toLowerCase();
       await sendChannelMessage({
         channelId: channel.id,
         content: draft.content,
-        mentionPubkeys: (agentsQuery.data ?? [])
-          .filter((agent) => lower.includes(`@${agent.name.toLowerCase()}`))
-          .map((agent) => agent.agent_pubkey),
+        mentionPubkeys: resolveMentionPubkeys(
+          draft.content,
+          draft.mentionRefs,
+          (agentsQuery.data ?? []).map((agent) => ({
+            pubkey: agent.agent_pubkey,
+            displayName: agent.name,
+            avatarUrl: null,
+            isAgent: true,
+          })),
+        ),
         mediaTags: draft.attachments.map((attachment) =>
           mediaImetaTag(
             {
