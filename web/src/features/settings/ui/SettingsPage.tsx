@@ -26,6 +26,7 @@ import buzzAppIcon from "@/assets/app-icon@3x.png";
 import { OwnerConnection } from "@/features/agents/ui/OwnerConnection";
 import { ChannelTemplatesPanel } from "@/features/channel-templates/ui/ChannelTemplatesPanel";
 import { lockOwnerVault } from "@/features/owner-vault/lib/vault-worker-client";
+import { OwnerPasskeysPanel } from "@/features/owner-vault/ui/OwnerPasskeysPanel";
 import { RemindersPanel } from "@/features/reminders/ui/RemindersPanel";
 import { truncatePubkey } from "@/shared/lib/pubkey";
 import { ThemeToggle } from "@/shared/theme/ThemeToggle";
@@ -314,6 +315,7 @@ function ProfileForm({
           {update.isPending ? "Saving…" : "Save profile"}
         </Button>
       </form>
+      <OwnerPasskeysPanel />
     </Panel>
   );
 }

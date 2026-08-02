@@ -38,17 +38,20 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
   const cdp = await page.context().newCDPSession(page);
   await cdp.send("WebAuthn.enable");
-  await cdp.send("WebAuthn.addVirtualAuthenticator", {
-    options: {
-      protocol: "ctap2",
-      transport: "internal",
-      hasResidentKey: true,
-      hasUserVerification: true,
-      isUserVerified: true,
-      automaticPresenceSimulation: true,
-      hasPrf: true,
+  const { authenticatorId } = await cdp.send(
+    "WebAuthn.addVirtualAuthenticator",
+    {
+      options: {
+        protocol: "ctap2",
+        transport: "internal",
+        hasResidentKey: true,
+        hasUserVerification: true,
+        isUserVerified: true,
+        automaticPresenceSimulation: true,
+        hasPrf: true,
+      },
     },
-  });
+  );
 
   const token = "42".repeat(32);
   const agentSecret = new Uint8Array(32);
@@ -71,6 +74,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     tags: string[][];
   }> = [];
   let capturedSearchFilter: Record<string, unknown> | null = null;
+  let addedCredentialCount = 0;
   let claimedCredential: {
     credential_id: string;
     prf_input: string;
@@ -78,6 +82,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     nonce: string;
     ciphertext: string;
   } | null = null;
+  let addedCredential: typeof claimedCredential = null;
   await page.route("https://tracker.invalid/**", async (route) => {
     catalogImageRequests += 1;
     await route.abort();
@@ -144,17 +149,69 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     const body = JSON.parse(route.request().postData() ?? "{}") as {
       credential_id?: string;
     };
-    expect(body.credential_id).toBe(claimedCredential?.credential_id);
+    const credential = [claimedCredential, addedCredential].find(
+      (candidate) => candidate?.credential_id === body.credential_id,
+    );
+    expect(credential).toBeTruthy();
     await route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
         owner_pubkey: ownerPubkey,
-        prf_input: claimedCredential?.prf_input,
-        kdf_salt: claimedCredential?.kdf_salt,
-        nonce: claimedCredential?.nonce,
-        ciphertext: claimedCredential?.ciphertext,
+        prf_input: credential?.prf_input,
+        kdf_salt: credential?.kdf_salt,
+        nonce: credential?.nonce,
+        ciphertext: credential?.ciphertext,
       }),
+    });
+  });
+  await page.route("**/api/owner/credentials", async (route) => {
+    const request = route.request();
+    const body = request.postData() ?? "";
+    const payload = JSON.parse(body) as {
+      credential: {
+        credential_id: string;
+        label: string;
+        prf_input: string;
+        kdf_salt: string;
+        nonce: string;
+        ciphertext: string;
+      };
+    };
+    expect(payload.credential.label).toBe("Bitwarden passkey");
+    expect(
+      Buffer.from(payload.credential.credential_id, "base64url").length,
+    ).toBeGreaterThanOrEqual(16);
+    expect(Buffer.from(payload.credential.prf_input, "base64url")).toHaveLength(
+      32,
+    );
+    expect(Buffer.from(payload.credential.kdf_salt, "base64url")).toHaveLength(
+      32,
+    );
+    expect(Buffer.from(payload.credential.nonce, "base64url")).toHaveLength(12);
+    expect(
+      Buffer.from(payload.credential.ciphertext, "base64url"),
+    ).toHaveLength(48);
+    const authorization = request.headers().authorization ?? "";
+    expect(authorization).toMatch(/^Nostr /);
+    const event = JSON.parse(
+      Buffer.from(authorization.slice("Nostr ".length), "base64url").toString(
+        "utf8",
+      ),
+    );
+    expect(verifyEvent(event)).toBe(true);
+    expect(event.pubkey).toBe(ownerPubkey);
+    expect(event.kind).toBe(27235);
+    expect(event.tags).toContainEqual([
+      "payload",
+      createHash("sha256").update(body).digest("hex"),
+    ]);
+    addedCredential = payload.credential;
+    addedCredentialCount += 1;
+    await route.fulfill({
+      status: 201,
+      contentType: "application/json",
+      body: JSON.stringify({ registered: true }),
     });
   });
   await page.route("**/upload", async (route) => {
@@ -1575,6 +1632,10 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await page.getByRole("link", { name: "Settings" }).click();
   await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Profile" })).toBeVisible();
+  await page.getByLabel("Passkey label").fill("Bitwarden passkey");
+  await page.getByRole("button", { name: "Add passkey" }).click();
+  await expect(page.getByText("Passkey added")).toBeVisible();
+  expect(addedCredentialCount).toBe(1);
   await page.getByLabel("Status emoji").fill("focus");
   await page.getByLabel("Status text").fill("Reviewing the web client");
   await page.getByRole("button", { name: "Set status" }).click();
@@ -2358,6 +2419,19 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await page.getByRole("link", { name: "Channels" }).click();
   await expect(page.getByRole("heading", { name: "general" })).toBeVisible();
 
+  const { credentials } = await cdp.send("WebAuthn.getCredentials", {
+    authenticatorId,
+  });
+  const primaryCredential = credentials.find((credential) =>
+    Buffer.from(credential.credentialId, "base64url").equals(
+      Buffer.from(claimedCredential?.credential_id ?? "", "base64url"),
+    ),
+  );
+  expect(primaryCredential).toBeTruthy();
+  await cdp.send("WebAuthn.removeCredential", {
+    authenticatorId,
+    credentialId: primaryCredential?.credentialId ?? "",
+  });
   await page.reload();
   await page.setViewportSize({ width: 390, height: 844 });
   expect(
