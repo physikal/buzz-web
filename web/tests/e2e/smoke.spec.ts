@@ -5,6 +5,7 @@ import {
   type Download as PlaywrightDownload,
 } from "@playwright/test";
 import { v2 as nip44 } from "nostr-tools/nip44";
+import { decrypt as decryptNip49 } from "nostr-tools/nip49";
 import { finalizeEvent, getPublicKey, verifyEvent } from "nostr-tools/pure";
 
 const testPort = process.env.BUZZ_WEB_TEST_PORT ?? "4173";
@@ -1648,6 +1649,29 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await page.getByRole("button", { name: "Add passkey" }).click();
   await expect(page.getByText("Passkey added")).toBeVisible();
   expect(addedCredentialCount).toBe(1);
+  await page.getByRole("button", { name: "Create backup" }).click();
+  await page
+    .getByLabel("Backup password", { exact: true })
+    .fill("correct horse battery staple");
+  await page
+    .getByLabel("Confirm password")
+    .fill("correct horse battery staple");
+  const ownerBackupDownload = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download backup" }).click();
+  const ownerBackup = await ownerBackupDownload;
+  expect(ownerBackup.suggestedFilename()).toBe(
+    `buzz-owner-${ownerPubkey}.ncryptsec`,
+  );
+  const encryptedOwnerKey = (await downloadedBytes(ownerBackup))
+    .toString("utf8")
+    .trim();
+  expect(encryptedOwnerKey).toMatch(/^ncryptsec1/u);
+  const restoredOwnerKey = decryptNip49(
+    encryptedOwnerKey,
+    "correct horse battery staple",
+  );
+  expect(getPublicKey(restoredOwnerKey)).toBe(ownerPubkey);
+  restoredOwnerKey.fill(0);
   await page.getByRole("button", { name: "Shortcuts" }).click();
   await expect(
     page.getByRole("heading", { name: "Keyboard shortcuts" }),

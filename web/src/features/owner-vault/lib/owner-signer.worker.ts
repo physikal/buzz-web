@@ -2,6 +2,7 @@
 
 import { nip19 } from "nostr-tools";
 import { v2 as nip44 } from "nostr-tools/nip44";
+import { encrypt as encryptNip49 } from "nostr-tools/nip49";
 import { finalizeEvent, getPublicKey } from "nostr-tools/pure";
 
 import { decodeBase64Url, encodeBase64Url, randomBytes } from "./encoding";
@@ -62,6 +63,7 @@ type WorkerRequest =
       peerPubkey: string;
       slug: string;
     }
+  | { id: number; action: "nip49-export"; password: string }
   | { id: number; action: "public-key" | "lock" };
 
 let secretKey: Uint8Array<ArrayBuffer> | null = null;
@@ -301,6 +303,15 @@ self.onmessage = async (message: MessageEvent<WorkerRequest>) => {
           hmacMaterial.fill(0);
           conversationKey.fill(0);
         }
+        break;
+      }
+      case "nip49-export": {
+        const passwordLength = [...request.password].length;
+        if (passwordLength < 12 || passwordLength > 256)
+          throw new Error(
+            "Use a backup password between 12 and 256 characters.",
+          );
+        result = encryptNip49(requireSecret(), request.password);
         break;
       }
       case "public-key":

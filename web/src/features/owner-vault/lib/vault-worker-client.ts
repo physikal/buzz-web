@@ -183,6 +183,17 @@ export async function deriveMemoryAddressWithOwnerVault(
   return address;
 }
 
+export async function exportOwnerNip49Backup(
+  password: string,
+): Promise<string> {
+  const backup = await request<string>({
+    action: "nip49-export",
+    password,
+  });
+  armAutoLock();
+  return backup;
+}
+
 export async function lockOwnerVault(): Promise<void> {
   if (autoLockTimer) clearTimeout(autoLockTimer);
   autoLockTimer = null;
