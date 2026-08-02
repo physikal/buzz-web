@@ -3,6 +3,8 @@ import {
   BellOff,
   Hash,
   LayoutList,
+  Mail,
+  MailOpen,
   MessageCircle,
   Plus,
   Star,
@@ -22,6 +24,8 @@ export function ChannelSidebar({
   onNewDm,
   onBrowse,
   onStarredChange,
+  onMarkRead,
+  onMarkUnread,
 }: {
   channels: Channel[];
   selectedId: string | null;
@@ -33,6 +37,8 @@ export function ChannelSidebar({
   onNewDm: () => void;
   onBrowse: () => void;
   onStarredChange: (id: string, starred: boolean) => void;
+  onMarkRead: (id: string) => void;
+  onMarkUnread: (id: string) => void;
 }) {
   const streams = channels.filter(
     (channel) => channel.channelType === "stream",
@@ -68,6 +74,11 @@ export function ChannelSidebar({
                 key={channel.id}
                 muted={mutedChannelIds.has(channel.id)}
                 onClick={() => onSelect(channel.id)}
+                onReadChange={() =>
+                  (unread[channel.id] ?? 0)
+                    ? onMarkRead(channel.id)
+                    : onMarkUnread(channel.id)
+                }
                 onStarredChange={() => onStarredChange(channel.id, false)}
                 selected={selectedId === channel.id}
                 starred
@@ -87,6 +98,11 @@ export function ChannelSidebar({
             onStarredChange={() => onStarredChange(channel.id, true)}
             unread={unread[channel.id] ?? 0}
             onClick={() => onSelect(channel.id)}
+            onReadChange={() =>
+              (unread[channel.id] ?? 0)
+                ? onMarkRead(channel.id)
+                : onMarkUnread(channel.id)
+            }
           />
         ))}
         {forums.length ? (
@@ -100,6 +116,11 @@ export function ChannelSidebar({
             key={channel.id}
             muted={mutedChannelIds.has(channel.id)}
             onClick={() => onSelect(channel.id)}
+            onReadChange={() =>
+              (unread[channel.id] ?? 0)
+                ? onMarkRead(channel.id)
+                : onMarkUnread(channel.id)
+            }
             selected={selectedId === channel.id}
             unread={unread[channel.id] ?? 0}
           />
@@ -115,6 +136,11 @@ export function ChannelSidebar({
             muted={mutedChannelIds.has(channel.id)}
             unread={unread[channel.id] ?? 0}
             onClick={() => onSelect(channel.id)}
+            onReadChange={() =>
+              (unread[channel.id] ?? 0)
+                ? onMarkRead(channel.id)
+                : onMarkUnread(channel.id)
+            }
           />
         ))}
         {!dms.length ? (
@@ -179,6 +205,7 @@ function ChannelButton({
   starred = false,
   onClick,
   onStarredChange,
+  onReadChange,
 }: {
   channel: Channel;
   selected: boolean;
@@ -187,6 +214,7 @@ function ChannelButton({
   starred?: boolean;
   onClick: () => void;
   onStarredChange?: () => void;
+  onReadChange?: () => void;
 }) {
   const Icon =
     channel.channelType === "forum"
@@ -214,6 +242,21 @@ function ChannelButton({
           </span>
         ) : null}
       </button>
+      {onReadChange ? (
+        <button
+          aria-label={`${unread ? "Mark read" : "Mark unread"} #${channel.name}`}
+          className="rounded p-1 opacity-0 hover:bg-background/70 group-hover:opacity-100 focus:opacity-100"
+          onClick={onReadChange}
+          title={unread ? "Mark read" : "Mark unread"}
+          type="button"
+        >
+          {unread ? (
+            <MailOpen className="h-3.5 w-3.5" />
+          ) : (
+            <Mail className="h-3.5 w-3.5" />
+          )}
+        </button>
+      ) : null}
       {onStarredChange ? (
         <button
           aria-label={`${starred ? "Unstar" : "Star"} #${channel.name}`}

@@ -15,11 +15,47 @@ const LIVE_KINDS = [
   5, 7, 9, 9002, 9005, 39000, 40002, 40003, 40008, 40099, 45001, 45002, 45003,
 ];
 const READ_HORIZON_SECONDS = 7 * 24 * 60 * 60;
+const FORCED_UNREAD_PREFIX = "buzz-forced-unread.v1";
 
 type Activity = Record<
   string,
   Record<string, { createdAt: number; pubkey: string }>
 >;
+type ForcedUnread = Record<string, number | null>;
+
+function forcedUnreadKey(pubkey: string) {
+  return `${FORCED_UNREAD_PREFIX}:${pubkey}`;
+}
+
+function readForcedUnread(pubkey: string): ForcedUnread {
+  try {
+    const value = JSON.parse(
+      localStorage.getItem(forcedUnreadKey(pubkey)) ?? "{}",
+    ) as Record<string, unknown>;
+    if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+    return Object.fromEntries(
+      Object.entries(value).filter(
+        (entry): entry is [string, number | null] =>
+          entry[1] === null ||
+          (typeof entry[1] === "number" && Number.isFinite(entry[1])),
+      ),
+    );
+  } catch {
+    return {};
+  }
+}
+
+function writeForcedUnread(pubkey: string, value: ForcedUnread) {
+  try {
+    localStorage.setItem(forcedUnreadKey(pubkey), JSON.stringify(value));
+  } catch {
+    // Manual unread state is best-effort per-device UI state.
+  }
+}
+
+function hasForcedUnread(value: ForcedUnread, channelId: string) {
+  return Object.getOwnPropertyDescriptor(value, channelId) !== undefined;
+}
 
 export type RelayLiveStatus = "connecting" | "live" | "offline";
 
@@ -55,6 +91,9 @@ export function useLiveChannels({
   const [status, setStatus] = useState<RelayLiveStatus>("connecting");
   const [activity, setActivity] = useState<Activity>({});
   const [readMarkers, setReadMarkers] = useState<Record<string, number>>({});
+  const [forcedUnread, setForcedUnread] = useState<ForcedUnread>(() =>
+    readForcedUnread(ownerPubkey),
+  );
   const managerRef = useRef<ReadStateManager | null>(null);
   const channelIds = useMemo(
     () => channels.map((channel) => channel.id).sort(),
@@ -62,6 +101,7 @@ export function useLiveChannels({
   );
 
   useEffect(() => {
+    setForcedUnread(readForcedUnread(ownerPubkey));
     const manager = new ReadStateManager(ownerPubkey);
     managerRef.current = manager;
     const unsubscribe = manager.subscribe(() =>
@@ -75,6 +115,21 @@ export function useLiveChannels({
       if (managerRef.current === manager) managerRef.current = null;
     };
   }, [ownerPubkey]);
+
+  useEffect(() => {
+    setForcedUnread((current) => {
+      const next = { ...current };
+      let changed = false;
+      for (const [channelId, baseline] of Object.entries(current)) {
+        if (baseline !== null && (readMarkers[channelId] ?? 0) > baseline) {
+          delete next[channelId];
+          changed = true;
+        }
+      }
+      if (changed) writeForcedUnread(ownerPubkey, next);
+      return changed ? next : current;
+    });
+  }, [ownerPubkey, readMarkers]);
 
   useEffect(() => {
     if (!channelIds.length) {
@@ -185,9 +240,11 @@ export function useLiveChannels({
       result[channelId] = Object.values(activity[channelId] ?? {}).filter(
         (event) => event.pubkey !== ownerPubkey && event.createdAt > marker,
       ).length;
+      if (hasForcedUnread(forcedUnread, channelId))
+        result[channelId] = Math.max(1, result[channelId]);
     }
     return result;
-  }, [activity, channelIds, ownerPubkey, readMarkers]);
+  }, [activity, channelIds, forcedUnread, ownerPubkey, readMarkers]);
 
   const markContextRead = useCallback(
     (contextId: string, timestamp: number) => {
@@ -196,5 +253,44 @@ export function useLiveChannels({
     [],
   );
 
-  return { status, unread, markContextRead };
+  const markChannelUnread = useCallback(
+    (channelId: string) => {
+      setForcedUnread((current) => {
+        if (hasForcedUnread(current, channelId)) return current;
+        const next = {
+          ...current,
+          [channelId]: readMarkers[channelId] ?? null,
+        };
+        writeForcedUnread(ownerPubkey, next);
+        return next;
+      });
+    },
+    [ownerPubkey, readMarkers],
+  );
+
+  const markChannelRead = useCallback(
+    (channelId: string) => {
+      setForcedUnread((current) => {
+        if (!hasForcedUnread(current, channelId)) return current;
+        const next = { ...current };
+        delete next[channelId];
+        writeForcedUnread(ownerPubkey, next);
+        return next;
+      });
+      const timestamps = Object.values(activity[channelId] ?? {}).map(
+        (event) => event.createdAt,
+      );
+      if (timestamps.length)
+        managerRef.current?.markRead(channelId, Math.max(...timestamps));
+    },
+    [activity, ownerPubkey],
+  );
+
+  return {
+    status,
+    unread,
+    markContextRead,
+    markChannelRead,
+    markChannelUnread,
+  };
 }

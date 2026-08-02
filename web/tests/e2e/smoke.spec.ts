@@ -1097,6 +1097,14 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
       ),
     )
     .toBe(true);
+  await page.getByRole("button", { name: "Mark unread #general" }).click();
+  await expect(
+    page.getByRole("button", { name: "Mark read #general" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Mark read #general" }).click();
+  await expect(
+    page.getByRole("button", { name: "Mark unread #general" }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Search messages" }).click();
   await page
     .getByLabel("Search query")
