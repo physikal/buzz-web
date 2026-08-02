@@ -1,10 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { queryEvents, type NostrEvent } from "@/shared/lib/nostr-client";
+import { fetchRelaySelf } from "@/shared/lib/relay-info";
 import { relayWsUrl } from "@/shared/lib/relay-url";
 import { dedup } from "./use-repos";
 
 export interface RepoRefs {
   branches: string[];
+  branchCommits: Record<string, string>;
   tags: string[];
   head: { ref: string; sha: string } | null;
 }
@@ -12,6 +14,7 @@ export interface RepoRefs {
 function parseRefs(events: NostrEvent[]): RepoRefs {
   const latest = dedup(events);
   const branches: string[] = [];
+  const branchCommits: Record<string, string> = {};
   const tags: string[] = [];
   let head: RepoRefs["head"] = null;
 
@@ -25,7 +28,9 @@ function parseRefs(events: NostrEvent[]): RepoRefs {
         const branchName = value.replace("ref: refs/heads/", "");
         head = { ref: branchName, sha: "" };
       } else if (name.startsWith("refs/heads/")) {
-        branches.push(name.replace("refs/heads/", ""));
+        const branchName = name.replace("refs/heads/", "");
+        branches.push(branchName);
+        branchCommits[branchName] = value;
       } else if (name.startsWith("refs/tags/")) {
         tags.push(name.replace("refs/tags/", ""));
       }
@@ -45,23 +50,35 @@ function parseRefs(events: NostrEvent[]): RepoRefs {
     }
   }
 
-  return { branches, tags, head };
+  return {
+    branches: [...new Set(branches)].sort(),
+    branchCommits,
+    tags: [...new Set(tags)].sort(),
+    head,
+  };
 }
 
 async function fetchRepoRefs(repoId: string): Promise<RepoRefs> {
-  // TODO: Filter by `authors: [relayPubkey]` once the relay's own pubkey is
-  // exposed to the client. Without this, a user with ReposWrite permission
-  // could publish fake kind:30618 events with spoofed refs.
+  const relaySelf = await fetchRelaySelf();
   const events = await queryEvents(relayWsUrl(), {
     kinds: [30618],
+    authors: [relaySelf],
     "#d": [repoId],
   });
-  return parseRefs(events);
+  return parseRefs(
+    events.filter(
+      (event) =>
+        event.kind === 30618 &&
+        event.pubkey.toLowerCase() === relaySelf &&
+        event.tags.some((tag) => tag[0] === "d" && tag[1] === repoId),
+    ),
+  );
 }
 
 export function useRepoRefs(repoId: string, { preview = false } = {}) {
   const mockRefs: RepoRefs = {
     branches: ["main"],
+    branchCommits: { main: "a".repeat(40) },
     tags: ["v0.1.0"],
     head: { ref: "main", sha: "a".repeat(40) },
   };

@@ -1,18 +1,24 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { GitPullRequest, MessageSquare } from "lucide-react";
+import { GitPullRequest, MessageSquare, Plus } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
 import { truncatePubkey } from "@/shared/lib/pubkey";
+import { useRepoRefs } from "@/features/repos/use-repo-refs";
 import { Button } from "@/shared/ui/button";
 import {
   createProjectPullRequestComment,
+  createProjectPullRequest,
   listProjectPullRequests,
   type Project,
   type ProjectPullRequest,
   type ProjectPullRequestLifecycleStatus,
   setProjectPullRequestStatus,
 } from "../project-api";
+import {
+  CreatePullRequestDialog,
+  type CreatePullRequestInput,
+} from "./CreatePullRequestDialog";
 
 export function ProjectPullRequestsPanel({
   ownerPubkey,
@@ -23,12 +29,28 @@ export function ProjectPullRequestsPanel({
 }) {
   const queryClient = useQueryClient();
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
   const queryKey = ["project-pull-requests", project.repoAddress];
   const query = useQuery({
     queryKey,
     queryFn: () => listProjectPullRequests(project),
   });
+  const refsQuery = useRepoRefs(project.dtag);
   const refresh = () => queryClient.invalidateQueries({ queryKey });
+  const createMutation = useMutation({
+    mutationFn: (input: CreatePullRequestInput) =>
+      createProjectPullRequest(project, input),
+    onSuccess: async (pullRequestId) => {
+      await refresh();
+      setCreateOpen(false);
+      setSelectedId(pullRequestId);
+      toast.success("Pull request created");
+    },
+    onError: (error) =>
+      toast.error("Could not create pull request", {
+        description: error.message,
+      }),
+  });
   const selected = (query.data ?? []).find((item) => item.id === selectedId);
   if (selected) {
     return (
@@ -42,54 +64,73 @@ export function ProjectPullRequestsPanel({
     );
   }
   return (
-    <section className="mt-8">
-      <h2 className="text-lg font-semibold">Pull requests</h2>
-      <div className="mt-3 divide-y overflow-hidden rounded-md border">
-        {query.isLoading ? (
-          <p className="p-4 text-sm text-muted-foreground">
-            Loading pull requests...
-          </p>
-        ) : query.error ? (
-          <p className="p-4 text-sm text-destructive">
-            Could not load pull requests.
-          </p>
-        ) : query.data?.length ? (
-          query.data.map((item) => (
-            <article className="flex items-start gap-3 p-4" key={item.id}>
-              <GitPullRequest className="mt-0.5 h-4 w-4 text-muted-foreground" />
-              <div className="min-w-0 flex-1">
-                <h3 className="font-medium">
-                  <button
-                    className="text-left hover:underline"
-                    onClick={() => setSelectedId(item.id)}
-                    type="button"
-                  >
-                    {item.title}
-                  </button>
-                </h3>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  {item.branchName ?? "unknown"} → {item.targetBranch ?? "main"}
-                </p>
-                <p className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
-                  <span>{item.status}</span>
-                  <span>· {truncatePubkey(item.author)}</span>
-                  {item.comments.length ? (
-                    <span className="inline-flex items-center gap-1">
-                      <MessageSquare className="h-3 w-3" />
-                      {item.comments.length}
-                    </span>
-                  ) : null}
-                </p>
-              </div>
-            </article>
-          ))
-        ) : (
-          <p className="p-6 text-center text-sm text-muted-foreground">
-            No pull requests yet.
-          </p>
-        )}
-      </div>
-    </section>
+    <>
+      <section className="mt-8">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-lg font-semibold">Pull requests</h2>
+          <Button onClick={() => setCreateOpen(true)}>
+            <Plus /> Open pull request
+          </Button>
+        </div>
+        <div className="mt-3 divide-y overflow-hidden rounded-md border">
+          {query.isLoading ? (
+            <p className="p-4 text-sm text-muted-foreground">
+              Loading pull requests...
+            </p>
+          ) : query.error ? (
+            <p className="p-4 text-sm text-destructive">
+              Could not load pull requests.
+            </p>
+          ) : query.data?.length ? (
+            query.data.map((item) => (
+              <article className="flex items-start gap-3 p-4" key={item.id}>
+                <GitPullRequest className="mt-0.5 h-4 w-4 text-muted-foreground" />
+                <div className="min-w-0 flex-1">
+                  <h3 className="font-medium">
+                    <button
+                      className="text-left hover:underline"
+                      onClick={() => setSelectedId(item.id)}
+                      type="button"
+                    >
+                      {item.title}
+                    </button>
+                  </h3>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {item.branchName ?? "unknown"} →{" "}
+                    {item.targetBranch ?? "main"}
+                  </p>
+                  <p className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+                    <span>{item.status}</span>
+                    <span>· {truncatePubkey(item.author)}</span>
+                    {item.comments.length ? (
+                      <span className="inline-flex items-center gap-1">
+                        <MessageSquare className="h-3 w-3" />
+                        {item.comments.length}
+                      </span>
+                    ) : null}
+                  </p>
+                </div>
+              </article>
+            ))
+          ) : (
+            <p className="p-6 text-center text-sm text-muted-foreground">
+              No pull requests yet.
+            </p>
+          )}
+        </div>
+      </section>
+      <CreatePullRequestDialog
+        existingPullRequests={query.data ?? []}
+        open={createOpen}
+        pending={createMutation.isPending}
+        project={project}
+        refs={refsQuery.data}
+        refsError={refsQuery.error}
+        refsLoading={refsQuery.isLoading}
+        onClose={() => setCreateOpen(false)}
+        onSubmit={(input) => createMutation.mutateAsync(input).then(() => {})}
+      />
+    </>
   );
 }
 

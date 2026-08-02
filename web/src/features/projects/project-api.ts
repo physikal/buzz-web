@@ -424,6 +424,67 @@ export async function createProjectPullRequestComment(
   });
 }
 
+export async function createProjectPullRequest(
+  project: Project,
+  input: {
+    title: string;
+    content: string;
+    branch: string;
+    targetBranch: string;
+    commit: string;
+    mergeBase?: string | null;
+    reviewers?: string[];
+  },
+): Promise<string> {
+  const title = input.title.trim();
+  if (!title) throw new Error("Pull request title cannot be empty.");
+  if (title.length > 256) {
+    throw new Error("Pull request title must be 256 characters or fewer.");
+  }
+  if (!project.cloneUrls.length) {
+    throw new Error("This project has no clone URL.");
+  }
+  if (!input.branch || !input.targetBranch) {
+    throw new Error("Pull request branches are incomplete.");
+  }
+  if (input.branch === input.targetBranch) {
+    throw new Error("The base and compare branches must be different.");
+  }
+  if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu.test(input.commit)) {
+    throw new Error("The compare branch commit is invalid.");
+  }
+  if (
+    input.mergeBase &&
+    !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu.test(input.mergeBase)
+  ) {
+    throw new Error("The merge-base commit is invalid.");
+  }
+  const recipients = [
+    ...new Set(
+      [project.owner, ...(input.reviewers ?? [])].map((pubkey) =>
+        pubkey.toLowerCase(),
+      ),
+    ),
+  ];
+  const { event } = await submitEvent({
+    kind: 1618,
+    content: input.content.trim(),
+    tags: [
+      ["a", project.repoAddress],
+      ...recipients.map((pubkey) => ["p", pubkey]),
+      ["subject", title],
+      ["c", input.commit.toLowerCase()],
+      ["clone", ...project.cloneUrls],
+      ["branch-name", input.branch],
+      ["target-branch", input.targetBranch],
+      ...(input.mergeBase
+        ? [["merge-base", input.mergeBase.toLowerCase()]]
+        : []),
+    ],
+  });
+  return event.id;
+}
+
 export async function setProjectPullRequestStatus(
   project: Project,
   pullRequest: ProjectPullRequest,

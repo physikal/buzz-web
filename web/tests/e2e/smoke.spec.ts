@@ -83,6 +83,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     pubkey: string;
     sig: string;
     kind: number;
+    created_at: number;
     content: string;
     tags: string[][];
   }> = [];
@@ -99,6 +100,13 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await page.route("https://tracker.invalid/**", async (route) => {
     catalogImageRequests += 1;
     await route.abort();
+  });
+  await page.route("**/info", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/nostr+json",
+      body: JSON.stringify({ self: catalogPubkey }),
+    });
   });
   await page.route("**/api/owner/status", async (route) => {
     await route.fulfill({
@@ -965,6 +973,49 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
               (event) => event.kind === 30617,
             ))
               socket.send(JSON.stringify(["EVENT", subscriptionId, project]));
+          }
+          if (filters.includes("30618")) {
+            socket.send(
+              JSON.stringify([
+                "EVENT",
+                subscriptionId,
+                finalizeEvent(
+                  {
+                    kind: 30618,
+                    created_at: createdAt,
+                    content: "",
+                    tags: [
+                      ["d", "relay-project"],
+                      ["refs/heads/main", "aa".repeat(20)],
+                      ["refs/heads/feature/create-pr", "bc".repeat(20)],
+                      ["refs/heads/feature/web-parity", "ab".repeat(20)],
+                      ["HEAD", "ref: refs/heads/main"],
+                      ["p", catalogPubkey],
+                    ],
+                  },
+                  signer,
+                ),
+              ]),
+            );
+            socket.send(
+              JSON.stringify([
+                "EVENT",
+                subscriptionId,
+                finalizeEvent(
+                  {
+                    kind: 30618,
+                    created_at: createdAt + 30,
+                    content: "",
+                    tags: [
+                      ["d", "relay-project"],
+                      ["refs/heads/attacker-branch", "cd".repeat(20)],
+                      ["HEAD", "ref: refs/heads/attacker-branch"],
+                    ],
+                  },
+                  agentSecret,
+                ),
+              ]),
+            );
           }
           if (filters.includes("30620")) {
             for (const workflow of submittedEvents.filter(
@@ -2316,6 +2367,117 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.getByRole("button", { name: "Back to pull requests" }).click();
   await expect(page.getByText("1", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Open pull request" }).click();
+  const createPullRequestDialog = page.getByRole("dialog", {
+    name: "Open a pull request",
+  });
+  await expect(createPullRequestDialog).toBeVisible();
+  await expect(createPullRequestDialog.getByLabel("Base")).toHaveValue("main");
+  await expect(createPullRequestDialog.getByLabel("Compare")).toHaveValue(
+    "feature/create-pr",
+  );
+  await expect(
+    createPullRequestDialog.getByRole("option", { name: "attacker-branch" }),
+  ).toHaveCount(0);
+  await createPullRequestDialog.getByLabel("Title").fill("Create PR from web");
+  await createPullRequestDialog
+    .getByLabel("Description")
+    .fill("Uses relay-verified branch state.");
+  await page.screenshot({ path: "/tmp/buzz-web-create-pr.png" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({ path: "/tmp/buzz-web-create-pr-mobile.png" });
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await createPullRequestDialog
+    .getByRole("button", { name: "Open pull request" })
+    .click();
+  await expect
+    .poll(() => {
+      const pullRequest = submittedEvents.find(
+        (event) =>
+          event.kind === 1618 &&
+          event.tags.some(
+            (tag) => tag[0] === "subject" && tag[1] === "Create PR from web",
+          ),
+      );
+      return (
+        pullRequest?.content === "Uses relay-verified branch state." &&
+        pullRequest.tags.some(
+          (tag) =>
+            tag[0] === "a" && tag[1] === `30617:${catalogPubkey}:relay-project`,
+        ) &&
+        pullRequest.tags.some(
+          (tag) => tag[0] === "p" && tag[1] === catalogPubkey,
+        ) &&
+        pullRequest.tags.some(
+          (tag) => tag[0] === "branch-name" && tag[1] === "feature/create-pr",
+        ) &&
+        pullRequest.tags.some(
+          (tag) => tag[0] === "target-branch" && tag[1] === "main",
+        ) &&
+        pullRequest.tags.some(
+          (tag) => tag[0] === "c" && tag[1] === "bc".repeat(20),
+        ) &&
+        pullRequest.tags.some((tag) => tag[0] === "clone" && tag.length > 1)
+      );
+    })
+    .toBe(true);
+  await expect(
+    page.getByRole("heading", { name: "Create PR from web" }),
+  ).toBeVisible();
+  await expect(page.getByText("feature/create-pr → main")).toBeVisible();
+  const createdPullRequest = submittedEvents.find(
+    (event) =>
+      event.kind === 1618 &&
+      event.tags.some(
+        (tag) => tag[0] === "subject" && tag[1] === "Create PR from web",
+      ),
+  );
+  expect(createdPullRequest).toBeDefined();
+  const createdStatus = page.getByLabel("Status for Create PR from web");
+  await createdStatus.selectOption("draft");
+  await expect(createdStatus).toHaveValue("draft");
+  await expect
+    .poll(() =>
+      submittedEvents.some(
+        (event) =>
+          event.kind === 1633 &&
+          event.tags.some(
+            (tag) => tag[0] === "e" && tag[1] === createdPullRequest?.id,
+          ),
+      ),
+    )
+    .toBe(true);
+  const draftStatus = submittedEvents.find(
+    (event) =>
+      event.kind === 1633 &&
+      event.tags.some(
+        (tag) => tag[0] === "e" && tag[1] === createdPullRequest?.id,
+      ),
+  );
+  await createdStatus.selectOption("open");
+  await expect(createdStatus).toHaveValue("open");
+  await expect
+    .poll(() => {
+      const openStatus = submittedEvents.find(
+        (event) =>
+          event.kind === 1630 &&
+          event.tags.some(
+            (tag) => tag[0] === "e" && tag[1] === createdPullRequest?.id,
+          ),
+      );
+      return Boolean(
+        openStatus &&
+          draftStatus &&
+          openStatus.created_at > draftStatus.created_at,
+      );
+    })
+    .toBe(true);
+  await page.getByRole("button", { name: "Back to pull requests" }).click();
   await page.getByRole("link", { name: "Workflows" }).click();
   await expect(page.getByRole("heading", { name: "Workflows" })).toBeVisible();
   await page.getByRole("button", { name: "Create workflow" }).click();
