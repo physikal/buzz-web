@@ -7,7 +7,7 @@ import {
 } from "@/features/channels/channel-actions";
 
 const ChannelsPage = lazy(async () => {
-  const module = await import("@/features/channels/ui/ChannelsPage");
+  const module = await import("@/features/channels/ui/ChannelsPageEntry");
   return { default: module.ChannelsPage };
 });
 

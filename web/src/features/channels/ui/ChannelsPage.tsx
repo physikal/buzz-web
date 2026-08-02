@@ -6,13 +6,11 @@ import { toast } from "sonner";
 import { listAgents } from "@/features/agents/agent-api";
 import { listPersonas } from "@/features/agents/persona-api";
 import { listTeams } from "@/features/agents/team-api";
-import { OwnerConnection } from "@/features/agents/ui/OwnerConnection";
 import {
   listChannelTemplates,
   renderCanvasTemplate,
 } from "@/features/channel-templates/channel-template-api";
 import { TemplateDeployDialog } from "@/features/channel-templates/ui/TemplateDeployDialog";
-import { lockOwnerVault } from "@/features/owner-vault/lib/vault-worker-client";
 import { useWorkspacePresence } from "@/features/presence/use-presence";
 import { UserProfileDialog } from "@/features/profile/UserProfileDialog";
 import { ReminderDialog } from "@/features/reminders/ui/ReminderDialog";
@@ -33,7 +31,6 @@ import { useChannelActions } from "../use-channel-actions";
 import { getCustomEmoji } from "@/features/settings/custom-emoji-api";
 import { submitModerationReport } from "@/features/settings/moderation-api";
 import { subscribeEvents } from "@/shared/lib/nostr-client";
-import { truncatePubkey } from "@/shared/lib/pubkey";
 import { relayWsUrl } from "@/shared/lib/relay-url";
 import { Button } from "@/shared/ui/button";
 import { useSidebarVisibility } from "@/shared/hooks/use-sidebar-visibility";
@@ -83,6 +80,8 @@ import {
   type SearchResult,
 } from "./ChannelDialogs";
 import { CreateChannelDialog } from "./CreateChannelDialog";
+import { CenteredMessage, TypingLine } from "./ChannelStatus";
+import { ForumView } from "./ForumView";
 import { MessageComposer, type ComposerPayload } from "./MessageComposer";
 import {
   type MessageActions,
@@ -91,32 +90,7 @@ import {
 } from "./MessageTimeline";
 import { ReportMessageDialog } from "./ReportMessageDialog";
 
-export function ChannelsPage({
-  initialAction,
-  initialChannelId,
-  initialMessageId,
-}: {
-  initialAction?: ChannelAction;
-  initialChannelId?: string;
-  initialMessageId?: string;
-} = {}) {
-  const [ownerPubkey, setOwnerPubkey] = useState<string | null>(null);
-  if (!ownerPubkey) return <OwnerConnection onConnected={setOwnerPubkey} />;
-  return (
-    <ChannelsWorkspace
-      initialAction={initialAction}
-      initialChannelId={initialChannelId}
-      initialMessageId={initialMessageId}
-      ownerPubkey={ownerPubkey}
-      onDisconnect={() => {
-        void lockOwnerVault();
-        setOwnerPubkey(null);
-      }}
-    />
-  );
-}
-
-function ChannelsWorkspace({
+export function ChannelsWorkspace({
   ownerPubkey,
   onDisconnect,
   initialChannelId,
@@ -215,6 +189,10 @@ function ChannelsWorkspace({
     channels.find((channel) => channel.id === selectedId) ??
     channels[0] ??
     null;
+  const selectChannel = useCallback((channelId: string) => {
+    setSelectedId(channelId);
+    setThreadRootId(null);
+  }, []);
   const huddle = useHuddle({
     channelId: selected?.id ?? null,
     channelName: selected?.name ?? null,
@@ -633,7 +611,7 @@ function ChannelsWorkspace({
         onCreate={() => setCreateOpen(true)}
         onNewDm={() => setDmOpen(true)}
         onBrowse={() => setBrowserOpen(true)}
-        onSelect={setSelectedId}
+        onSelect={selectChannel}
         onStarredChange={setStarred}
         onMarkRead={markChannelRead}
         onMarkUnread={markChannelUnread}
@@ -665,7 +643,7 @@ function ChannelsWorkspace({
             aria-label="Channel"
             className="max-w-36 rounded-md border bg-background px-2 py-2 text-sm sm:hidden"
             value={selected?.id ?? ""}
-            onChange={(event) => setSelectedId(event.target.value)}
+            onChange={(event) => selectChannel(event.target.value)}
           >
             {channels.map((channel) => (
               <option key={channel.id} value={channel.id}>
@@ -708,8 +686,8 @@ function ChannelsWorkspace({
         </header>
         {channelFind.open ? <ChannelFindBar find={channelFind} /> : null}
         <section
-          aria-label="Messages"
-          className="min-h-0 flex-1 overflow-y-auto px-0 py-3 sm:px-3"
+          aria-label={selected?.channelType === "forum" ? "Forum" : "Messages"}
+          className={`min-h-0 flex-1 ${selected?.channelType === "forum" && threadRoot ? "flex flex-col overflow-hidden" : "overflow-y-auto"}`}
         >
           {channelsQuery.isLoading ? (
             <CenteredMessage>Creating your starter channels…</CenteredMessage>
@@ -717,20 +695,52 @@ function ChannelsWorkspace({
             <CenteredMessage>{channelsQuery.error.message}</CenteredMessage>
           ) : !selected ? (
             <CenteredMessage>No channels are available.</CenteredMessage>
-          ) : (
-            <MessageTimeline
+          ) : selected.channelType === "forum" ? (
+            <ForumView
               actions={actions}
               agentNames={agentNames}
               channel={selected}
               customEmoji={customEmojiQuery.data?.community ?? []}
+              key={selected.id}
               loading={messagesQuery.isLoading}
               matchingMessageIds={channelFind.matchingIds}
+              mentionCandidates={dmCandidates}
               messages={messages}
+              onCloseThread={() => setThreadRootId(null)}
+              onSubmitPost={submitRoot}
+              onSubmitReply={async (root, payload) => {
+                await sendMutation.mutateAsync({
+                  channelId: selected.id,
+                  content: payload.content,
+                  mentionPubkeys: payload.mentionPubkeys,
+                  parentId: root.id,
+                  rootId: root.id,
+                  mediaTags: payload.mediaTags,
+                });
+              }}
               ownerPubkey={ownerPubkey}
+              pending={sendMutation.isPending}
               presence={presence}
               profiles={profiles}
               selectedMessageId={highlightedId}
+              threadRoot={threadRoot}
             />
+          ) : (
+            <div className="px-0 py-3 sm:px-3">
+              <MessageTimeline
+                actions={actions}
+                agentNames={agentNames}
+                channel={selected}
+                customEmoji={customEmojiQuery.data?.community ?? []}
+                loading={messagesQuery.isLoading}
+                matchingMessageIds={channelFind.matchingIds}
+                messages={messages}
+                ownerPubkey={ownerPubkey}
+                presence={presence}
+                profiles={profiles}
+                selectedMessageId={highlightedId}
+              />
+            </div>
           )}
         </section>
         <HuddleBar
@@ -749,7 +759,7 @@ function ChannelsWorkspace({
           profiles={profiles}
         />
         {selected ? (
-          selected.isMember ? (
+          selected.channelType === "forum" ? null : selected.isMember ? (
             <div className="border-t">
               <TypingLine
                 pubkeys={typingEntries
@@ -781,7 +791,7 @@ function ChannelsWorkspace({
           )
         ) : null}
       </main>
-      {selected && threadRoot ? (
+      {selected && threadRoot && selected.channelType !== "forum" ? (
         <ThreadPanel
           actions={actions}
           agentNames={agentNames}
@@ -962,37 +972,5 @@ function ChannelsWorkspace({
         }
       />
     </div>
-  );
-}
-
-function CenteredMessage({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-      {children}
-    </div>
-  );
-}
-
-function TypingLine({
-  pubkeys,
-  profiles,
-}: {
-  pubkeys: string[];
-  profiles: Map<string, { displayName: string | null }>;
-}) {
-  if (!pubkeys.length) return null;
-  const names = pubkeys.map(
-    (pubkey) => profiles.get(pubkey)?.displayName || truncatePubkey(pubkey),
-  );
-  const label =
-    names.length === 1
-      ? `${names[0]} is typing…`
-      : names.length === 2
-        ? `${names[0]} and ${names[1]} are typing…`
-        : `${names[0]}, ${names[1]}, and ${names.length - 2} others are typing…`;
-  return (
-    <p className="px-5 pt-2 text-xs text-muted-foreground" role="status">
-      {label}
-    </p>
   );
 }

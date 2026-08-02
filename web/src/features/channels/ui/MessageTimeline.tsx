@@ -1,4 +1,5 @@
 import {
+  ArrowLeft,
   BellOff,
   BellRing,
   Download,
@@ -83,7 +84,11 @@ export function MessageTimeline({
     }
     return counts;
   }, [messages]);
-  const roots = messages.filter((message) => !message.parentId);
+  const roots = messages.filter(
+    (message) =>
+      !message.parentId &&
+      (channel.channelType !== "forum" || message.kind === 45001),
+  );
 
   if (loading) return <CenteredMessage>Loading messages…</CenteredMessage>;
   if (!roots.length) {
@@ -297,13 +302,15 @@ function MessageRow({
             ))}
           </div>
         ) : null}
-        {!message.deleted && replyCount ? (
+        {!message.deleted && (forum || replyCount > 0) ? (
           <button
             className="mt-2 text-xs font-medium text-primary hover:underline"
             onClick={() => actions.onReply(message)}
             type="button"
           >
-            {replyCount} {replyCount === 1 ? "reply" : "replies"}
+            {replyCount > 0
+              ? `${replyCount} ${replyCount === 1 ? "reply" : "replies"}`
+              : "View post"}
           </button>
         ) : null}
       </div>
@@ -546,6 +553,7 @@ export function ThreadPanel({
   onSubmit,
   selectedMessageId,
   matchingMessageIds,
+  forum = false,
 }: {
   channel: Channel;
   root: ChannelMessage;
@@ -567,34 +575,51 @@ export function ThreadPanel({
   onSubmit: (payload: ComposerPayload) => Promise<void>;
   selectedMessageId?: string | null;
   matchingMessageIds?: ReadonlySet<string>;
+  forum?: boolean;
 }) {
   const replies = messages.filter((message) => message.rootId === root.id);
   return (
-    <aside className="flex min-h-0 w-full shrink-0 flex-col border-l bg-background lg:w-[28rem]">
+    <aside
+      aria-label={forum ? "Forum thread" : "Thread"}
+      className={`flex min-h-0 w-full shrink-0 flex-col bg-background ${forum ? "flex-1" : "border-l lg:w-[28rem]"}`}
+    >
       <header className="flex h-16 items-center border-b px-4">
-        <div className="min-w-0 flex-1">
-          <h2 className="font-semibold">Thread</h2>
-          <p className="truncate text-xs text-muted-foreground">
-            #{channel.name}
-          </p>
-        </div>
-        <Button
-          aria-label={followed ? "Unfollow thread" : "Follow thread"}
-          onClick={followed ? onUnfollow : onFollow}
-          size="icon"
-          title={followed ? "Unfollow thread" : "Follow thread"}
-          variant="ghost"
-        >
-          {followed ? <BellOff /> : <BellRing />}
-        </Button>
-        <Button
-          aria-label="Close thread"
-          onClick={onClose}
-          size="icon"
-          variant="ghost"
-        >
-          <X />
-        </Button>
+        {forum ? (
+          <Button
+            className="gap-1.5 text-muted-foreground"
+            onClick={onClose}
+            size="sm"
+            variant="ghost"
+          >
+            <ArrowLeft /> Back to posts
+          </Button>
+        ) : (
+          <>
+            <div className="min-w-0 flex-1">
+              <h2 className="font-semibold">Thread</h2>
+              <p className="truncate text-xs text-muted-foreground">
+                #{channel.name}
+              </p>
+            </div>
+            <Button
+              aria-label={followed ? "Unfollow thread" : "Follow thread"}
+              onClick={followed ? onUnfollow : onFollow}
+              size="icon"
+              title={followed ? "Unfollow thread" : "Follow thread"}
+              variant="ghost"
+            >
+              {followed ? <BellOff /> : <BellRing />}
+            </Button>
+            <Button
+              aria-label="Close thread"
+              onClick={onClose}
+              size="icon"
+              variant="ghost"
+            >
+              <X />
+            </Button>
+          </>
+        )}
       </header>
       <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
         {[root, ...replies].map((message) => (

@@ -812,6 +812,26 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
                 ),
               ]),
             );
+            socket.send(
+              JSON.stringify([
+                "EVENT",
+                subscriptionId,
+                finalizeEvent(
+                  {
+                    kind: 39000,
+                    created_at: createdAt,
+                    content: "",
+                    tags: [
+                      ["d", "55555555-5555-4555-8555-555555555555"],
+                      ["name", "web-forum"],
+                      ["about", "Focused design discussions."],
+                      ["t", "forum"],
+                    ],
+                  },
+                  signer,
+                ),
+              ]),
+            );
           }
           if (filters.includes("39002")) {
             socket.send(
@@ -832,6 +852,24 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
                 ),
               ]),
             );
+            socket.send(
+              JSON.stringify([
+                "EVENT",
+                subscriptionId,
+                finalizeEvent(
+                  {
+                    kind: 39002,
+                    created_at: createdAt,
+                    content: "",
+                    tags: [
+                      ["d", "55555555-5555-4555-8555-555555555555"],
+                      ["p", ownerPubkey, "", "owner"],
+                    ],
+                  },
+                  signer,
+                ),
+              ]),
+            );
           }
           if (filters.includes("40008")) {
             socket.send(
@@ -842,7 +880,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
             );
             for (const event of submittedEvents.filter(
               (event) =>
-                event.kind === 9 &&
+                [9, 45001, 45003].includes(event.kind) &&
                 event.tags.some(
                   (tag) => tag[0] === "h" && channelIds.has(tag[1]),
                 ),
@@ -1251,10 +1289,64 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     .check();
   await page.getByRole("button", { name: "Open Buzz" }).click();
   await expect(page).toHaveURL(/\/channels$/);
+  await page.getByRole("button", { name: /^general(?: \d+)?$/u }).click();
   await expect(page.getByRole("heading", { name: "general" })).toBeVisible();
   await expect(page.getByText("Welcome to Buzz Web.")).toBeVisible();
   await expect(page.getByLabel("Message #general")).toBeVisible();
   expect(ownerPubkey).toMatch(/^[0-9a-f]{64}$/);
+  await page.getByRole("button", { name: "web-forum", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Start a new post..." }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Start a new post..." }).click();
+  const forumComposer = page.getByLabel("Create a new post");
+  await forumComposer.fill("A focused web forum post");
+  await forumComposer
+    .locator("xpath=ancestor::form")
+    .getByRole("button", { name: "Send message" })
+    .click();
+  await expect(page.getByText("A focused web forum post")).toBeVisible();
+  await page.getByRole("button", { name: "View post" }).click();
+  await expect(
+    page.getByRole("complementary", { name: "Forum thread" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Back to posts" }),
+  ).toBeVisible();
+  const forumReply = page.getByLabel("Reply in thread");
+  await forumReply.fill("A focused forum reply");
+  await forumReply
+    .locator("xpath=ancestor::form")
+    .getByRole("button", { name: "Send message" })
+    .click();
+  await expect
+    .poll(() =>
+      submittedEvents.some(
+        (event) =>
+          event.kind === 45003 &&
+          event.tags.some(
+            (tag) =>
+              tag[0] === "h" &&
+              tag[1] === "55555555-5555-4555-8555-555555555555",
+          ),
+      ),
+    )
+    .toBe(true);
+  await expect(
+    page.locator("article").filter({ hasText: "A focused forum reply" }),
+  ).toBeVisible();
+  await page.screenshot({ path: "/tmp/buzz-web-forum-thread.png" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({ path: "/tmp/buzz-web-forum-thread-mobile.png" });
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.getByRole("button", { name: "Back to posts" }).click();
+  await expect(page.getByRole("button", { name: "1 reply" })).toBeVisible();
+  await page.getByRole("button", { name: /^general(?: \d+)?$/u }).click();
   await expect(page.getByText(/is typing…$/)).toBeVisible();
   await page.getByLabel("Message #general").fill("Typing interoperability");
   await expect
