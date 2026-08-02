@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import {
   BellRing,
@@ -17,6 +17,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { toast } from "sonner";
 
 import buzzAppIcon from "@/assets/app-icon@3x.png";
 import { OwnerConnection } from "@/features/agents/ui/OwnerConnection";
@@ -28,6 +29,13 @@ import {
 } from "@/features/channels/channel-api";
 import { ReadStateManager } from "@/features/channels/read-state";
 import { lockOwnerVault } from "@/features/owner-vault/lib/vault-worker-client";
+import {
+  cancelReminder,
+  completeReminder,
+  listReminders,
+  type Reminder,
+  snoozeReminder,
+} from "@/features/reminders/reminder-api";
 import { truncatePubkey } from "@/shared/lib/pubkey";
 import { relativeTime } from "@/shared/lib/relative-time";
 import { Button } from "@/shared/ui/button";
@@ -37,8 +45,9 @@ import {
   type InboxCategory,
   type InboxItem,
 } from "../home-api";
+import { HomeReminderDetail, HomeReminderRow, isDue } from "./HomeReminder";
 
-type InboxFilter = "all" | InboxCategory;
+type InboxFilter = "all" | InboxCategory | "reminders";
 
 export function HomePage() {
   const [ownerPubkey, setOwnerPubkey] = useState<string | null>(null);
@@ -65,6 +74,9 @@ function HomeWorkspace({
   const [filter, setFilter] = useState<InboxFilter>("all");
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedReminderId, setSelectedReminderId] = useState<string | null>(
+    null,
+  );
   const [readMarkers, setReadMarkers] = useState<Record<string, number>>({});
   const readManagerRef = useRef<ReadStateManager | null>(null);
   const inboxQuery = useQuery({
@@ -77,6 +89,12 @@ function HomeWorkspace({
     queryKey: ["channels", ownerPubkey],
     queryFn: () => ensureStarterChannels(ownerPubkey),
     staleTime: 10_000,
+    retry: false,
+  });
+  const remindersQuery = useQuery({
+    queryKey: ["reminders", ownerPubkey],
+    queryFn: () => listReminders(ownerPubkey),
+    refetchInterval: 30_000,
     retry: false,
   });
   const authorKey = [
@@ -99,6 +117,18 @@ function HomeWorkspace({
   );
   const channels = channelsQuery.data ?? [];
   const items = inboxQuery.data ?? [];
+  const reminders = (remindersQuery.data ?? []).filter(
+    (reminder) => reminder.content.status === "pending",
+  );
+  const visibleReminders = reminders.filter(
+    (reminder) => !unreadOnly || isDue(reminder),
+  );
+  const explicitlySelectedReminder =
+    visibleReminders.find((reminder) => reminder.id === selectedReminderId) ??
+    null;
+  const selectedReminder =
+    explicitlySelectedReminder ?? visibleReminders[0] ?? null;
+  const isReminders = filter === "reminders";
   const isUnread = (item: InboxItem) =>
     (readMarkers[`msg:${item.id}`] ?? 0) < item.createdAt;
   const visibleItems = items.filter(
@@ -110,6 +140,36 @@ function HomeWorkspace({
     visibleItems.find((item) => item.id === selectedId) ?? null;
   const selected = explicitlySelected ?? visibleItems[0] ?? null;
   const unreadCount = items.filter(isUnread).length;
+  const dueReminderCount = reminders.filter(isDue).length;
+  const displayedCount = isReminders ? dueReminderCount : unreadCount;
+  const mobileDetailVisible = isReminders
+    ? Boolean(explicitlySelectedReminder)
+    : Boolean(explicitlySelected);
+  const reminderTransition = useMutation({
+    mutationFn: ({
+      reminder,
+      action,
+      notBefore,
+    }: {
+      reminder: Reminder;
+      action: "complete" | "cancel" | "snooze";
+      notBefore?: number;
+    }) =>
+      action === "complete"
+        ? completeReminder(reminder)
+        : action === "cancel"
+          ? cancelReminder(reminder)
+          : snoozeReminder(reminder, notBefore ?? 0),
+    onSuccess: () => {
+      setSelectedReminderId(null);
+      void queryClient.invalidateQueries({
+        queryKey: ["reminders", ownerPubkey],
+      });
+      toast.success("Reminder updated");
+    },
+    onError: (error) =>
+      toast.error("Could not update reminder", { description: error.message }),
+  });
 
   useEffect(() => {
     const manager = new ReadStateManager(ownerPubkey);
@@ -152,20 +212,28 @@ function HomeWorkspace({
       <HomeSidebar onDisconnect={onDisconnect} ownerPubkey={ownerPubkey} />
       <main className="flex min-w-0 flex-1">
         <section
-          className={`min-w-0 border-r ${explicitlySelected ? "hidden w-full sm:flex sm:w-96" : "flex w-full sm:w-96"} flex-col`}
+          className={`min-w-0 border-r ${mobileDetailVisible ? "hidden w-full sm:flex sm:w-96" : "flex w-full sm:w-96"} flex-col`}
         >
           <header className="border-b px-4 py-4">
             <div className="flex items-center gap-3">
               <h1 className="min-w-0 flex-1 text-xl font-semibold">Inbox</h1>
-              {unreadCount ? (
+              {displayedCount ? (
                 <span className="rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">
-                  {unreadCount}
+                  {displayedCount}
                 </span>
               ) : null}
               <Button
                 aria-label="Refresh inbox"
-                disabled={inboxQuery.isFetching}
-                onClick={() => void inboxQuery.refetch()}
+                disabled={
+                  isReminders
+                    ? remindersQuery.isFetching
+                    : inboxQuery.isFetching
+                }
+                onClick={() =>
+                  void (isReminders
+                    ? remindersQuery.refetch()
+                    : inboxQuery.refetch())
+                }
                 size="icon"
                 variant="ghost"
               >
@@ -173,18 +241,23 @@ function HomeWorkspace({
               </Button>
             </div>
             <div className="mt-3 flex items-center gap-2">
-              <div className="grid min-w-0 flex-1 grid-cols-3 rounded-md border p-0.5">
+              <div className="grid min-w-0 flex-1 grid-cols-4 rounded-md border p-0.5">
                 {(
                   [
                     ["all", "All"],
                     ["mention", "Mentions"],
                     ["needs_action", "Action"],
+                    ["reminders", "Reminders"],
                   ] as const
                 ).map(([value, label]) => (
                   <button
                     className={`rounded px-2 py-1.5 text-xs ${filter === value ? "bg-accent font-medium" : "text-muted-foreground"}`}
                     key={value}
-                    onClick={() => setFilter(value)}
+                    onClick={() => {
+                      setFilter(value);
+                      setSelectedId(null);
+                      setSelectedReminderId(null);
+                    }}
                     type="button"
                   >
                     {label}
@@ -193,7 +266,7 @@ function HomeWorkspace({
               </div>
               <Button
                 aria-label="Mark all read"
-                disabled={!unreadCount}
+                disabled={!unreadCount || isReminders}
                 onClick={() => {
                   for (const item of items) markRead(item);
                 }}
@@ -213,46 +286,75 @@ function HomeWorkspace({
             </label>
           </header>
           <div className="min-h-0 flex-1 overflow-y-auto">
-            {visibleItems.map((item) => (
-              <InboxRow
-                channel={channels.find(
-                  (channel) => channel.id === item.channelId,
-                )}
-                item={item}
-                key={item.id}
-                onSelect={() => {
-                  setSelectedId(item.id);
-                  markRead(item);
-                }}
-                profile={profiles.get(item.pubkey)}
-                selected={selected?.id === item.id}
-                unread={isUnread(item)}
-              />
-            ))}
-            {!inboxQuery.isLoading && !visibleItems.length ? (
+            {isReminders
+              ? visibleReminders.map((reminder) => (
+                  <HomeReminderRow
+                    key={reminder.id}
+                    onSelect={() => setSelectedReminderId(reminder.id)}
+                    reminder={reminder}
+                    selected={selectedReminder?.id === reminder.id}
+                  />
+                ))
+              : visibleItems.map((item) => (
+                  <InboxRow
+                    channel={channels.find(
+                      (channel) => channel.id === item.channelId,
+                    )}
+                    item={item}
+                    key={item.id}
+                    onSelect={() => {
+                      setSelectedId(item.id);
+                      markRead(item);
+                    }}
+                    profile={profiles.get(item.pubkey)}
+                    selected={selected?.id === item.id}
+                    unread={isUnread(item)}
+                  />
+                ))}
+            {!(isReminders ? remindersQuery.isLoading : inboxQuery.isLoading) &&
+            !(isReminders ? visibleReminders.length : visibleItems.length) ? (
               <div className="px-6 py-16 text-center">
                 <Inbox className="mx-auto h-7 w-7 text-muted-foreground" />
                 <p className="mt-3 text-sm text-muted-foreground">
-                  {unreadOnly ? "No unread activity" : "No activity yet"}
+                  {unreadOnly
+                    ? isReminders
+                      ? "No reminders due"
+                      : "No unread activity"
+                    : isReminders
+                      ? "No reminders"
+                      : "No activity yet"}
                 </p>
               </div>
             ) : null}
-            {inboxQuery.isLoading ? (
+            {(isReminders ? remindersQuery.isLoading : inboxQuery.isLoading) ? (
               <p className="p-6 text-sm text-muted-foreground">
                 Loading inbox…
               </p>
             ) : null}
           </div>
         </section>
-        <InboxDetail
-          channel={channels.find(
-            (channel) => channel.id === selected?.channelId,
-          )}
-          item={selected}
-          mobileVisible={Boolean(explicitlySelected)}
-          onBack={() => setSelectedId(null)}
-          profile={selected ? profiles.get(selected.pubkey) : undefined}
-        />
+        {isReminders ? (
+          <HomeReminderDetail
+            key={selectedReminder?.id ?? "empty"}
+            mobileVisible={Boolean(explicitlySelectedReminder)}
+            onAction={(action, reminder, notBefore) =>
+              reminderTransition.mutate({ action, reminder, notBefore })
+            }
+            onBack={() => setSelectedReminderId(null)}
+            pending={reminderTransition.isPending}
+            reminder={selectedReminder}
+          />
+        ) : (
+          <InboxDetail
+            channel={channels.find(
+              (channel) => channel.id === selected?.channelId,
+            )}
+            item={selected}
+            mobileVisible={Boolean(explicitlySelected)}
+            onBack={() => setSelectedId(null)}
+            profile={selected ? profiles.get(selected.pubkey) : undefined}
+          />
+        )}
       </main>
     </div>
   );

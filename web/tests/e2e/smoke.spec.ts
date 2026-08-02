@@ -1242,6 +1242,18 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     )
     .toBe(true);
 
+  await page.getByRole("link", { name: "Inbox" }).click();
+  await expect(page.getByRole("heading", { name: "Inbox" })).toBeVisible();
+  await page.getByRole("button", { name: "Reminders" }).click();
+  await expect(page.getByText("Follow up privately")).toBeVisible();
+  await expect(page.getByLabel("Snooze reminder")).toBeVisible();
+  await page.getByLabel("Snooze reminder").selectOption({
+    label: "In 1 hour",
+  });
+  await expect
+    .poll(() => submittedEvents.filter((event) => event.kind === 30300).length)
+    .toBeGreaterThanOrEqual(2);
+
   await page.getByRole("link", { name: "Settings" }).click();
   await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Profile" })).toBeVisible();
