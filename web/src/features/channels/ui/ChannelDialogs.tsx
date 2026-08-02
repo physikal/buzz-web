@@ -12,6 +12,7 @@ import { type FormEvent, useEffect, useMemo, useState } from "react";
 
 import { parsePubkey, truncatePubkey } from "@/shared/lib/pubkey";
 import { Button } from "@/shared/ui/button";
+import { DestructiveConfirmDialog } from "@/shared/ui/destructive-confirm-dialog";
 import { Input } from "@/shared/ui/input";
 import { useEscapeSurface } from "@/shared/hooks/use-escape-surface";
 import type { Channel } from "../channel-api";
@@ -496,9 +497,9 @@ export function ChannelSettingsDialog({
     description: string;
     topic: string;
   }) => Promise<void>;
-  onLeave: () => void;
+  onLeave: () => Promise<void>;
   onArchive: () => void;
-  onDelete: () => void;
+  onDelete: () => Promise<void>;
   isMuted: boolean;
   onMutedChange: (muted: boolean) => void;
 }) {
@@ -546,15 +547,18 @@ function ChannelSettingsForm({
     description: string;
     topic: string;
   }) => Promise<void>;
-  onLeave: () => void;
+  onLeave: () => Promise<void>;
   onArchive: () => void;
-  onDelete: () => void;
+  onDelete: () => Promise<void>;
   isMuted: boolean;
   onMutedChange: (muted: boolean) => void;
 }) {
   const [name, setName] = useState(channel.name);
   const [description, setDescription] = useState(channel.description);
   const [topic, setTopic] = useState(channel.topic ?? "");
+  const [confirmAction, setConfirmAction] = useState<"leave" | "delete" | null>(
+    null,
+  );
   return (
     <DialogFrame
       open={open}
@@ -624,7 +628,7 @@ function ChannelSettingsForm({
       ) : null}
       <ChannelMembersSection channel={channel} ownerPubkey={ownerPubkey} />
       <div className="mt-6 flex flex-wrap gap-2 border-t pt-4">
-        <Button onClick={onLeave} variant="outline">
+        <Button onClick={() => setConfirmAction("leave")} variant="outline">
           Leave
         </Button>
         {channel.channelType !== "dm" ? (
@@ -633,11 +637,33 @@ function ChannelSettingsForm({
           </Button>
         ) : null}
         {channel.channelType !== "dm" ? (
-          <Button onClick={onDelete} variant="destructive">
+          <Button
+            onClick={() => setConfirmAction("delete")}
+            variant="destructive"
+          >
             Delete
           </Button>
         ) : null}
       </div>
+      <DestructiveConfirmDialog
+        confirmLabel={confirmAction === "leave" ? "Leave" : "Delete channel"}
+        description={
+          confirmAction === "leave"
+            ? `Leave "${channel.name}"? You'll stop receiving its messages and can rejoin later.`
+            : `Delete ${channel.name} from the community list. This action cannot be undone.`
+        }
+        onClose={() => setConfirmAction(null)}
+        onConfirm={() => {
+          const action = confirmAction === "leave" ? onLeave : onDelete;
+          void action()
+            .then(() => setConfirmAction(null))
+            .catch(() => {});
+        }}
+        open={confirmAction !== null}
+        pending={pending}
+        pendingLabel={confirmAction === "leave" ? "Leaving..." : "Deleting..."}
+        title={confirmAction === "leave" ? "Leave channel" : "Delete channel?"}
+      />
     </DialogFrame>
   );
 }

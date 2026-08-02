@@ -918,11 +918,12 @@ function ChannelsWorkspace({
         pending={settingsMutation.isPending || removeChannelMutation.isPending}
         onArchive={() => removeChannelMutation.mutate("archive")}
         onClose={() => setSettingsOpen(false)}
-        onDelete={() => {
-          if (window.confirm("Delete this channel and its conversation?"))
-            removeChannelMutation.mutate("delete");
-        }}
-        onLeave={() => removeChannelMutation.mutate("leave")}
+        onDelete={() =>
+          removeChannelMutation.mutateAsync("delete").then(() => undefined)
+        }
+        onLeave={() =>
+          removeChannelMutation.mutateAsync("leave").then(() => undefined)
+        }
         onMutedChange={(muted) => {
           if (selected) setMuted(selected.id, muted);
         }}

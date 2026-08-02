@@ -1,7 +1,4 @@
-import { Trash2, X } from "lucide-react";
-
-import { useEscapeSurface } from "@/shared/hooks/use-escape-surface";
-import { Button } from "@/shared/ui/button";
+import { DestructiveConfirmDialog } from "@/shared/ui/destructive-confirm-dialog";
 
 export function DeleteMessageDialog({
   open,
@@ -14,43 +11,16 @@ export function DeleteMessageDialog({
   onClose: () => void;
   onConfirm: () => void;
 }) {
-  useEscapeSurface(open, onClose, pending);
-  if (!open) return null;
   return (
-    <div
-      aria-label="Delete message"
-      aria-modal="true"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
-      role="dialog"
-    >
-      <div className="w-full max-w-sm rounded-lg bg-background p-5 shadow-2xl">
-        <header className="flex items-center gap-3">
-          <Trash2 className="h-5 w-5 text-destructive" />
-          <h2 className="min-w-0 flex-1 text-lg font-semibold">
-            Delete message?
-          </h2>
-          <Button
-            aria-label="Close"
-            disabled={pending}
-            onClick={onClose}
-            size="icon"
-            variant="ghost"
-          >
-            <X />
-          </Button>
-        </header>
-        <p className="mt-3 text-sm text-muted-foreground">
-          This will permanently delete this message and cannot be undone.
-        </p>
-        <div className="mt-6 flex justify-end gap-2">
-          <Button disabled={pending} onClick={onClose} variant="outline">
-            Cancel
-          </Button>
-          <Button disabled={pending} onClick={onConfirm} variant="destructive">
-            {pending ? "Deleting..." : "Delete"}
-          </Button>
-        </div>
-      </div>
-    </div>
+    <DestructiveConfirmDialog
+      confirmLabel="Delete"
+      description="This will permanently delete this message and cannot be undone."
+      onClose={onClose}
+      onConfirm={onConfirm}
+      open={open}
+      pending={pending}
+      pendingLabel="Deleting..."
+      title="Delete message?"
+    />
   );
 }

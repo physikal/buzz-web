@@ -1343,6 +1343,15 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     .getByRole("button", { name: "Save", exact: true })
     .click();
   await expect(page.getByText("🚀 Release", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Delete 🚀 Release" }).click();
+  const deleteSectionDialog = page.getByRole("dialog", {
+    name: "Delete section",
+  });
+  await expect(deleteSectionDialog).toContainText(
+    'Delete section "Release"? Its 1 channel will move back to the default Channels group.',
+  );
+  await page.keyboard.press("Escape");
+  await expect(deleteSectionDialog).toBeHidden();
   await page.getByRole("button", { name: "Star #general" }).click();
   await expect(page.getByText("Starred", { exact: true })).toBeVisible();
   await expect(
@@ -1545,6 +1554,9 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     )
     .toBe(true);
   await page.getByRole("button", { name: "Channel settings" }).click();
+  const channelSettingsDialog = page.getByRole("dialog", {
+    name: "Channel settings",
+  });
   await expect(page.getByText("Members 1")).toBeVisible();
   await page.getByLabel("New channel member").fill("aa".repeat(32));
   await page.getByLabel("New member role").selectOption("admin");
@@ -1583,6 +1595,28 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     )
     .toBe(true);
   await page.getByLabel("Mute channel").check();
+  await channelSettingsDialog
+    .getByRole("button", { name: "Leave", exact: true })
+    .click();
+  const leaveChannelDialog = page.getByRole("dialog", {
+    name: "Leave channel",
+  });
+  await expect(leaveChannelDialog).toContainText(
+    'Leave "general"? You\'ll stop receiving its messages and can rejoin later.',
+  );
+  await page.keyboard.press("Escape");
+  await expect(leaveChannelDialog).toBeHidden();
+  await channelSettingsDialog
+    .getByRole("button", { name: "Delete", exact: true })
+    .click();
+  const deleteChannelDialog = page.getByRole("dialog", {
+    name: "Delete channel?",
+  });
+  await expect(deleteChannelDialog).toContainText(
+    "Delete general from the community list. This action cannot be undone.",
+  );
+  await deleteChannelDialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(deleteChannelDialog).toBeHidden();
   await page.getByRole("button", { name: "Close" }).click();
   await expect(page.getByRole("img", { name: "Muted" })).toBeVisible();
   await expect

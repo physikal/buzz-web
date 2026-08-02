@@ -19,6 +19,7 @@ import {
 import { useState } from "react";
 
 import { Button } from "@/shared/ui/button";
+import { DestructiveConfirmDialog } from "@/shared/ui/destructive-confirm-dialog";
 import type { Channel } from "../channel-api";
 import type { ChannelSortGroup, ChannelSortMode } from "../use-channel-sort";
 import type { ChannelSection } from "../use-channel-sections";
@@ -77,6 +78,11 @@ export function ChannelSidebar({
     open: boolean;
     section: ChannelSection | null;
   }>({ open: false, section: null });
+  const [deleteSectionTarget, setDeleteSectionTarget] = useState<{
+    id: string;
+    name: string;
+    channelCount: number;
+  } | null>(null);
   const streams = channels.filter(
     (channel) => channel.channelType === "stream",
   );
@@ -167,10 +173,13 @@ export function ChannelSidebar({
                 <SectionHeader
                   group={`section:${section.id}`}
                   label={`${section.icon ? `${section.icon} ` : ""}${section.name}`}
-                  onDelete={() => {
-                    if (window.confirm(`Delete section "${section.name}"?`))
-                      onDeleteSection(section.id);
-                  }}
+                  onDelete={() =>
+                    setDeleteSectionTarget({
+                      id: section.id,
+                      name: section.name,
+                      channelCount: sectionItems.length,
+                    })
+                  }
                   onMoveDown={
                     index < sections.length - 1
                       ? () => onMoveSection(section.id, 1)
@@ -308,6 +317,21 @@ export function ChannelSidebar({
         }}
         open={sectionDialog.open}
         section={sectionDialog.section}
+      />
+      <DestructiveConfirmDialog
+        confirmLabel="Delete"
+        description={
+          deleteSectionTarget?.channelCount === 0
+            ? `Delete section "${deleteSectionTarget?.name}"? It has no channels.`
+            : `Delete section "${deleteSectionTarget?.name}"? Its ${deleteSectionTarget?.channelCount === 1 ? "1 channel" : `${deleteSectionTarget?.channelCount ?? 0} channels`} will move back to the default Channels group.`
+        }
+        onClose={() => setDeleteSectionTarget(null)}
+        onConfirm={() => {
+          if (deleteSectionTarget) onDeleteSection(deleteSectionTarget.id);
+          setDeleteSectionTarget(null);
+        }}
+        open={deleteSectionTarget !== null}
+        title="Delete section"
       />
     </>
   );
