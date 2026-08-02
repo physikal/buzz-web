@@ -65,6 +65,7 @@ import {
 import { useLiveChannels } from "../use-live-channels";
 import { useChannelMutes } from "../use-channel-mutes";
 import { useChannelStars } from "../use-channel-stars";
+import { useThreadFollows } from "../use-thread-follows";
 import { useTypingIndicators } from "../use-typing";
 import { ChannelSidebar } from "./ChannelSidebar";
 import { ChannelsPrimarySidebar } from "./ChannelsPrimarySidebar";
@@ -181,6 +182,8 @@ function ChannelsWorkspace({
   );
   const { mutedChannelIds, setMuted } = useChannelMutes(ownerPubkey);
   const { starredChannelIds, setStarred } = useChannelStars(ownerPubkey);
+  const { followedRootIds, mutedRootIds, followThread, unfollowThread } =
+    useThreadFollows(ownerPubkey);
   const selected =
     channels.find((channel) => channel.id === selectedId) ??
     channels[0] ??
@@ -229,6 +232,7 @@ function ChannelsWorkspace({
     selectedChannelId: selected?.id ?? null,
     onChannelEvent: handleLiveChannelEvent,
     mutedChannelIds,
+    mutedRootIds,
   });
 
   const reactionEventIds = useMemo(
@@ -715,6 +719,9 @@ function ChannelsWorkspace({
           customEmoji={customEmojiQuery.data?.community ?? []}
           messages={messages}
           onClose={() => setThreadRootId(null)}
+          followed={followedRootIds.has(threadRoot.id)}
+          onFollow={() => followThread(threadRoot.id)}
+          onUnfollow={() => unfollowThread(threadRoot.id)}
           onTyping={() =>
             void sendTypingIndicator(selected.id, threadRoot.id, threadRoot.id)
           }

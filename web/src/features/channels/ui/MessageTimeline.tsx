@@ -1,4 +1,6 @@
 import {
+  BellOff,
+  BellRing,
   Download,
   Clock,
   Flag,
@@ -495,6 +497,9 @@ export function ThreadPanel({
   customEmoji,
   typingPubkeys,
   onClose,
+  followed,
+  onFollow,
+  onUnfollow,
   onTyping,
   onSubmit,
 }: {
@@ -510,6 +515,9 @@ export function ThreadPanel({
   customEmoji: CustomEmoji[];
   typingPubkeys: string[];
   onClose: () => void;
+  followed: boolean;
+  onFollow: () => void;
+  onUnfollow: () => void;
   onTyping: () => void;
   onSubmit: (payload: ComposerPayload) => Promise<void>;
 }) {
@@ -523,6 +531,15 @@ export function ThreadPanel({
             #{channel.name}
           </p>
         </div>
+        <Button
+          aria-label={followed ? "Unfollow thread" : "Follow thread"}
+          onClick={followed ? onUnfollow : onFollow}
+          size="icon"
+          title={followed ? "Unfollow thread" : "Follow thread"}
+          variant="ghost"
+        >
+          {followed ? <BellOff /> : <BellRing />}
+        </Button>
         <Button
           aria-label="Close thread"
           onClick={onClose}

@@ -81,12 +81,14 @@ export function useLiveChannels({
   selectedChannelId,
   onChannelEvent,
   mutedChannelIds,
+  mutedRootIds,
 }: {
   ownerPubkey: string;
   channels: Channel[];
   selectedChannelId: string | null;
   onChannelEvent: (channelId: string) => void;
   mutedChannelIds?: ReadonlySet<string>;
+  mutedRootIds?: ReadonlySet<string>;
 }) {
   const [status, setStatus] = useState<RelayLiveStatus>("connecting");
   const [activity, setActivity] = useState<Activity>({});
@@ -198,11 +200,16 @@ export function useLiveChannels({
           const directlyMentioned = event.tags.some(
             (tag) => tag[0] === "p" && tag[1] === ownerPubkey,
           );
+          const rootId =
+            event.tags.find(
+              (tag) => tag[0] === "e" && tag[3] === "root",
+            )?.[1] ?? null;
           const shouldNotify =
             settings.enabled &&
             (channelId !== selectedChannelId || settings.notifyWhileViewing) &&
             event.pubkey !== ownerPubkey &&
             (!mutedChannelIds?.has(channelId) || directlyMentioned) &&
+            (!rootId || !mutedRootIds?.has(rootId) || directlyMentioned) &&
             typeof Notification !== "undefined" &&
             Notification.permission === "granted";
           if (shouldNotify) {
@@ -228,6 +235,7 @@ export function useLiveChannels({
     channelIds,
     channels,
     mutedChannelIds,
+    mutedRootIds,
     onChannelEvent,
     ownerPubkey,
     selectedChannelId,

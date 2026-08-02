@@ -1160,6 +1160,41 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     hasText: "Welcome to Buzz Web.",
   });
   await welcomeMessage.hover();
+  await welcomeMessage.getByRole("button", { name: "Reply" }).click();
+  await expect(page.getByRole("heading", { name: "Thread" })).toBeVisible();
+  await page.getByRole("button", { name: "Follow thread" }).click();
+  await expect(
+    page.getByRole("button", { name: "Unfollow thread" }),
+  ).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        (pubkey) =>
+          JSON.parse(
+            localStorage.getItem(`buzz-thread-follows.v1:${pubkey}`) ?? "[]",
+          ).length,
+        ownerPubkey,
+      ),
+    )
+    .toBe(1);
+  await page.getByRole("button", { name: "Unfollow thread" }).click();
+  await expect(
+    page.getByRole("button", { name: "Follow thread" }),
+  ).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        (pubkey) =>
+          JSON.parse(
+            localStorage.getItem(`buzz-thread-muted.v1:${pubkey}`) ?? "[]",
+          ).length,
+        ownerPubkey,
+      ),
+    )
+    .toBe(1);
+  await page.getByRole("button", { name: "Follow thread" }).click();
+  await page.getByRole("button", { name: "Close thread" }).click();
+  await welcomeMessage.hover();
   await welcomeMessage.getByRole("button", { name: "Add reaction" }).click();
   await page.getByRole("button", { name: "React with :shipit:" }).click();
   await expect
