@@ -7,11 +7,12 @@
 
 import { makeAuthEvent } from "nostr-tools/nip42";
 import { verifyEvent } from "nostr-tools/pure";
+import { makeNip98AuthHeader } from "@/shared/lib/nip98";
 import {
   type SignedNostrEvent,
   signNostrEvent,
 } from "@/shared/lib/nostr-signer";
-import { relayWsUrl } from "@/shared/lib/relay-url";
+import { relayHttpBaseUrl, relayWsUrl } from "@/shared/lib/relay-url";
 
 export interface NostrFilter {
   ids?: string[];
@@ -130,6 +131,40 @@ export function validNostrEvent(value: unknown): value is NostrEvent {
   } catch {
     return false;
   }
+}
+
+export async function queryEventsHttp(
+  filter: Record<string, unknown> | Record<string, unknown>[],
+): Promise<NostrEvent[]> {
+  const filters = Array.isArray(filter) ? filter : [filter];
+  const body = JSON.stringify(filters);
+  const url = `${relayHttpBaseUrl()}/query`;
+  const authorization = await makeNip98AuthHeader(url, "POST", {
+    body,
+    requireNip07: true,
+  });
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      Authorization: authorization,
+      "Content-Type": "application/json",
+    },
+    body,
+  });
+  const payload = (await response.json().catch(() => null)) as unknown;
+  if (!response.ok) {
+    const message =
+      payload &&
+      typeof payload === "object" &&
+      "error" in payload &&
+      typeof payload.error === "string"
+        ? payload.error
+        : `Relay query failed (${response.status}).`;
+    throw new Error(message);
+  }
+  if (!Array.isArray(payload)) throw new Error("Invalid relay query response.");
+  return payload.filter(validNostrEvent);
 }
 
 /**

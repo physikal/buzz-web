@@ -68,6 +68,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     content: string;
     tags: string[][];
   }> = [];
+  let capturedSearchFilter: Record<string, unknown> | null = null;
   let claimedCredential: {
     credential_id: string;
     prf_input: string;
@@ -170,9 +171,30 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
       "payload",
       createHash("sha256").update(body).digest("hex"),
     ]);
-    const filters = JSON.parse(body) as Array<{ kinds?: number[] }>;
+    const filters = JSON.parse(body) as Array<{
+      kinds?: number[];
+      search?: string;
+      [key: string]: unknown;
+    }>;
     const kinds = filters.flatMap((filter) => filter.kinds ?? []);
     const events = [];
+    const searchFilter = filters.find(
+      (filter) => typeof filter.search === "string",
+    );
+    if (searchFilter) {
+      capturedSearchFilter = searchFilter;
+      events.push(
+        finalizeEvent(
+          {
+            kind: 9,
+            created_at: Math.floor(Date.now() / 1000),
+            content: "Welcome search result",
+            tags: [["h", "44444444-4444-4444-8444-444444444444"]],
+          },
+          catalogSecret,
+        ),
+      );
+    }
     if (kinds.includes(20001))
       events.push(
         finalizeEvent(
@@ -547,8 +569,28 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await page.routeWebSocket(
     new RegExp(`ws:\\/\\/(?:127\\.0\\.0\\.1|localhost):${testPort}\\/?$`),
     (socket) => {
+      socket.send(JSON.stringify(["AUTH", "web-smoke-challenge"]));
       socket.onMessage((message) => {
         const frame = JSON.parse(String(message)) as unknown[];
+        if (frame[0] === "AUTH" && frame[1]) {
+          const event = frame[1] as (typeof submittedEvents)[number];
+          expect(verifyEvent(event)).toBe(true);
+          expect(event.pubkey).toBe(ownerPubkey);
+          expect(event.tags).toContainEqual([
+            "challenge",
+            "web-smoke-challenge",
+          ]);
+          socket.send(JSON.stringify(["OK", event.id, true, ""]));
+          return;
+        }
+        if (frame[0] === "EVENT" && frame[1]) {
+          const event = frame[1] as (typeof submittedEvents)[number];
+          expect(verifyEvent(event)).toBe(true);
+          expect(event.pubkey).toBe(ownerPubkey);
+          submittedEvents.push(event);
+          socket.send(JSON.stringify(["OK", event.id, true, ""]));
+          return;
+        }
         if (frame[0] === "REQ" && typeof frame[1] === "string") {
           const subscriptionId = frame[1];
           const filters = JSON.stringify(frame.slice(2));
@@ -1014,6 +1056,22 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await expect(page.getByRole("heading", { name: "general" })).toBeVisible();
   await expect(page.getByText("Welcome to Buzz Web.")).toBeVisible();
   await expect(page.getByLabel("Message #general")).toBeVisible();
+  await page.getByRole("button", { name: "Search messages" }).click();
+  await page
+    .getByLabel("Search query")
+    .fill(
+      `Wel in:general from:${catalogPubkey} after:2026-01-02 before:2026-02-03`,
+    );
+  await expect(page.getByText("Welcome search result")).toBeVisible();
+  expect(capturedSearchFilter).toMatchObject({
+    search: "Wel",
+    search_mode: "prefix",
+    authors: [catalogPubkey],
+    "#h": ["44444444-4444-4444-8444-444444444444"],
+  });
+  expect(capturedSearchFilter?.since).toEqual(expect.any(Number));
+  expect(capturedSearchFilter?.until).toEqual(expect.any(Number));
+  await page.getByRole("button", { name: "Close" }).click();
   await page.getByRole("button", { name: "Open Relay agent profile" }).click();
   await expect(
     page.getByRole("dialog", { name: "Relay agent profile" }),

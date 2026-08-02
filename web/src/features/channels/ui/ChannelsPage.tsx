@@ -34,6 +34,10 @@ import { useWorkspacePresence } from "@/features/presence/use-presence";
 import { UserProfileDialog } from "@/features/profile/UserProfileDialog";
 import { ReminderDialog } from "@/features/reminders/ui/ReminderDialog";
 import {
+  resolveMessageSearchInput,
+  toMessageSearchResult,
+} from "@/features/search/search-operators";
+import {
   HuddleBar,
   HuddleHeaderButton,
   StartHuddleDialog,
@@ -195,8 +199,9 @@ function ChannelsWorkspace({
     ? templatesQuery.data?.find((item) => item.id === templateSetup.templateId)
     : null;
   const messagesQuery = useQuery({
-    queryKey: ["channel-messages", selected?.id, ownerPubkey],
-    queryFn: () => listChannelMessages(selected?.id ?? "", ownerPubkey),
+    queryKey: ["channel-messages", selected?.id, ownerPubkey, highlightedId],
+    queryFn: () =>
+      listChannelMessages(selected?.id ?? "", ownerPubkey, highlightedId),
     enabled: Boolean(selected),
     refetchInterval: 30_000,
     retry: false,
@@ -473,23 +478,24 @@ function ChannelsWorkspace({
     onError: mutationError("Could not update channel membership"),
   });
   const searchMutation = useMutation({
-    mutationFn: searchMessages,
+    mutationFn: (rawQuery: string) => {
+      const input = resolveMessageSearchInput(rawQuery, channels, [
+        ...(agentsQuery.data ?? []).map((agent) => ({
+          pubkey: agent.agent_pubkey,
+          name: agent.name,
+        })),
+        ...[...profiles.values()].map((profile) => ({
+          pubkey: profile.pubkey,
+          name: profile.displayName,
+        })),
+      ]);
+      return input ? searchMessages(input) : Promise.resolve([]);
+    },
     onError: mutationError("Search failed"),
   });
 
   const searchResults: SearchResult[] = (searchMutation.data ?? []).map(
-    (event) => {
-      const channelId = event.tags.find((tag) => tag[0] === "h")?.[1] ?? "";
-      return {
-        id: event.id,
-        channelId,
-        channelName:
-          channels.find((channel) => channel.id === channelId)?.name ??
-          "unknown",
-        author: event.pubkey,
-        content: event.content,
-      };
-    },
+    (event) => toMessageSearchResult(event, channels, agentNames, profiles),
   );
 
   function mentionsFor(content: string): string[] {
@@ -808,9 +814,10 @@ function ChannelsWorkspace({
         pending={searchMutation.isPending}
         results={searchResults}
         onClose={() => setSearchOpen(false)}
-        onSearch={(query) => searchMutation.mutate(query)}
+        onSearch={searchMutation.mutate}
         onSelect={(result) => {
           setSelectedId(result.channelId);
+          setThreadRootId(result.rootId);
           setHighlightedId(result.id);
           setSearchOpen(false);
         }}

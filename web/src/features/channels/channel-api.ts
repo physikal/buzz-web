@@ -3,6 +3,7 @@ import {
   type NostrFilter,
   publishEphemeralEvent,
   queryEvents,
+  queryEventsHttp,
 } from "@/shared/lib/nostr-client";
 import { submitEvent } from "@/shared/lib/relay-events";
 import { relayHttpBaseUrl, relayWsUrl } from "@/shared/lib/relay-url";
@@ -405,10 +406,23 @@ function projectMessages(
 export async function listChannelMessages(
   channelId: string,
   ownerPubkey: string,
+  focusEventId?: string | null,
 ): Promise<ChannelMessage[]> {
   const content = await queryEvents(
     relayWsUrl(),
-    { kinds: CONTENT_KINDS, "#h": [channelId], limit: 500 },
+    [
+      { kinds: CONTENT_KINDS, "#h": [channelId], limit: 500 },
+      ...(focusEventId
+        ? [
+            {
+              ids: [focusEventId],
+              kinds: CONTENT_KINDS,
+              "#h": [channelId],
+              limit: 1,
+            },
+          ]
+        : []),
+    ],
     { requireNip07: true },
   );
   if (!content.length) return [];
@@ -519,14 +533,29 @@ export async function removeReaction(reactionEventId: string): Promise<void> {
   await submitEvent({ kind: 5, content: "", tags: [["e", reactionEventId]] });
 }
 
-export async function searchMessages(query: string): Promise<NostrEvent[]> {
-  const normalized = query.trim();
-  if (!normalized) return [];
-  return queryEvents(
-    relayWsUrl(),
-    { kinds: CONTENT_KINDS, search: normalized, limit: 100 },
-    { requireNip07: true },
-  );
+export async function searchMessages(input: {
+  text: string;
+  channelId?: string;
+  authors?: string[];
+  since?: number | null;
+  until?: number | null;
+}): Promise<NostrEvent[]> {
+  const text = input.text.trim();
+  if (text.length < 2) return [];
+  return queryEventsHttp({
+    kinds: [9, 40002, 45001, 45003],
+    search: text,
+    search_mode: "prefix",
+    limit: 100,
+    ...(input.channelId ? { "#h": [input.channelId] } : {}),
+    ...(input.authors?.length ? { authors: input.authors } : {}),
+    ...(input.since !== null && input.since !== undefined
+      ? { since: input.since }
+      : {}),
+    ...(input.until !== null && input.until !== undefined
+      ? { until: input.until }
+      : {}),
+  });
 }
 
 export async function listProfiles(pubkeys: string[]): Promise<UserProfile[]> {

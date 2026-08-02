@@ -6,9 +6,9 @@ import {
   Settings,
   X,
 } from "lucide-react";
-import { type FormEvent, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 
-import { parsePubkey, truncatePubkey } from "@/shared/lib/pubkey";
+import { parsePubkey } from "@/shared/lib/pubkey";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import type { Channel } from "../channel-api";
@@ -133,7 +133,10 @@ export type SearchResult = {
   channelId: string;
   channelName: string;
   author: string;
+  authorName: string;
   content: string;
+  createdAt: number;
+  rootId: string | null;
 };
 
 export function ChannelBrowserDialog({
@@ -264,6 +267,11 @@ export function SearchDialog({
   onSelect: (result: SearchResult) => void;
 }) {
   const [query, setQuery] = useState("");
+  useEffect(() => {
+    if (!open || query.trim().length < 2) return;
+    const timer = window.setTimeout(() => onSearch(query), 250);
+    return () => window.clearTimeout(timer);
+  }, [onSearch, open, query]);
   return (
     <DialogFrame
       open={open}
@@ -281,7 +289,7 @@ export function SearchDialog({
         <Input
           aria-label="Search query"
           autoFocus
-          placeholder="Search this workspace"
+          placeholder="Search Buzz"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
         />
@@ -299,7 +307,13 @@ export function SearchDialog({
           >
             <span className="flex items-center gap-2 text-xs text-muted-foreground">
               <strong className="text-foreground">#{result.channelName}</strong>
-              {truncatePubkey(result.author)}
+              {result.authorName}
+              <time dateTime={new Date(result.createdAt * 1_000).toISOString()}>
+                {new Intl.DateTimeFormat(undefined, {
+                  month: "short",
+                  day: "numeric",
+                }).format(new Date(result.createdAt * 1_000))}
+              </time>
             </span>
             <span className="mt-1 line-clamp-2 block text-sm">
               {result.content}
