@@ -38,6 +38,10 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   const agentSecret = new Uint8Array(32);
   agentSecret[31] = 3;
   const agentPubkey = getPublicKey(agentSecret);
+  const catalogSecret = new Uint8Array(32);
+  catalogSecret[31] = 1;
+  const catalogPubkey = getPublicKey(catalogSecret);
+  let catalogImageRequests = 0;
   let ownerPubkey = "";
   const managedAgents: Array<Record<string, unknown>> = [];
   const submittedEvents: Array<{
@@ -55,6 +59,10 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     nonce: string;
     ciphertext: string;
   } | null = null;
+  await page.route("https://tracker.invalid/**", async (route) => {
+    catalogImageRequests += 1;
+    await route.abort();
+  });
   await page.route("**/api/owner/status", async (route) => {
     await route.fulfill({
       status: 200,
@@ -329,8 +337,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
         if (frame[0] === "REQ" && typeof frame[1] === "string") {
           const subscriptionId = frame[1];
           const filters = JSON.stringify(frame.slice(2));
-          const signer = new Uint8Array(32);
-          signer[31] = 1;
+          const signer = catalogSecret;
           const createdAt = Math.floor(Date.now() / 1000) - 60;
           if (filters.includes("39000")) {
             socket.send(
@@ -519,6 +526,32 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
               socket.send(JSON.stringify(["EVENT", subscriptionId, reminder]));
           }
           if (filters.includes("30175")) {
+            socket.send(
+              JSON.stringify([
+                "EVENT",
+                subscriptionId,
+                finalizeEvent(
+                  {
+                    kind: 30175,
+                    created_at: createdAt,
+                    content: JSON.stringify({
+                      display_name: "Community reviewer",
+                      system_prompt:
+                        "Audit changes from the community catalog.\n\n[Documentation](https://tracker.invalid/docs)\n\n![Tracking pixel](https://tracker.invalid/pixel.png)",
+                      runtime: "codex",
+                      model: "gpt-5.4",
+                      respond_to: "allowlist",
+                      respond_to_allowlist: ["ff".repeat(32)],
+                    }),
+                    tags: [
+                      ["d", "community-reviewer"],
+                      ["shared", "true"],
+                    ],
+                  },
+                  signer,
+                ),
+              ]),
+            );
             for (const persona of submittedEvents.filter(
               (event) => event.kind === 30175,
             ))
@@ -1046,6 +1079,47 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     })
     .toBe(true);
   await expect(page.getByText("Review lead")).toBeVisible();
+  await page.getByRole("button", { name: "Agent catalog" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Agent catalog" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Community reviewer" }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Audit changes from the community catalog."),
+  ).toBeVisible();
+  await expect(page.getByText("Tracking pixel")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Documentation" })).toHaveCount(
+    0,
+  );
+  expect(catalogImageRequests).toBe(0);
+  await page.getByRole("button", { name: "Add to My Agents" }).click();
+  await expect
+    .poll(() => {
+      const imported = submittedEvents.find(
+        (event) =>
+          event.kind === 30175 &&
+          event.pubkey === ownerPubkey &&
+          event.content.includes('"display_name":"Community reviewer"'),
+      );
+      return (
+        imported?.tags.some(
+          (tag) =>
+            tag[0] === "a" &&
+            tag[1] === `30175:${catalogPubkey}:community-reviewer`,
+        ) === true &&
+        imported.content.includes('"respond_to":"owner-only"') &&
+        !imported.content.includes("respond_to_allowlist") &&
+        !imported.tags.some((tag) => tag[0] === "shared")
+      );
+    })
+    .toBe(true);
+  await expect(page.getByRole("button", { name: "Added" })).toBeDisabled();
+  await page
+    .getByRole("dialog", { name: "Agent catalog" })
+    .getByRole("button", { name: "Close" })
+    .click();
   await page.getByRole("button", { name: "Deploy Review lead" }).click();
   await expect(
     page.getByRole("heading", { name: "Deploy persona" }),

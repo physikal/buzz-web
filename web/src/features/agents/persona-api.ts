@@ -20,6 +20,7 @@ export type AgentPersona = {
   respondToAllowlist: string[];
   parallelism: number | null;
   shared: boolean;
+  catalogSource: { ownerPubkey: string; personaId: string } | null;
 };
 
 export type PersonaInput = Omit<AgentPersona, "id" | "eventId" | "createdAt">;
@@ -38,7 +39,7 @@ type PersonaContent = {
 };
 
 function firstTag(event: NostrEvent, name: string) {
-  const tags = event.tags.filter((tag) => tag[0] === name);
+  const tags = event.tags.filter((tag) => tag.length === 2 && tag[0] === name);
   return tags.length === 1 ? tags[0][1] : undefined;
 }
 
@@ -48,6 +49,28 @@ function optionalString(value: unknown, maxLength: number) {
     : value === null || value === undefined
       ? null
       : undefined;
+}
+
+function safeAvatarUrl(value: string | null): string | null {
+  if (!value) return null;
+  if (value.startsWith("data:image/svg+xml,") && value.length <= 8_192)
+    return value;
+  if (
+    value.length <= 256 * 1024 &&
+    /^data:image\/(?:png|jpeg|gif|webp);base64,[A-Za-z0-9+/]+={0,2}$/u.test(
+      value,
+    )
+  )
+    return value;
+  if (value.length > 2_048 || /[\s()]/u.test(value)) return null;
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "https:" || parsed.protocol === "http:"
+      ? value
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 function parsePersona(event: NostrEvent): AgentPersona | null {
@@ -106,7 +129,7 @@ function parsePersona(event: NostrEvent): AgentPersona | null {
       createdAt: event.created_at,
       displayName: displayName.trim(),
       systemPrompt: systemPrompt ?? "",
-      avatarUrl,
+      avatarUrl: safeAvatarUrl(avatarUrl),
       runtime: supportedRuntime,
       model,
       provider,
@@ -114,9 +137,12 @@ function parsePersona(event: NostrEvent): AgentPersona | null {
       respondTo: respondTo as RespondToMode | null,
       respondToAllowlist: allowlist as string[],
       parallelism: parallelism as number | null,
-      shared: event.tags.some(
-        (tag) => tag.length === 2 && tag[0] === "shared" && tag[1] === "true",
-      ),
+      shared:
+        event.tags.filter((tag) => tag[0] === "shared").length === 1 &&
+        event.tags.some(
+          (tag) => tag.length === 2 && tag[0] === "shared" && tag[1] === "true",
+        ),
+      catalogSource: catalogSource(event),
     };
   } catch {
     return null;
@@ -165,12 +191,29 @@ function personaContent(input: PersonaInput): PersonaContent {
   };
 }
 
+function catalogSource(event: NostrEvent): AgentPersona["catalogSource"] {
+  const references = event.tags.filter(
+    (tag) => tag.length === 2 && tag[0] === "a" && tag[1].startsWith("30175:"),
+  );
+  if (references.length !== 1) return null;
+  const match = /^30175:([0-9a-f]{64}):([a-z0-9][a-z0-9_-]{0,63})$/u.exec(
+    references[0][1],
+  );
+  return match ? { ownerPubkey: match[1], personaId: match[2] } : null;
+}
+
 export async function savePersona(
   input: PersonaInput,
   existing?: AgentPersona,
 ) {
   if (!input.displayName.trim() || input.displayName.length > 120)
     throw new Error("Enter a persona name.");
+  if (
+    input.catalogSource &&
+    (!/^[0-9a-f]{64}$/u.test(input.catalogSource.ownerPubkey) ||
+      !/^[a-z0-9][a-z0-9_-]{0,63}$/u.test(input.catalogSource.personaId))
+  )
+    throw new Error("Invalid catalog source.");
   const id = existing?.id ?? crypto.randomUUID().replace(/-/g, "");
   const content = JSON.stringify(personaContent(input));
   if (new TextEncoder().encode(content).length > 65_535)
@@ -183,6 +226,14 @@ export async function savePersona(
     tags: [
       ["d", id],
       ["alt", "agent persona definition"],
+      ...(input.catalogSource
+        ? [
+            [
+              "a",
+              `30175:${input.catalogSource.ownerPubkey}:${input.catalogSource.personaId}`,
+            ],
+          ]
+        : []),
       ...(input.shared ? [["shared", "true"]] : []),
     ],
     content,

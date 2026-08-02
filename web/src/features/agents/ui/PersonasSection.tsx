@@ -8,6 +8,7 @@ import {
   Play,
   Plus,
   Trash2,
+  Library,
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -22,6 +23,12 @@ import {
   savePersona,
 } from "../persona-api";
 import { PersonaDialog } from "./PersonaDialog";
+import {
+  catalogPersonaInput,
+  type CatalogPersona,
+  listPersonaCatalog,
+} from "../persona-catalog-api";
+import { PersonaCatalogDialog } from "./PersonaCatalogDialog";
 
 export function PersonasSection({
   ownerPubkey,
@@ -33,9 +40,16 @@ export function PersonasSection({
   const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<AgentPersona | null>(null);
+  const [catalogOpen, setCatalogOpen] = useState(false);
   const query = useQuery({
     queryKey: ["agent-personas", ownerPubkey],
     queryFn: () => listPersonas(ownerPubkey),
+    staleTime: 30_000,
+  });
+  const catalog = useQuery({
+    queryKey: ["persona-catalog", ownerPubkey],
+    queryFn: () => listPersonaCatalog(ownerPubkey),
+    enabled: catalogOpen,
     staleTime: 30_000,
   });
   const refresh = () =>
@@ -68,6 +82,16 @@ export function PersonasSection({
     onError: (error) =>
       toast.error("Could not delete persona", { description: error.message }),
   });
+  const importPersona = useMutation({
+    mutationFn: (persona: CatalogPersona) =>
+      savePersona(catalogPersonaInput(persona)),
+    onSuccess: () => {
+      void refresh();
+      toast.success("Persona added");
+    },
+    onError: (error) =>
+      toast.error("Could not add persona", { description: error.message }),
+  });
 
   return (
     <section className="space-y-3">
@@ -78,16 +102,25 @@ export function PersonasSection({
             Reusable agent definitions synced through your relay.
           </p>
         </div>
-        <Button
-          onClick={() => {
-            setEditing(null);
-            setDialogOpen(true);
-          }}
-          size="sm"
-          variant="outline"
-        >
-          <Plus /> Create persona
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            onClick={() => setCatalogOpen(true)}
+            size="sm"
+            variant="outline"
+          >
+            <Library /> Agent catalog
+          </Button>
+          <Button
+            onClick={() => {
+              setEditing(null);
+              setDialogOpen(true);
+            }}
+            size="sm"
+            variant="outline"
+          >
+            <Plus /> Create persona
+          </Button>
+        </div>
       </header>
       {query.isLoading ? (
         <p className="py-5 text-sm text-muted-foreground">Loading personas…</p>
@@ -158,6 +191,7 @@ export function PersonasSection({
                       input: {
                         ...persona,
                         displayName: `${persona.displayName} copy`,
+                        catalogSource: null,
                       },
                     })
                   }
@@ -201,6 +235,17 @@ export function PersonasSection({
           onSave={(input) =>
             save.mutateAsync({ input, persona: editing ?? undefined })
           }
+        />
+      ) : null}
+      {catalogOpen ? (
+        <PersonaCatalogDialog
+          catalog={catalog.data ?? []}
+          error={catalog.error?.message ?? null}
+          importing={importPersona.isPending}
+          loading={catalog.isLoading}
+          localPersonas={query.data ?? []}
+          onClose={() => setCatalogOpen(false)}
+          onImport={(persona) => importPersona.mutate(persona)}
         />
       ) : null}
     </section>

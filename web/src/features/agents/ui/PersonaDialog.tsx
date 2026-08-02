@@ -76,6 +76,7 @@ export function PersonaDialog({
       respondToAllowlist: respondTo === "allowlist" ? allowlist : [],
       parallelism: parallel,
       shared,
+      catalogSource: persona?.catalogSource ?? null,
     });
   }
 
