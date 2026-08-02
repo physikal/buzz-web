@@ -1,7 +1,7 @@
 #![deny(unsafe_code)]
 //! Shared types and secret envelope used by the Buzz agent control plane.
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::OnceLock};
 
 use chacha20poly1305::{
     aead::{Aead, Payload},
@@ -119,31 +119,313 @@ pub fn decrypt_secret(
     Ok(Zeroizing::new(decoded))
 }
 
-/// Runtime command selected from the fixed server-side catalog.
+const CUSTOM_RUNTIME_CATALOG_ENV: &str = "BUZZ_AGENT_RUNTIME_CATALOG_JSON";
+const MAX_CUSTOM_RUNTIMES: usize = 32;
+
+/// One write-only credential field declared by the deployment operator.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct RuntimeSecretField {
+    /// Environment variable passed to the installed harness.
+    pub env: String,
+    /// Human-readable prompt shown in owner-only configuration UI.
+    pub label: String,
+    /// Whether a new agent must provide this credential.
+    #[serde(default = "default_true")]
+    pub required: bool,
+}
+
+/// Safe runtime metadata returned to an authenticated owner.
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+pub struct PublicRuntimeCatalogEntry {
+    pub id: String,
+    pub label: String,
+    pub source: &'static str,
+    pub supports_model: bool,
+    pub model_required: bool,
+    pub supports_subscription: bool,
+    pub supports_arguments: bool,
+    pub secret_fields: Vec<RuntimeSecretField>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+struct OperatorRuntimeDefinition {
+    id: String,
+    label: String,
+    command: String,
+    #[serde(default)]
+    args: Vec<String>,
+    #[serde(default)]
+    allow_owner_args: bool,
+    #[serde(default)]
+    model_env: Option<String>,
+    #[serde(default)]
+    model_required: bool,
+    #[serde(default)]
+    secret_fields: Vec<RuntimeSecretField>,
+}
+
+const fn default_true() -> bool {
+    true
+}
+
+/// Runtime command selected from the server-side catalog.
 pub struct RuntimeCommand {
     /// ACP adapter executable.
-    pub command: &'static str,
+    pub command: String,
     /// ACP adapter arguments.
-    pub args: &'static [&'static str],
+    pub args: Vec<String>,
+    /// Optional harness-specific model environment variable.
+    pub model_env: Option<String>,
+    /// Write-only environment names accepted for this runtime.
+    pub secret_fields: Vec<RuntimeSecretField>,
+    /// Whether this runtime was supplied by the deployment operator.
+    pub custom: bool,
+    /// Whether an owner may append bounded arguments to the fixed command.
+    pub allow_owner_args: bool,
 }
 
 /// Resolve a remotely configurable runtime without accepting an executable path.
 pub fn runtime_command(runtime: &str) -> Option<RuntimeCommand> {
     match runtime {
         "buzz-agent" => Some(RuntimeCommand {
-            command: "buzz-agent",
-            args: &[],
+            command: "buzz-agent".into(),
+            args: vec![],
+            model_env: Some("BUZZ_AGENT_MODEL".into()),
+            secret_fields: vec![],
+            custom: false,
+            allow_owner_args: true,
         }),
         "codex" => Some(RuntimeCommand {
-            command: "codex-acp",
-            args: &[],
+            command: "codex-acp".into(),
+            args: vec![],
+            model_env: None,
+            secret_fields: vec![],
+            custom: false,
+            allow_owner_args: true,
         }),
         "claude" => Some(RuntimeCommand {
-            command: "claude-agent-acp",
-            args: &[],
+            command: "claude-agent-acp".into(),
+            args: vec![],
+            model_env: None,
+            secret_fields: vec![],
+            custom: false,
+            allow_owner_args: true,
         }),
-        _ => None,
+        _ => operator_runtime_definitions()
+            .ok()?
+            .iter()
+            .find(|entry| entry.id == runtime)
+            .map(|entry| RuntimeCommand {
+                command: entry.command.clone(),
+                args: entry.args.clone(),
+                model_env: entry.model_env.clone(),
+                secret_fields: entry.secret_fields.clone(),
+                custom: true,
+                allow_owner_args: entry.allow_owner_args,
+            }),
     }
+}
+
+/// Return browser-safe metadata. Commands and fixed arguments never cross the
+/// host/browser trust boundary.
+pub fn public_runtime_catalog() -> anyhow::Result<Vec<PublicRuntimeCatalogEntry>> {
+    let mut entries = vec![
+        PublicRuntimeCatalogEntry {
+            id: "buzz-agent".into(),
+            label: "Buzz Agent".into(),
+            source: "built-in",
+            supports_model: true,
+            model_required: true,
+            supports_subscription: false,
+            supports_arguments: true,
+            secret_fields: vec![],
+        },
+        PublicRuntimeCatalogEntry {
+            id: "codex".into(),
+            label: "Codex".into(),
+            source: "built-in",
+            supports_model: true,
+            model_required: false,
+            supports_subscription: true,
+            supports_arguments: true,
+            secret_fields: vec![],
+        },
+        PublicRuntimeCatalogEntry {
+            id: "claude".into(),
+            label: "Claude Code".into(),
+            source: "built-in",
+            supports_model: true,
+            model_required: false,
+            supports_subscription: true,
+            supports_arguments: true,
+            secret_fields: vec![],
+        },
+    ];
+    entries.extend(
+        operator_runtime_definitions()?
+            .iter()
+            .map(|entry| PublicRuntimeCatalogEntry {
+                id: entry.id.clone(),
+                label: entry.label.clone(),
+                source: "operator",
+                supports_model: entry.model_env.is_some(),
+                model_required: entry.model_required,
+                supports_subscription: false,
+                supports_arguments: entry.allow_owner_args,
+                secret_fields: entry.secret_fields.clone(),
+            }),
+    );
+    Ok(entries)
+}
+
+/// Whether this runtime may receive a named write-only credential.
+pub fn runtime_allows_secret_env(runtime: &str, name: &str) -> bool {
+    if !runtime_command(runtime).is_some_and(|definition| definition.custom) {
+        return allowed_secret_env_name(name);
+    }
+    runtime_command(runtime).is_some_and(|definition| {
+        definition
+            .secret_fields
+            .iter()
+            .any(|field| field.env == name)
+    })
+}
+
+/// Whether the operator catalog requires a model for this runtime.
+pub fn runtime_model_required(runtime: &str) -> bool {
+    operator_runtime_definitions()
+        .ok()
+        .and_then(|entries| entries.iter().find(|entry| entry.id == runtime))
+        .is_some_and(|entry| entry.model_required)
+}
+
+static OPERATOR_RUNTIME_DEFINITIONS: OnceLock<Result<Vec<OperatorRuntimeDefinition>, String>> =
+    OnceLock::new();
+
+fn operator_runtime_definitions() -> anyhow::Result<&'static [OperatorRuntimeDefinition]> {
+    match OPERATOR_RUNTIME_DEFINITIONS.get_or_init(|| {
+        let raw = std::env::var(CUSTOM_RUNTIME_CATALOG_ENV).unwrap_or_default();
+        parse_operator_runtime_catalog(&raw).map_err(|error| error.to_string())
+    }) {
+        Ok(entries) => Ok(entries),
+        Err(error) => anyhow::bail!("invalid {CUSTOM_RUNTIME_CATALOG_ENV}: {error}"),
+    }
+}
+
+fn parse_operator_runtime_catalog(raw: &str) -> anyhow::Result<Vec<OperatorRuntimeDefinition>> {
+    if raw.trim().is_empty() {
+        return Ok(vec![]);
+    }
+    let entries: Vec<OperatorRuntimeDefinition> = serde_json::from_str(raw)?;
+    if entries.len() > MAX_CUSTOM_RUNTIMES {
+        anyhow::bail!("too many custom runtimes");
+    }
+    let mut ids = std::collections::BTreeSet::new();
+    for entry in &entries {
+        if !valid_runtime_id(&entry.id)
+            || matches!(entry.id.as_str(), "buzz-agent" | "codex" | "claude")
+            || !ids.insert(entry.id.as_str())
+            || entry.label.trim().is_empty()
+            || entry.label.len() > 80
+            || !valid_command_name(&entry.command)
+            || entry.args.len() > 32
+            || entry
+                .args
+                .iter()
+                .any(|arg| arg.is_empty() || arg.len() > 1024 || arg.contains(['\0', ',']))
+            || entry.secret_fields.len() > 16
+            || entry.model_required && entry.model_env.is_none()
+        {
+            anyhow::bail!("invalid custom runtime definition");
+        }
+        if entry
+            .model_env
+            .as_deref()
+            .is_some_and(|name| !valid_custom_model_env(name))
+        {
+            anyhow::bail!("invalid custom runtime model environment");
+        }
+        let mut secret_names = std::collections::BTreeSet::new();
+        for field in &entry.secret_fields {
+            if !valid_custom_secret_env(&field.env)
+                || !secret_names.insert(field.env.as_str())
+                || field.label.trim().is_empty()
+                || field.label.len() > 80
+                || entry.model_env.as_deref() == Some(field.env.as_str())
+            {
+                anyhow::bail!("invalid custom runtime credential field");
+            }
+        }
+    }
+    Ok(entries)
+}
+
+fn valid_runtime_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 64
+        && value.bytes().enumerate().all(|(index, byte)| {
+            byte.is_ascii_lowercase()
+                || byte.is_ascii_digit()
+                || (index > 0 && matches!(byte, b'-' | b'_'))
+        })
+}
+
+fn valid_command_name(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value.bytes().enumerate().all(|(index, byte)| {
+            byte.is_ascii_alphanumeric() || (index > 0 && matches!(byte, b'-' | b'_' | b'.' | b'+'))
+        })
+}
+
+fn safe_custom_env_base(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 64
+        && value.bytes().enumerate().all(|(index, byte)| {
+            byte.is_ascii_uppercase() || (index > 0 && byte.is_ascii_digit()) || byte == b'_'
+        })
+        && ![
+            "BUZZ_",
+            "DATABASE",
+            "POSTGRES",
+            "REDIS",
+            "AWS_",
+            "DOCKER_",
+            "CONTAINER_",
+            "KUBERNETES_",
+            "LD_",
+            "DYLD_",
+            "NODE_",
+            "PYTHON",
+            "RUST",
+            "CARGO_",
+            "GIT_",
+            "SSH_",
+            "SSL_",
+            "HTTP_",
+            "HTTPS_",
+            "ALL_PROXY",
+            "NO_PROXY",
+        ]
+        .iter()
+        .any(|prefix| value.starts_with(prefix))
+        && !matches!(
+            value,
+            "PATH" | "HOME" | "SHELL" | "USER" | "TMPDIR" | "TERM"
+        )
+}
+
+fn valid_custom_secret_env(value: &str) -> bool {
+    safe_custom_env_base(value)
+        && ["_API_KEY", "_TOKEN", "_SECRET", "_PASSWORD"]
+            .iter()
+            .any(|suffix| value.ends_with(suffix))
+}
+
+fn valid_custom_model_env(value: &str) -> bool {
+    safe_custom_env_base(value) && value.ends_with("_MODEL")
 }
 
 /// Map one validated, non-secret runtime setting to its fixed environment key.
@@ -273,5 +555,56 @@ mod tests {
             runtime_config_env_name("buzz-agent", Some("anthropic"), "LD_PRELOAD"),
             None
         );
+    }
+
+    #[test]
+    fn operator_runtime_catalog_is_strict_and_hides_spawn_details() {
+        let parsed = parse_operator_runtime_catalog(
+            r#"[{
+                "id":"gemini",
+                "label":"Gemini",
+                "command":"gemini-acp",
+                "args":["serve"],
+                "model_env":"GEMINI_MODEL",
+                "model_required":true,
+                "secret_fields":[{"env":"GEMINI_API_KEY","label":"Gemini API key"}]
+            }]"#,
+        )
+        .unwrap();
+        assert_eq!(parsed[0].command, "gemini-acp");
+        assert_eq!(parsed[0].secret_fields[0].required, true);
+        assert!(!parsed[0].allow_owner_args);
+
+        let public = PublicRuntimeCatalogEntry {
+            id: parsed[0].id.clone(),
+            label: parsed[0].label.clone(),
+            source: "operator",
+            supports_model: true,
+            model_required: true,
+            supports_subscription: false,
+            supports_arguments: parsed[0].allow_owner_args,
+            secret_fields: parsed[0].secret_fields.clone(),
+        };
+        let encoded = serde_json::to_string(&public).unwrap();
+        assert!(!public.supports_arguments);
+        assert!(!encoded.contains("gemini-acp"));
+        assert!(!encoded.contains("serve"));
+    }
+
+    #[test]
+    fn operator_runtime_catalog_rejects_spawn_and_environment_injection() {
+        for definition in [
+            r#"[{"id":"evil","label":"Evil","command":"/bin/sh"}]"#,
+            r#"[{"id":"evil","label":"Evil","command":"agent","args":["--flag,second"]}]"#,
+            r#"[{"id":"evil","label":"Evil","command":"agent","secret_fields":[{"env":"LD_PRELOAD","label":"Loader"}]}]"#,
+            r#"[{"id":"evil","label":"Evil","command":"agent","secret_fields":[{"env":"BUZZ_AGENT_API_KEY","label":"Internal"}]}]"#,
+            r#"[{"id":"evil","label":"Evil","command":"agent","model_env":"NODE_MODEL"}]"#,
+            r#"[{"id":"codex","label":"Override","command":"other"}]"#,
+        ] {
+            assert!(
+                parse_operator_runtime_catalog(definition).is_err(),
+                "accepted {definition}"
+            );
+        }
     }
 }

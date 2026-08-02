@@ -20,7 +20,13 @@ import {
   type AdvancedRuntimeDraft,
   validateAdvancedRuntimeDraft,
 } from "../runtime-config";
+import {
+  runtimeCatalogEntry,
+  runtimeDisplayName,
+  useAgentRuntimeCatalog,
+} from "../runtime-catalog";
 import { AdvancedRuntimeFields } from "./AdvancedRuntimeFields";
+import { RuntimeCredentialFields } from "./RuntimeCredentialFields";
 
 export function AgentEditDialog({
   agent,
@@ -55,6 +61,7 @@ function AgentEditForm({
   onClose: () => void;
   onSubmit: (input: UpdateAgentInput) => Promise<void>;
 }) {
+  const runtimeCatalog = useAgentRuntimeCatalog();
   const [name, setName] = useState(agent.name);
   const [instructions, setInstructions] = useState(agent.system_prompt);
   const [runtime, setRuntime] = useState<AgentRuntime>(agent.runtime);
@@ -66,6 +73,9 @@ function AgentEditForm({
     agent.credential_mode,
   );
   const [apiKey, setApiKey] = useState("");
+  const [customSecrets, setCustomSecrets] = useState<Record<string, string>>(
+    {},
+  );
   const [showApiKey, setShowApiKey] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [advancedDraft, setAdvancedDraft] = useState<AdvancedRuntimeDraft>({
@@ -102,6 +112,26 @@ function AgentEditForm({
     provider,
     advancedDraft,
   );
+  const selectedRuntime = runtimeCatalogEntry(runtimeCatalog.runtimes, runtime);
+  const customRuntime = selectedRuntime?.source === "operator";
+  const runtimeKnown = runtimeCatalog.runtimes.some(
+    (entry) => entry.id === runtime,
+  );
+  const runtimeOptions = runtimeKnown
+    ? runtimeCatalog.runtimes
+    : [
+        ...runtimeCatalog.runtimes,
+        {
+          id: runtime,
+          label: runtimeDisplayName(runtime),
+          source: "operator" as const,
+          supports_model: true,
+          model_required: false,
+          supports_subscription: false,
+          supports_arguments: false,
+          secret_fields: [],
+        },
+      ];
   const credentialChanged =
     runtime !== agent.runtime ||
     (runtime === "buzz-agent" && provider !== agent.provider) ||
@@ -109,7 +139,14 @@ function AgentEditForm({
   const replacementCredentialRequired =
     credentialMode === "api-key" &&
     credentialChanged &&
+    !customRuntime &&
     (runtime !== "buzz-agent" || providerMetadata(provider).credentialRequired);
+  const customCredentialsValid =
+    !customRuntime ||
+    !credentialChanged ||
+    (selectedRuntime?.secret_fields ?? []).every(
+      (field) => !field.required || Boolean(customSecrets[field.env]),
+    );
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -119,7 +156,10 @@ function AgentEditForm({
       runtime,
       model: model.trim() || null,
       provider: runtime === "buzz-agent" ? provider : null,
-      agent_args: parseAgentArgs(advancedDraft.agentArgsText),
+      agent_args:
+        selectedRuntime?.supports_arguments === false
+          ? []
+          : parseAgentArgs(advancedDraft.agentArgsText),
       parallelism: Number(advancedDraft.parallelism),
       idle_timeout_seconds: advancedDraft.idleTimeout
         ? Number(advancedDraft.idleTimeout)
@@ -132,7 +172,12 @@ function AgentEditForm({
       respond_to: respondTo,
       respond_to_allowlist: respondTo === "allowlist" ? allowlist : [],
     };
-    if (apiKey) {
+    const replacementSecrets = Object.fromEntries(
+      Object.entries(customSecrets).filter(([, value]) => value.length > 0),
+    );
+    if (customRuntime && Object.keys(replacementSecrets).length) {
+      input.secrets = replacementSecrets;
+    } else if (!customRuntime && apiKey) {
       input.secrets = buildCredentialSecrets(runtime, provider, apiKey);
     }
     await onSubmit(input);
@@ -194,23 +239,41 @@ function AgentEditForm({
                 onChange={(event) => {
                   const next = event.target.value as AgentRuntime;
                   setRuntime(next);
-                  if (next === "buzz-agent") setCredentialMode("api-key");
-                  else if (agent.runtime !== next)
-                    setCredentialMode("subscription");
+                  const entry = runtimeCatalogEntry(
+                    runtimeCatalog.runtimes,
+                    next,
+                  );
+                  setCredentialMode(
+                    entry?.supports_subscription ? "subscription" : "api-key",
+                  );
+                  setCustomSecrets({});
                 }}
               >
-                <option value="buzz-agent">Buzz Agent</option>
-                <option value="codex">Codex</option>
-                <option value="claude">Claude Code</option>
+                {runtimeOptions.map((entry) => (
+                  <option key={entry.id} value={entry.id}>
+                    {entry.label}
+                  </option>
+                ))}
               </select>
+              {!runtimeKnown && !runtimeCatalog.isPending ? (
+                <p className="mt-2 text-xs text-destructive">
+                  This harness is not installed on the agent host.
+                </p>
+              ) : null}
             </Field>
-            <Field label="Model">
-              <Input
-                placeholder="Automatic"
-                value={model}
-                onChange={(event) => setModel(event.target.value)}
-              />
-            </Field>
+            {selectedRuntime?.supports_model !== false ? (
+              <Field label="Model">
+                <Input
+                  placeholder={
+                    selectedRuntime?.model_required
+                      ? "Choose a model"
+                      : "Automatic"
+                  }
+                  value={model}
+                  onChange={(event) => setModel(event.target.value)}
+                />
+              </Field>
+            ) : null}
           </div>
           {runtime === "buzz-agent" ? (
             <Field label="LLM provider">
@@ -229,7 +292,8 @@ function AgentEditForm({
               </select>
             </Field>
           ) : null}
-          {runtime !== "buzz-agent" ? (
+          {runtime !== "buzz-agent" &&
+          selectedRuntime?.supports_subscription ? (
             <Field label="Authentication">
               <div className="grid grid-cols-2 rounded-md border bg-muted/40 p-1">
                 {(["subscription", "api-key"] as const).map((mode) => (
@@ -245,7 +309,16 @@ function AgentEditForm({
               </div>
             </Field>
           ) : null}
-          {credentialMode === "api-key" ? (
+          {credentialMode === "api-key" && customRuntime ? (
+            <RuntimeCredentialFields
+              disabled={pending || !stopped}
+              fields={selectedRuntime.secret_fields}
+              onChange={setCustomSecrets}
+              replacement
+              values={customSecrets}
+            />
+          ) : null}
+          {credentialMode === "api-key" && !customRuntime ? (
             <Field
               label={
                 runtime === "buzz-agent"
@@ -299,6 +372,7 @@ function AgentEditForm({
                 onChange={setAdvancedDraft}
                 provider={provider}
                 runtime={runtime}
+                supportsArguments={selectedRuntime?.supports_arguments}
               />
               {advancedError ? (
                 <p className="text-xs text-destructive">{advancedError}</p>
@@ -349,11 +423,14 @@ function AgentEditForm({
             disabled={
               pending ||
               !stopped ||
+              !runtimeKnown ||
               !name.trim() ||
               !allowlistValid ||
               (replacementCredentialRequired && !apiKey) ||
+              !customCredentialsValid ||
               advancedError !== null ||
               (runtime === "buzz-agent" && !model.trim()) ||
+              (selectedRuntime?.model_required && !model.trim()) ||
               (respondTo === "allowlist" && !allowlist.length)
             }
             form="edit-agent-form"

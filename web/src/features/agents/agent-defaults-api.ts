@@ -50,7 +50,7 @@ function exactTag(event: NostrEvent, name: string) {
 }
 
 function validRuntime(value: unknown): value is AgentRuntime {
-  return ["buzz-agent", "codex", "claude"].includes(value as string);
+  return typeof value === "string" && /^[a-z0-9][a-z0-9_-]{0,63}$/u.test(value);
 }
 
 async function parseDefaults(event: NostrEvent): Promise<AgentDefaults | null> {

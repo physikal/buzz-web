@@ -170,18 +170,16 @@ async fn run_agent(
     }
 
     let mut command = Command::new("buzz-acp");
-    let agent_args = if record.agent_args.is_empty() {
-        runtime.args.join(",")
-    } else {
-        record.agent_args.join(",")
-    };
+    let mut effective_args = runtime.args.clone();
+    effective_args.extend(record.agent_args.iter().cloned());
+    let agent_args = effective_args.join(",");
     command
         .env_clear()
         .env("PATH", &runtime_path)
         .env("HOME", &workdir)
         .env("BUZZ_PRIVATE_KEY", &secret.private_key_nsec)
         .env("BUZZ_RELAY_URL", &relay_url)
-        .env("BUZZ_ACP_AGENT_COMMAND", runtime.command)
+        .env("BUZZ_ACP_AGENT_COMMAND", &runtime.command)
         .env("BUZZ_ACP_AGENT_ARGS", agent_args)
         .env("BUZZ_ACP_AGENT_OWNER", &record.owner_pubkey)
         .env("BUZZ_ACP_SYSTEM_PROMPT", &record.system_prompt)
@@ -199,8 +197,8 @@ async fn run_agent(
         .stderr(std::process::Stdio::piped());
     if let Some(model) = &record.model {
         command.env("BUZZ_ACP_MODEL", model);
-        if record.runtime == "buzz-agent" {
-            command.env("BUZZ_AGENT_MODEL", model);
+        if let Some(model_env) = &runtime.model_env {
+            command.env(model_env, model);
         }
     }
     if let Some(provider) = &record.provider {
@@ -226,8 +224,8 @@ async fn run_agent(
         command.env(env_name, value);
     }
     for (name, value) in &secret.env {
-        if buzz_agent_host::allowed_secret_env_name(name)
-            || (record.provider.is_none() && legacy_secret_env_name(name))
+        if buzz_agent_host::runtime_allows_secret_env(&record.runtime, name)
+            || (record.runtime == "buzz-agent" && legacy_secret_env_name(name))
         {
             command.env(name, value);
         }

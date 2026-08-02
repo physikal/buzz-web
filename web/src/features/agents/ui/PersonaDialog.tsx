@@ -5,6 +5,11 @@ import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import type { AgentProvider, AgentRuntime, RespondToMode } from "../agent-api";
 import type { AgentPersona, PersonaInput } from "../persona-api";
+import {
+  runtimeCatalogEntry,
+  runtimeDisplayName,
+  useAgentRuntimeCatalog,
+} from "../runtime-catalog";
 import { AGENT_PROVIDERS } from "../runtime-config";
 
 export function PersonaDialog({
@@ -18,6 +23,7 @@ export function PersonaDialog({
   onClose: () => void;
   onSave: (input: PersonaInput) => Promise<unknown>;
 }) {
+  const runtimeCatalog = useAgentRuntimeCatalog();
   const [displayName, setDisplayName] = useState(persona?.displayName ?? "");
   const [systemPrompt, setSystemPrompt] = useState(persona?.systemPrompt ?? "");
   const [avatarUrl, setAvatarUrl] = useState(persona?.avatarUrl ?? "");
@@ -52,14 +58,35 @@ export function PersonaDialog({
   );
   const allowlistValid = allowlist.every((key) => /^[0-9a-f]{64}$/.test(key));
   const parallel = Number(parallelism);
+  const selectedRuntime = runtimeCatalogEntry(runtimeCatalog.runtimes, runtime);
+  const runtimeKnown = runtimeCatalog.runtimes.some(
+    (entry) => entry.id === runtime,
+  );
+  const runtimeOptions = runtimeKnown
+    ? runtimeCatalog.runtimes
+    : [
+        ...runtimeCatalog.runtimes,
+        {
+          id: runtime,
+          label: runtimeDisplayName(runtime),
+          source: "operator" as const,
+          supports_model: true,
+          model_required: false,
+          supports_subscription: false,
+          supports_arguments: false,
+          secret_fields: [],
+        },
+      ];
   const valid =
+    runtimeKnown &&
     displayName.trim().length > 0 &&
     displayName.length <= 120 &&
     allowlistValid &&
     (respondTo !== "allowlist" || allowlist.length > 0) &&
     Number.isSafeInteger(parallel) &&
     parallel >= 1 &&
-    parallel <= 32;
+    parallel <= 32 &&
+    (!selectedRuntime?.model_required || model.trim().length > 0);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -147,20 +174,33 @@ export function PersonaDialog({
                 }
                 value={runtime}
               >
-                <option value="buzz-agent">Buzz Agent</option>
-                <option value="codex">Codex</option>
-                <option value="claude">Claude Code</option>
+                {runtimeOptions.map((entry) => (
+                  <option key={entry.id} value={entry.id}>
+                    {entry.label}
+                  </option>
+                ))}
               </select>
+              {!runtimeKnown && !runtimeCatalog.isPending ? (
+                <p className="mt-2 text-xs text-destructive">
+                  This harness is not installed on the agent host.
+                </p>
+              ) : null}
             </Field>
-            <Field label="Model">
-              <Input
-                aria-label="Model"
-                disabled={pending}
-                onChange={(event) => setModel(event.target.value)}
-                placeholder="Automatic"
-                value={model}
-              />
-            </Field>
+            {selectedRuntime?.supports_model !== false ? (
+              <Field label="Model">
+                <Input
+                  aria-label="Model"
+                  disabled={pending}
+                  onChange={(event) => setModel(event.target.value)}
+                  placeholder={
+                    selectedRuntime?.model_required
+                      ? "Choose a model"
+                      : "Automatic"
+                  }
+                  value={model}
+                />
+              </Field>
+            ) : null}
           </div>
           {runtime === "buzz-agent" ? (
             <Field label="Provider">

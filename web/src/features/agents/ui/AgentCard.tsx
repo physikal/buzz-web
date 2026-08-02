@@ -16,15 +16,10 @@ import {
 import { useState } from "react";
 
 import type { ManagedAgent } from "../agent-api";
+import { runtimeDisplayName } from "../runtime-catalog";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
-
-const RUNTIME_LABELS: Record<ManagedAgent["runtime"], string> = {
-  "buzz-agent": "Buzz Agent",
-  codex: "Codex",
-  claude: "Claude Code",
-};
 
 export function AgentCard({
   agent,
@@ -211,7 +206,7 @@ export function AgentCard({
       <div className="absolute right-3 bottom-3 left-3 flex min-w-0 flex-col gap-0.5 text-left text-sm leading-5">
         <span className="truncate font-semibold">{agent.name}</span>
         <span className="truncate text-xs text-secondary-foreground/75">
-          {agent.model || RUNTIME_LABELS[agent.runtime]}
+          {agent.model || runtimeDisplayName(agent.runtime)}
         </span>
         {agent.observed_state === "error" ? (
           <Badge

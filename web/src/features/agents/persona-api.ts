@@ -118,11 +118,10 @@ function parsePersona(event: NostrEvent): AgentPersona | null {
           Number(parallelism) > 32))
     )
       return null;
-    const supportedRuntime = ["buzz-agent", "codex", "claude"].includes(
-      runtime ?? "",
-    )
-      ? (runtime as AgentRuntime)
-      : null;
+    const supportedRuntime =
+      runtime && /^[a-z0-9][a-z0-9_-]{0,63}$/u.test(runtime)
+        ? (runtime as AgentRuntime)
+        : null;
     const supportedProvider = [
       "anthropic",
       "openai",

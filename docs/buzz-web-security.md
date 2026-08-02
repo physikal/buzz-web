@@ -45,13 +45,21 @@ runtime and does not give an agent process access to Docker.
   arbitrary environment names, `NODE_OPTIONS`, loader variables, database
   credentials, Redis credentials, and the envelope key cannot be supplied by
   the browser.
-- Runtime commands come from a fixed server-side catalog. The owner may supply
-  a bounded argument array for that fixed command; arguments are passed
+- Runtime commands come from a deployment-owned server-side catalog shared by
+  the relay and agent host. Built-ins are compiled in; custom entries come only
+  from the operator's `BUZZ_AGENT_RUNTIME_CATALOG_JSON`. The authenticated
+  owner catalog response omits commands and fixed arguments. The owner may
+  supply a bounded argument array for built-ins. Custom runtime arguments are
+  denied unless the operator explicitly enables them; accepted arguments are passed
   directly to `exec` without shell interpretation and may not contain the
   comma delimiter used by the ACP transport. No API value is interpreted as an
   executable, shell command, image name, or host path. Custom web harnesses
   must therefore be installed and advertised by the server operator rather
-  than accepting a browser-supplied command.
+  than accepting a browser-supplied command. Custom commands must be executable
+  basenames resolved through the host's fixed `PATH`. Custom secret fields are
+  exact-match allowlisted and restricted to ordinary credential suffixes; Buzz,
+  dynamic-loader, database, proxy, container, and toolchain control variables
+  are rejected.
 - Codex and Claude subscription login uses a separate private control port on
   the agent host. Public requests still require an owner-signed NIP-98 event;
   relay-to-host requests also require a domain-separated token derived from the

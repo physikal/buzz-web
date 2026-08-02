@@ -4,6 +4,7 @@ import { type FormEvent, useState } from "react";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import type { AgentPersona } from "../persona-api";
+import { runtimeDisplayName } from "../runtime-catalog";
 import type { AgentTeam, TeamInput } from "../team-api";
 
 export function TeamDialog({
@@ -118,7 +119,9 @@ export function TeamDialog({
                       {persona.displayName}
                     </span>
                     <span className="text-xs text-muted-foreground">
-                      {persona.runtime ?? "No harness"}
+                      {persona.runtime
+                        ? runtimeDisplayName(persona.runtime)
+                        : "No harness"}
                     </span>
                   </label>
                 ))}

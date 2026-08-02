@@ -7,6 +7,7 @@ import type { AgentDefaults } from "../agent-defaults-api";
 import {
   createAgent,
   type AgentProvider,
+  type AgentRuntimeCatalogEntry,
   type CreateAgentInput,
   type ManagedAgent,
   restoreAgentMemory,
@@ -15,6 +16,12 @@ import {
 import type { AgentPersona } from "../persona-api";
 import type { AgentTeam } from "../team-api";
 import { buildCredentialSecrets } from "../runtime-config";
+import {
+  runtimeCatalogEntry,
+  runtimeDisplayName,
+  useAgentRuntimeCatalog,
+} from "../runtime-catalog";
+import { RuntimeCredentialFields } from "./RuntimeCredentialFields";
 
 export type TeamDeployResult = {
   agents: ManagedAgent[];
@@ -39,6 +46,7 @@ export function TeamDeployDialog({
   onClose: () => void;
   onDeployed: (result: TeamDeployResult) => void;
 }) {
+  const runtimeCatalog = useAgentRuntimeCatalog();
   const members = useMemo(
     () =>
       team.personaIds
@@ -94,6 +102,20 @@ export function TeamDeployDialog({
       ? (agentDefaults.runtimeConfig.databricks_host ?? "")
       : "",
   );
+  const [customSecrets, setCustomSecrets] = useState<
+    Record<string, Record<string, string>>
+  >({});
+  const customRuntimeEntries = useMemo(() => {
+    const entries = new Map<string, AgentRuntimeCatalogEntry>();
+    for (const persona of members) {
+      const entry = runtimeCatalogEntry(
+        runtimeCatalog.runtimes,
+        persona.runtime ?? "codex",
+      );
+      if (entry?.source === "operator") entries.set(entry.id, entry);
+    }
+    return [...entries.values()];
+  }, [members, runtimeCatalog.runtimes]);
   const [pending, setPending] = useState(false);
   const canDeploy =
     members.length > 0 &&
@@ -101,9 +123,27 @@ export function TeamDeployDialog({
     (!needsOpenAi || openAiKey.length > 0) &&
     (!needsOpenRouter || openRouterKey.length > 0) &&
     (!needsDatabricks || databricksHost.length > 0) &&
-    members.every(
-      (persona) => persona.runtime !== "buzz-agent" || Boolean(persona.model),
-    );
+    members.every((persona) =>
+      Boolean(
+        runtimeCatalogEntry(
+          runtimeCatalog.runtimes,
+          persona.runtime ?? "codex",
+        ),
+      ),
+    ) &&
+    customRuntimeEntries.every((entry) =>
+      entry.secret_fields.every(
+        (field) =>
+          !field.required || Boolean(customSecrets[entry.id]?.[field.env]),
+      ),
+    ) &&
+    members.every((persona) => {
+      const entry = runtimeCatalogEntry(
+        runtimeCatalog.runtimes,
+        persona.runtime ?? "codex",
+      );
+      return !entry?.model_required || Boolean(persona.model);
+    });
 
   async function deploy() {
     if (!canDeploy) return;
@@ -125,6 +165,8 @@ export function TeamDeployDialog({
           databricks_v2: databricksToken,
         },
         databricksHost,
+        runtimeCatalog.runtimes,
+        customSecrets,
       );
     });
     const results = await Promise.allSettled(
@@ -210,7 +252,10 @@ export function TeamDeployDialog({
               >
                 <span className="font-medium">{persona.displayName}</span>
                 <span className="text-muted-foreground">
-                  {persona.runtime ?? "Codex"}
+                  {runtimeCatalogEntry(
+                    runtimeCatalog.runtimes,
+                    persona.runtime ?? "codex",
+                  )?.label ?? runtimeDisplayName(persona.runtime ?? "codex")}
                 </span>
               </div>
             ))}
@@ -279,7 +324,29 @@ export function TeamDeployDialog({
               />
             </>
           ) : null}
-          {members.some((persona) => persona.runtime !== "buzz-agent") ? (
+          {customRuntimeEntries.map((entry) => (
+            <div className="space-y-3" key={entry.id}>
+              <p className="text-sm font-medium">{entry.label}</p>
+              <RuntimeCredentialFields
+                disabled={pending}
+                fields={entry.secret_fields}
+                onChange={(values) =>
+                  setCustomSecrets((current) => ({
+                    ...current,
+                    [entry.id]: values,
+                  }))
+                }
+                values={customSecrets[entry.id] ?? {}}
+              />
+            </div>
+          ))}
+          {members.some(
+            (persona) =>
+              runtimeCatalogEntry(
+                runtimeCatalog.runtimes,
+                persona.runtime ?? "codex",
+              )?.supports_subscription,
+          ) ? (
             <p className="flex items-start gap-2 rounded-md border p-3 text-sm text-muted-foreground">
               <KeyRound className="mt-0.5 h-4 w-4 shrink-0" />
               Codex and Claude agents are created stopped. Connect each
@@ -317,6 +384,8 @@ function teamAgentInput(
   name: string,
   credentials: Record<AgentProvider, string>,
   databricksHost: string,
+  runtimeCatalog: AgentRuntimeCatalogEntry[],
+  customSecrets: Record<string, Record<string, string>>,
 ): CreateAgentInput {
   const runtime = persona.runtime ?? "codex";
   const systemPrompt = [
@@ -336,6 +405,10 @@ function teamAgentInput(
     );
     if (provider.startsWith("databricks"))
       runtimeConfig.databricks_host = databricksHost;
+  } else if (
+    runtimeCatalogEntry(runtimeCatalog, runtime)?.source === "operator"
+  ) {
+    Object.assign(secrets, customSecrets[runtime] ?? {});
   }
   return {
     name,
@@ -348,7 +421,10 @@ function teamAgentInput(
     runtime_config: runtimeConfig,
     respond_to: persona.respondTo ?? "owner-only",
     respond_to_allowlist: persona.respondToAllowlist,
-    credential_mode: runtime === "buzz-agent" ? "api-key" : "subscription",
+    credential_mode: runtimeCatalogEntry(runtimeCatalog, runtime)
+      ?.supports_subscription
+      ? "subscription"
+      : "api-key",
     secrets,
   };
 }

@@ -9,27 +9,31 @@ export function AdvancedRuntimeFields({
   draft,
   provider,
   runtime,
+  supportsArguments = true,
   onChange,
 }: {
   disabled: boolean;
   draft: AdvancedRuntimeDraft;
   provider: AgentProvider;
   runtime: AgentRuntime;
+  supportsArguments?: boolean;
   onChange: (draft: AdvancedRuntimeDraft) => void;
 }) {
   const set = (key: keyof AdvancedRuntimeDraft, value: string) =>
     onChange({ ...draft, [key]: value });
   return (
     <div className="space-y-5 border-l pl-4">
-      <Field label="Agent runtime args" optional>
-        <Input
-          aria-label="Agent runtime args"
-          disabled={disabled}
-          onChange={(event) => set("agentArgsText", event.target.value)}
-          placeholder="Comma-separated"
-          value={draft.agentArgsText}
-        />
-      </Field>
+      {supportsArguments ? (
+        <Field label="Agent runtime args" optional>
+          <Input
+            aria-label="Agent runtime args"
+            disabled={disabled}
+            onChange={(event) => set("agentArgsText", event.target.value)}
+            placeholder="Comma-separated"
+            value={draft.agentArgsText}
+          />
+        </Field>
+      ) : null}
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Parallelism">
           <Input

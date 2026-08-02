@@ -30,6 +30,7 @@ import {
   type PersonaInput,
   savePersona,
 } from "../persona-api";
+import { runtimeDisplayName } from "../runtime-catalog";
 import { PersonaDialog } from "./PersonaDialog";
 import {
   catalogPersonaInput,
@@ -349,8 +350,7 @@ export function PersonasSection({
 }
 
 function runtimeLabel(runtime: AgentPersona["runtime"]) {
-  if (runtime === "codex") return "Codex";
-  if (runtime === "claude") return "Claude Code";
-  if (runtime === "buzz-agent") return "Buzz Agent";
-  return "Choose a harness when deploying";
+  return runtime
+    ? runtimeDisplayName(runtime)
+    : "Choose a harness when deploying";
 }

@@ -78,3 +78,43 @@ password manager or offline location.
 
 GitHub pushes to `main` publish `:main` and `:agent-main`; use matching immutable
 `:sha-<commit>` and `:agent-sha-<commit>` tags after validating a deployment.
+
+## Operator-installed ACP harnesses
+
+The built-in image includes Buzz Agent, Codex, and Claude Code. An operator can
+add another ACP adapter without giving the browser process-execution control:
+
+1. Build an agent image derived from the matching Buzz agent image and install
+   the adapter as a basename-only executable in `/usr/local/bin`.
+2. Set `BUZZ_AGENT_IMAGE` to that image.
+3. Set `BUZZ_AGENT_RUNTIME_CATALOG_JSON` to a compact JSON array describing the
+   installed adapter.
+4. Redeploy. The owner-only agent, persona, team, template, and defaults screens
+   read the catalog automatically.
+
+Example derivative image:
+
+```dockerfile
+FROM ghcr.io/physikal/buzz-web:agent-sha-<commit>
+USER root
+COPY --chmod=0755 example-acp /usr/local/bin/example-acp
+USER buzz:buzz
+```
+
+Example Dokploy environment value (keep it on one line):
+
+```text
+BUZZ_AGENT_RUNTIME_CATALOG_JSON=[{"id":"example","label":"Example ACP","command":"example-acp","args":[],"model_env":"EXAMPLE_MODEL","model_required":true,"secret_fields":[{"env":"EXAMPLE_API_KEY","label":"Example API key","required":true}]}]
+```
+
+Owner-supplied arguments are disabled for custom harnesses by default. Add
+`"allow_owner_args":true` only when that adapter's complete flag surface is an
+acceptable capability for every Buzz owner.
+
+The same Compose variable is injected into the relay and agent host. The relay
+returns only the ID, label, model behavior, and credential prompts to an
+authenticated owner. It never returns the command or fixed arguments. Runtime
+IDs, executable basenames, fixed arguments, model variables, and secret fields
+are strictly validated at both configuration and launch time. A malformed
+catalog makes the catalog endpoint unavailable and does not authorize a custom
+runtime.

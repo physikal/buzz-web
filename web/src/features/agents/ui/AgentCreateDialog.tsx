@@ -18,18 +18,18 @@ import {
   type AdvancedRuntimeDraft,
   validateAdvancedRuntimeDraft,
 } from "../runtime-config";
+import {
+  runtimeCatalogEntry,
+  runtimeDisplayName,
+  useAgentRuntimeCatalog,
+} from "../runtime-catalog";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { AdvancedRuntimeFields } from "./AdvancedRuntimeFields";
+import { RuntimeCredentialFields } from "./RuntimeCredentialFields";
 
 const FIELD_SHELL =
   "rounded-md border border-input bg-background shadow-xs focus-within:ring-1 focus-within:ring-ring";
-
-const RUNTIMES: Array<{ value: AgentRuntime; label: string }> = [
-  { value: "buzz-agent", label: "Buzz Agent" },
-  { value: "codex", label: "Codex" },
-  { value: "claude", label: "Claude Code" },
-];
 
 export type AgentCreateDefaults = {
   name?: string;
@@ -63,6 +63,7 @@ export function AgentCreateDialog({
   onClose: () => void;
   onSubmit: (input: CreateAgentInput) => Promise<void>;
 }) {
+  const runtimeCatalog = useAgentRuntimeCatalog();
   const [name, setName] = useState(defaults?.name ?? "");
   const [instructions, setInstructions] = useState(
     defaults?.instructions ?? "",
@@ -86,9 +87,12 @@ export function AgentCreateDialog({
   const [credentialMode, setCredentialMode] = useState<AgentCredentialMode>(
     globalMatches && globalDefaults?.credentialMode
       ? globalDefaults.credentialMode
-      : initialRuntime === "buzz-agent"
-        ? "api-key"
-        : "subscription",
+      : ["codex", "claude"].includes(initialRuntime)
+        ? "subscription"
+        : "api-key",
+  );
+  const [customSecrets, setCustomSecrets] = useState<Record<string, string>>(
+    {},
   );
   const [showApiKey, setShowApiKey] = useState(false);
   const [respondTo, setRespondTo] = useState<RespondToMode>(
@@ -164,6 +168,26 @@ export function AgentCreateDialog({
   );
   const allowlistValid = allowlist.every((key) => /^[0-9a-f]{64}$/.test(key));
   const usesProvider = runtime === "buzz-agent";
+  const selectedRuntime = runtimeCatalogEntry(runtimeCatalog.runtimes, runtime);
+  const customRuntime = selectedRuntime?.source === "operator";
+  const runtimeKnown = runtimeCatalog.runtimes.some(
+    (entry) => entry.id === runtime,
+  );
+  const runtimeOptions = runtimeKnown
+    ? runtimeCatalog.runtimes
+    : [
+        ...runtimeCatalog.runtimes,
+        {
+          id: runtime,
+          label: runtimeDisplayName(runtime),
+          source: "operator" as const,
+          supports_model: true,
+          model_required: false,
+          supports_subscription: false,
+          supports_arguments: false,
+          secret_fields: [],
+        },
+      ];
   const advancedError = validateAdvancedRuntimeDraft(
     runtime,
     provider,
@@ -171,11 +195,20 @@ export function AgentCreateDialog({
   );
   const credentialRequired =
     credentialMode === "api-key" &&
+    !customRuntime &&
     (!usesProvider || providerMetadata(provider).credentialRequired);
+  const customCredentialsValid =
+    !customRuntime ||
+    (selectedRuntime?.secret_fields ?? []).every(
+      (field) => !field.required || Boolean(customSecrets[field.env]),
+    );
   const canSubmit =
+    runtimeKnown &&
     name.trim().length > 0 &&
     (!usesProvider || (provider.length > 0 && model.trim().length > 0)) &&
+    (!selectedRuntime?.model_required || model.trim().length > 0) &&
     (!credentialRequired || apiKey.length > 0) &&
+    customCredentialsValid &&
     advancedError === null &&
     (respondTo !== "allowlist" || (allowlist.length > 0 && allowlistValid));
 
@@ -184,8 +217,11 @@ export function AgentCreateDialog({
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (!canSubmit) return;
-    const secrets =
-      credentialMode === "api-key"
+    const secrets = customRuntime
+      ? Object.fromEntries(
+          Object.entries(customSecrets).filter(([, value]) => value.length > 0),
+        )
+      : credentialMode === "api-key"
         ? buildCredentialSecrets(runtime, provider, apiKey)
         : {};
     await onSubmit({
@@ -194,7 +230,10 @@ export function AgentCreateDialog({
       runtime,
       model: model.trim() || undefined,
       provider: usesProvider ? provider : undefined,
-      agent_args: parseAgentArgs(advancedDraft.agentArgsText),
+      agent_args:
+        selectedRuntime?.supports_arguments === false
+          ? []
+          : parseAgentArgs(advancedDraft.agentArgsText),
       parallelism: Number(advancedDraft.parallelism),
       idle_timeout_seconds: advancedDraft.idleTimeout
         ? Number(advancedDraft.idleTimeout)
@@ -292,13 +331,26 @@ export function AgentCreateDialog({
                   onChange={(value) => {
                     const next = value as AgentRuntime;
                     setRuntime(next);
-                    setCredentialMode(
-                      next === "buzz-agent" ? "api-key" : "subscription",
+                    const entry = runtimeCatalogEntry(
+                      runtimeCatalog.runtimes,
+                      next,
                     );
+                    setCredentialMode(
+                      entry?.supports_subscription ? "subscription" : "api-key",
+                    );
+                    setCustomSecrets({});
                   }}
                   value={runtime}
-                  options={RUNTIMES}
+                  options={runtimeOptions.map((entry) => ({
+                    value: entry.id,
+                    label: entry.label,
+                  }))}
                 />
+                {!runtimeKnown && !runtimeCatalog.isPending ? (
+                  <p className="mt-2 text-xs text-destructive">
+                    This harness is not installed on the agent host.
+                  </p>
+                ) : null}
               </Field>
 
               {usesProvider ? (
@@ -312,7 +364,7 @@ export function AgentCreateDialog({
                 </Field>
               ) : null}
 
-              {!usesProvider ? (
+              {!usesProvider && selectedRuntime?.supports_subscription ? (
                 <Field label="Authentication">
                   <div className="grid grid-cols-2 rounded-md border bg-muted/40 p-1">
                     {(
@@ -335,7 +387,16 @@ export function AgentCreateDialog({
                 </Field>
               ) : null}
 
-              {credentialMode === "api-key" ? (
+              {credentialMode === "api-key" && customRuntime ? (
+                <RuntimeCredentialFields
+                  disabled={pending}
+                  fields={selectedRuntime.secret_fields}
+                  onChange={setCustomSecrets}
+                  values={customSecrets}
+                />
+              ) : null}
+
+              {credentialMode === "api-key" && !customRuntime ? (
                 <Field
                   label={
                     runtime === "buzz-agent"
@@ -381,21 +442,28 @@ export function AgentCreateDialog({
                 </Field>
               ) : null}
 
-              <Field label="Model" required={usesProvider}>
-                <div
-                  className={`${FIELD_SHELL} flex min-h-11 items-center px-3`}
+              {selectedRuntime?.supports_model !== false ? (
+                <Field
+                  label="Model"
+                  required={usesProvider || selectedRuntime?.model_required}
                 >
-                  <Input
-                    className="h-8 border-0 px-0 shadow-none focus-visible:ring-0"
-                    disabled={pending}
-                    onChange={(event) => setModel(event.target.value)}
-                    placeholder={
-                      runtime === "buzz-agent" ? "Choose a model" : "Automatic"
-                    }
-                    value={model}
-                  />
-                </div>
-              </Field>
+                  <div
+                    className={`${FIELD_SHELL} flex min-h-11 items-center px-3`}
+                  >
+                    <Input
+                      className="h-8 border-0 px-0 shadow-none focus-visible:ring-0"
+                      disabled={pending}
+                      onChange={(event) => setModel(event.target.value)}
+                      placeholder={
+                        usesProvider || selectedRuntime?.model_required
+                          ? "Choose a model"
+                          : "Automatic"
+                      }
+                      value={model}
+                    />
+                  </div>
+                </Field>
+              ) : null}
 
               <Field label="Run on">
                 <div
@@ -428,6 +496,7 @@ export function AgentCreateDialog({
                       onChange={setAdvancedDraft}
                       provider={provider}
                       runtime={runtime}
+                      supportsArguments={selectedRuntime?.supports_arguments}
                     />
                     {advancedError ? (
                       <p className="text-xs text-destructive">

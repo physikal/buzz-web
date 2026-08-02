@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import {
   createAgent,
   type AgentProvider,
+  type AgentRuntimeCatalogEntry,
   type CreateAgentInput,
   type ManagedAgent,
 } from "@/features/agents/agent-api";
@@ -11,6 +12,12 @@ import { addAgentToChannel } from "@/features/agents/agent-channels";
 import type { AgentPersona } from "@/features/agents/persona-api";
 import type { AgentTeam } from "@/features/agents/team-api";
 import { buildCredentialSecrets } from "@/features/agents/runtime-config";
+import {
+  runtimeCatalogEntry,
+  runtimeDisplayName,
+  useAgentRuntimeCatalog,
+} from "@/features/agents/runtime-catalog";
+import { RuntimeCredentialFields } from "@/features/agents/ui/RuntimeCredentialFields";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import type { ChannelTemplate } from "../channel-template-api";
@@ -37,6 +44,7 @@ export function TemplateDeployDialog({
   onClose: () => void;
   onDeployed: (result: TemplateDeployResult) => void;
 }) {
+  const runtimeCatalog = useAgentRuntimeCatalog();
   const members = useMemo(
     () => resolveMembers(template, personas, teams),
     [personas, teams, template],
@@ -64,6 +72,20 @@ export function TemplateDeployDialog({
   const [openRouterKey, setOpenRouterKey] = useState("");
   const [databricksToken, setDatabricksToken] = useState("");
   const [databricksHost, setDatabricksHost] = useState("");
+  const [customSecrets, setCustomSecrets] = useState<
+    Record<string, Record<string, string>>
+  >({});
+  const customRuntimeEntries = useMemo(() => {
+    const entries = new Map<string, AgentRuntimeCatalogEntry>();
+    for (const { persona } of members) {
+      const entry = runtimeCatalogEntry(
+        runtimeCatalog.runtimes,
+        persona.runtime ?? "codex",
+      );
+      if (entry?.source === "operator") entries.set(entry.id, entry);
+    }
+    return [...entries.values()];
+  }, [members, runtimeCatalog.runtimes]);
   const [pending, setPending] = useState(false);
   const canDeploy =
     members.length > 0 &&
@@ -71,10 +93,27 @@ export function TemplateDeployDialog({
     (!needsOpenAi || openAiKey.length > 0) &&
     (!needsOpenRouter || openRouterKey.length > 0) &&
     (!needsDatabricks || databricksHost.length > 0) &&
-    members.every(
-      ({ persona }) =>
-        persona.runtime !== "buzz-agent" || Boolean(persona.model),
-    );
+    members.every(({ persona }) =>
+      Boolean(
+        runtimeCatalogEntry(
+          runtimeCatalog.runtimes,
+          persona.runtime ?? "codex",
+        ),
+      ),
+    ) &&
+    customRuntimeEntries.every((entry) =>
+      entry.secret_fields.every(
+        (field) =>
+          !field.required || Boolean(customSecrets[entry.id]?.[field.env]),
+      ),
+    ) &&
+    members.every(({ persona }) => {
+      const entry = runtimeCatalogEntry(
+        runtimeCatalog.runtimes,
+        persona.runtime ?? "codex",
+      );
+      return !entry?.model_required || Boolean(persona.model);
+    });
 
   async function deploy() {
     if (!canDeploy) return;
@@ -96,6 +135,8 @@ export function TemplateDeployDialog({
             databricks_v2: databricksToken,
           },
           databricksHost,
+          runtimeCatalog.runtimes,
+          customSecrets,
         ),
       );
       await addAgentToChannel({
@@ -154,7 +195,10 @@ export function TemplateDeployDialog({
               >
                 <span className="font-medium">{persona.displayName}</span>
                 <span className="text-muted-foreground">
-                  {persona.runtime ?? "codex"}
+                  {runtimeCatalogEntry(
+                    runtimeCatalog.runtimes,
+                    persona.runtime ?? "codex",
+                  )?.label ?? runtimeDisplayName(persona.runtime ?? "codex")}
                 </span>
               </div>
             ))}
@@ -207,7 +251,29 @@ export function TemplateDeployDialog({
               />
             </>
           ) : null}
-          {members.some(({ persona }) => persona.runtime !== "buzz-agent") ? (
+          {customRuntimeEntries.map((entry) => (
+            <div className="space-y-3" key={entry.id}>
+              <p className="text-sm font-medium">{entry.label}</p>
+              <RuntimeCredentialFields
+                disabled={pending}
+                fields={entry.secret_fields}
+                onChange={(values) =>
+                  setCustomSecrets((current) => ({
+                    ...current,
+                    [entry.id]: values,
+                  }))
+                }
+                values={customSecrets[entry.id] ?? {}}
+              />
+            </div>
+          ))}
+          {members.some(
+            ({ persona }) =>
+              runtimeCatalogEntry(
+                runtimeCatalog.runtimes,
+                persona.runtime ?? "codex",
+              )?.supports_subscription,
+          ) ? (
             <p className="flex items-start gap-2 rounded-md border p-3 text-sm text-muted-foreground">
               <KeyRound className="mt-0.5 h-4 w-4 shrink-0" />
               Codex and Claude agents are created stopped. Connect each
@@ -274,6 +340,8 @@ function agentInput(
   name: string,
   credentials: Record<AgentProvider, string>,
   databricksHost: string,
+  runtimeCatalog: AgentRuntimeCatalogEntry[],
+  customSecrets: Record<string, Record<string, string>>,
 ): CreateAgentInput {
   const { persona } = member;
   const runtime = persona.runtime ?? "codex";
@@ -288,6 +356,10 @@ function agentInput(
     );
     if (provider.startsWith("databricks"))
       runtimeConfig.databricks_host = databricksHost;
+  } else if (
+    runtimeCatalogEntry(runtimeCatalog, runtime)?.source === "operator"
+  ) {
+    Object.assign(secrets, customSecrets[runtime] ?? {});
   }
   return {
     name,
@@ -301,7 +373,10 @@ function agentInput(
     runtime_config: runtimeConfig,
     respond_to: persona.respondTo ?? "owner-only",
     respond_to_allowlist: persona.respondToAllowlist,
-    credential_mode: runtime === "buzz-agent" ? "api-key" : "subscription",
+    credential_mode: runtimeCatalogEntry(runtimeCatalog, runtime)
+      ?.supports_subscription
+      ? "subscription"
+      : "api-key",
     secrets,
   };
 }

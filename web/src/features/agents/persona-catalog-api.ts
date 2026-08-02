@@ -91,11 +91,10 @@ function parseCatalogPersona(
           Number(parallelism) > 32))
     )
       return null;
-    const supportedRuntime = ["buzz-agent", "codex", "claude"].includes(
-      runtime ?? "",
-    )
-      ? (runtime as AgentPersona["runtime"])
-      : null;
+    const supportedRuntime =
+      runtime && /^[a-z0-9][a-z0-9_-]{0,63}$/u.test(runtime)
+        ? (runtime as AgentPersona["runtime"])
+        : null;
     const safeProvider = [
       "anthropic",
       "openai",

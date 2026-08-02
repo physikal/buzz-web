@@ -2,7 +2,7 @@ import { makeNip98AuthHeader } from "@/shared/lib/nip98";
 import { relayHttpBaseUrl } from "@/shared/lib/relay-url";
 import type { NostrEvent } from "@/shared/lib/nostr-client";
 
-export type AgentRuntime = "buzz-agent" | "codex" | "claude";
+export type AgentRuntime = string;
 export type AgentProvider =
   | "anthropic"
   | "openai"
@@ -92,6 +92,23 @@ export type AgentRuntimeLog = {
   truncated: boolean;
 };
 
+export type AgentRuntimeSecretField = {
+  env: string;
+  label: string;
+  required: boolean;
+};
+
+export type AgentRuntimeCatalogEntry = {
+  id: AgentRuntime;
+  label: string;
+  source: "built-in" | "operator";
+  supports_model: boolean;
+  model_required: boolean;
+  supports_subscription: boolean;
+  supports_arguments: boolean;
+  secret_fields: AgentRuntimeSecretField[];
+};
+
 async function signedRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const method = init?.method ?? "GET";
   const body = typeof init?.body === "string" ? init.body : undefined;
@@ -122,6 +139,14 @@ async function signedRequest<T>(path: string, init?: RequestInit): Promise<T> {
 export async function listAgents(): Promise<ManagedAgent[]> {
   const result = await signedRequest<{ agents: ManagedAgent[] }>("/api/agents");
   return result.agents;
+}
+
+export async function listAgentRuntimes(): Promise<AgentRuntimeCatalogEntry[]> {
+  const result = await signedRequest<{ runtimes: AgentRuntimeCatalogEntry[] }>(
+    "/api/agents/runtimes",
+    { cache: "no-store" },
+  );
+  return result.runtimes;
 }
 
 export async function createAgent(

@@ -13,6 +13,11 @@ import type {
   AgentRuntime,
 } from "@/features/agents/agent-api";
 import {
+  runtimeCatalogEntry,
+  runtimeDisplayName,
+  useAgentRuntimeCatalog,
+} from "@/features/agents/runtime-catalog";
+import {
   AGENT_PROVIDERS,
   buildRuntimeConfig,
   EMPTY_ADVANCED_RUNTIME_DRAFT,
@@ -26,6 +31,7 @@ import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 
 export function AgentDefaultsPanel({ ownerPubkey }: { ownerPubkey: string }) {
+  const runtimeCatalog = useAgentRuntimeCatalog();
   const [draft, setDraft] = useState<AgentDefaults>(EMPTY_AGENT_DEFAULTS);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -63,7 +69,11 @@ export function AgentDefaultsPanel({ ownerPubkey }: { ownerPubkey: string }) {
     try {
       await saveAgentDefaults({
         ...draft,
-        agentArgs: parseAgentArgs(advancedDraft.agentArgsText),
+        agentArgs:
+          runtimeCatalogEntry(runtimeCatalog.runtimes, draft.runtime)
+            ?.supports_arguments === false
+            ? []
+            : parseAgentArgs(advancedDraft.agentArgsText),
         parallelism: Number(advancedDraft.parallelism),
         idleTimeoutSeconds: advancedDraft.idleTimeout
           ? Number(advancedDraft.idleTimeout)
@@ -95,8 +105,32 @@ export function AgentDefaultsPanel({ ownerPubkey }: { ownerPubkey: string }) {
     draft.provider,
     advancedDraft,
   );
+  const selectedRuntime = runtimeCatalogEntry(
+    runtimeCatalog.runtimes,
+    draft.runtime,
+  );
+  const customRuntime = selectedRuntime?.source === "operator";
+  const runtimeKnown = runtimeCatalog.runtimes.some(
+    (entry) => entry.id === draft.runtime,
+  );
+  const runtimeOptions = runtimeKnown
+    ? runtimeCatalog.runtimes
+    : [
+        ...runtimeCatalog.runtimes,
+        {
+          id: draft.runtime,
+          label: runtimeDisplayName(draft.runtime),
+          source: "operator" as const,
+          supports_model: true,
+          model_required: false,
+          supports_subscription: false,
+          supports_arguments: false,
+          secret_fields: [],
+        },
+      ];
   const credentialRequired =
     draft.credentialMode === "api-key" &&
+    !customRuntime &&
     (draft.runtime !== "buzz-agent" ||
       providerMetadata(draft.provider).credentialRequired);
 
@@ -124,15 +158,27 @@ export function AgentDefaultsPanel({ ownerPubkey }: { ownerPubkey: string }) {
                 setDraft((current) => ({
                   ...current,
                   runtime,
-                  credentialMode:
-                    runtime === "buzz-agent" ? "api-key" : "subscription",
+                  credentialMode: runtimeCatalogEntry(
+                    runtimeCatalog.runtimes,
+                    runtime,
+                  )?.supports_subscription
+                    ? "subscription"
+                    : "api-key",
+                  apiKey: "",
                 }));
               }}
             >
-              <option value="buzz-agent">Buzz Agent</option>
-              <option value="codex">Codex</option>
-              <option value="claude">Claude Code</option>
+              {runtimeOptions.map((entry) => (
+                <option key={entry.id} value={entry.id}>
+                  {entry.label}
+                </option>
+              ))}
             </select>
+            {!runtimeKnown && !runtimeCatalog.isPending ? (
+              <p className="mt-2 text-xs text-destructive">
+                This harness is not installed on the agent host.
+              </p>
+            ) : null}
           </label>
           {draft.runtime === "buzz-agent" ? (
             <label
@@ -158,7 +204,7 @@ export function AgentDefaultsPanel({ ownerPubkey }: { ownerPubkey: string }) {
                 ))}
               </select>
             </label>
-          ) : (
+          ) : selectedRuntime?.supports_subscription ? (
             <label
               className="block text-sm font-medium"
               htmlFor="default-agent-auth"
@@ -179,29 +225,34 @@ export function AgentDefaultsPanel({ ownerPubkey }: { ownerPubkey: string }) {
                 <option value="api-key">API key</option>
               </select>
             </label>
-          )}
-          <label
-            className="block text-sm font-medium"
-            htmlFor="default-agent-model"
-          >
-            Default model
-            <Input
-              className="mt-2"
-              id="default-agent-model"
-              maxLength={255}
-              placeholder={
-                draft.runtime === "buzz-agent" ? "Choose a model" : "Automatic"
-              }
-              value={draft.model}
-              onChange={(event) =>
-                setDraft((current) => ({
-                  ...current,
-                  model: event.target.value,
-                }))
-              }
-            />
-          </label>
-          {draft.credentialMode === "api-key" ? (
+          ) : null}
+          {selectedRuntime?.supports_model !== false ? (
+            <label
+              className="block text-sm font-medium"
+              htmlFor="default-agent-model"
+            >
+              Default model
+              <Input
+                className="mt-2"
+                id="default-agent-model"
+                maxLength={255}
+                placeholder={
+                  draft.runtime === "buzz-agent" ||
+                  selectedRuntime?.model_required
+                    ? "Choose a model"
+                    : "Automatic"
+                }
+                value={draft.model}
+                onChange={(event) =>
+                  setDraft((current) => ({
+                    ...current,
+                    model: event.target.value,
+                  }))
+                }
+              />
+            </label>
+          ) : null}
+          {draft.credentialMode === "api-key" && !customRuntime ? (
             <div>
               <label
                 className="block text-sm font-medium"
@@ -248,6 +299,7 @@ export function AgentDefaultsPanel({ ownerPubkey }: { ownerPubkey: string }) {
             onChange={setAdvancedDraft}
             provider={draft.provider}
             runtime={draft.runtime}
+            supportsArguments={selectedRuntime?.supports_arguments}
           />
           {advancedError ? (
             <p className="text-xs text-destructive">{advancedError}</p>
@@ -255,7 +307,9 @@ export function AgentDefaultsPanel({ ownerPubkey }: { ownerPubkey: string }) {
           <Button
             disabled={
               saving ||
+              !runtimeKnown ||
               (draft.runtime === "buzz-agent" && !draft.model.trim()) ||
+              (selectedRuntime?.model_required && !draft.model.trim()) ||
               (credentialRequired && !draft.apiKey) ||
               advancedError !== null
             }

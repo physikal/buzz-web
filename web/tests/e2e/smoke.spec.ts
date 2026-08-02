@@ -29,7 +29,7 @@ test("home page shows repositories section", async ({ page }) => {
 test("owner setup creates a passkey-wrapped signer and enters Channels", async ({
   page,
 }) => {
-  test.setTimeout(60_000);
+  test.setTimeout(90_000);
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
   const cdp = await page.context().newCDPSession(page);
   await cdp.send("WebAuthn.enable");
@@ -151,6 +151,72 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
       }),
     });
   });
+  await page.route("**/api/agents/runtimes", async (route) => {
+    const request = route.request();
+    const authorization = request.headers().authorization ?? "";
+    const event = JSON.parse(
+      Buffer.from(authorization.slice("Nostr ".length), "base64").toString(
+        "utf8",
+      ),
+    );
+    expect(verifyEvent(event)).toBe(true);
+    expect(event.pubkey).toBe(ownerPubkey);
+    expect(event.tags).toContainEqual(["method", "GET"]);
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        runtimes: [
+          {
+            id: "buzz-agent",
+            label: "Buzz Agent",
+            source: "built-in",
+            supports_model: true,
+            model_required: true,
+            supports_subscription: false,
+            supports_arguments: true,
+            secret_fields: [],
+          },
+          {
+            id: "codex",
+            label: "Codex",
+            source: "built-in",
+            supports_model: true,
+            model_required: false,
+            supports_subscription: true,
+            supports_arguments: true,
+            secret_fields: [],
+          },
+          {
+            id: "claude",
+            label: "Claude Code",
+            source: "built-in",
+            supports_model: true,
+            model_required: false,
+            supports_subscription: true,
+            supports_arguments: true,
+            secret_fields: [],
+          },
+          {
+            id: "gemini",
+            label: "Gemini ACP",
+            source: "operator",
+            supports_model: true,
+            model_required: true,
+            supports_subscription: false,
+            supports_arguments: false,
+            secret_fields: [
+              {
+                env: "GEMINI_API_KEY",
+                label: "Gemini API key",
+                required: true,
+              },
+            ],
+          },
+        ],
+      }),
+    });
+  });
   await page.route("**/api/agents", async (route) => {
     const request = route.request();
     const authorization = request.headers().authorization ?? "";
@@ -180,6 +246,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
           "77777777-7777-4777-8777-777777777777",
           "88888888-8888-4888-8888-888888888888",
           "99999999-9999-4999-8999-999999999999",
+          "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
         ][managedAgents.length],
         owner_pubkey: ownerPubkey,
         agent_pubkey: agentPubkey,
@@ -1755,6 +1822,43 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
       );
     })
     .toBe(true);
+
+  await page.getByRole("link", { name: "Agents" }).click();
+  await page.getByRole("button", { name: "New agent" }).click();
+  const customAgentDialog = page.getByRole("dialog", { name: "Create agent" });
+  await customAgentDialog
+    .getByText("Agent name", { exact: true })
+    .locator("..")
+    .getByRole("textbox")
+    .fill("Gemini reviewer");
+  await customAgentDialog
+    .getByText("Harness", { exact: true })
+    .locator("..")
+    .getByRole("combobox")
+    .selectOption("gemini");
+  const geminiApiKey = customAgentDialog.getByRole("textbox", {
+    name: "Gemini API key",
+  });
+  await expect(geminiApiKey).toBeVisible();
+  await expect(customAgentDialog.getByLabel("Agent runtime args")).toHaveCount(
+    0,
+  );
+  await geminiApiKey.fill("gemini-test-key");
+  await customAgentDialog
+    .getByPlaceholder("Choose a model")
+    .fill("gemini-2.5-pro");
+  await customAgentDialog.getByRole("button", { name: "Create agent" }).click();
+  await expect.poll(() => managedAgents.length).toBe(6);
+  expect(createdAgentInputs[5]).toMatchObject({
+    name: "Gemini reviewer",
+    runtime: "gemini",
+    model: "gemini-2.5-pro",
+    credential_mode: "api-key",
+    agent_args: [],
+    secrets: { GEMINI_API_KEY: "gemini-test-key" },
+  });
+  await page.getByRole("link", { name: "Channels" }).click();
+  await expect(page.getByRole("heading", { name: "general" })).toBeVisible();
 
   await page.reload();
   await page.setViewportSize({ width: 390, height: 844 });

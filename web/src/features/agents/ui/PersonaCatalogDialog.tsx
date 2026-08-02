@@ -7,6 +7,7 @@ import { truncatePubkey } from "@/shared/lib/pubkey";
 import { Button } from "@/shared/ui/button";
 import type { AgentPersona } from "../persona-api";
 import type { CatalogPersona } from "../persona-catalog-api";
+import { runtimeDisplayName } from "../runtime-catalog";
 
 export function PersonaCatalogDialog({
   catalog,
@@ -199,8 +200,5 @@ function Metadata({ label, value }: { label: string; value: string }) {
 }
 
 function runtimeLabel(runtime: AgentPersona["runtime"]) {
-  if (runtime === "buzz-agent") return "Buzz Agent";
-  if (runtime === "claude") return "Claude Code";
-  if (runtime === "codex") return "Codex";
-  return "Choose later";
+  return runtime ? runtimeDisplayName(runtime) : "Choose later";
 }

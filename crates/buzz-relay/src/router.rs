@@ -125,6 +125,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/api/agents",
             get(api::agents::list_agents).post(api::agents::create_agent),
         )
+        .route("/api/agents/runtimes", get(api::agents::list_runtimes))
         .route(
             "/api/agents/{id}",
             axum::routing::patch(api::agents::update_agent).delete(api::agents::delete_agent),

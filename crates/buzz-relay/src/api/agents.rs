@@ -10,8 +10,9 @@ use axum::{
 };
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use buzz_agent_host::{
-    allowed_secret_env_name, decrypt_secret, derive_control_token, encrypt_secret,
-    parse_envelope_key, runtime_command, runtime_config_env_name, AgentSecretPayload,
+    decrypt_secret, derive_control_token, encrypt_secret, parse_envelope_key,
+    public_runtime_catalog, runtime_allows_secret_env, runtime_command, runtime_config_env_name,
+    runtime_model_required, AgentSecretPayload,
 };
 use buzz_core::TenantContext;
 use nostr::{EventBuilder, JsonUtil, Keys, Kind, Tag, ToBech32};
@@ -163,6 +164,23 @@ pub async fn list_agents(
             api_error(StatusCode::INTERNAL_SERVER_ERROR, "internal server error")
         })?;
     Ok(Json(json!({ "agents": agents })))
+}
+
+/// Return the deployment-owned harness catalog without exposing executable
+/// names, paths, fixed arguments, or credential values.
+pub async fn list_runtimes(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    authorize_owner(&state, &headers, "GET", "/api/agents/runtimes", None, false).await?;
+    let runtimes = public_runtime_catalog().map_err(|error| {
+        tracing::error!(%error, "managed-agent runtime catalog is invalid");
+        api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "agent runtime catalog is unavailable",
+        )
+    })?;
+    Ok(Json(json!({ "runtimes": runtimes })))
 }
 
 /// Mint an agent identity, encrypt its secrets, and register desired state.
@@ -940,9 +958,11 @@ fn validate_create(input: &CreateAgentRequest) -> Result<(), (StatusCode, Json<V
     if runtime_command(&input.runtime).is_none() {
         return Err(api_error(StatusCode::BAD_REQUEST, "unsupported runtime"));
     }
+    let runtime = runtime_command(&input.runtime)
+        .ok_or_else(|| api_error(StatusCode::BAD_REQUEST, "unsupported runtime"))?;
     if !matches!(input.credential_mode.as_str(), "api-key" | "subscription")
         || (input.credential_mode == "subscription"
-            && (input.runtime == "buzz-agent" || !input.secrets.is_empty()))
+            && (input.runtime == "buzz-agent" || runtime.custom || !input.secrets.is_empty()))
     {
         return Err(api_error(
             StatusCode::BAD_REQUEST,
@@ -956,7 +976,21 @@ fn validate_create(input: &CreateAgentRequest) -> Result<(), (StatusCode, Json<V
     {
         return Err(api_error(StatusCode::BAD_REQUEST, "invalid model"));
     }
+    if runtime.custom
+        && ((runtime.model_env.is_none() && input.model.is_some())
+            || (runtime_model_required(&input.runtime)
+                && input
+                    .model
+                    .as_deref()
+                    .is_none_or(|model| model.trim().is_empty())))
+    {
+        return Err(api_error(
+            StatusCode::BAD_REQUEST,
+            "invalid model for selected runtime",
+        ));
+    }
     if input.agent_args.len() > MAX_AGENT_ARGS
+        || (runtime.custom && !runtime.allow_owner_args && !input.agent_args.is_empty())
         || input
             .agent_args
             .iter()
@@ -1012,7 +1046,9 @@ fn validate_create(input: &CreateAgentRequest) -> Result<(), (StatusCode, Json<V
     }
     if input.secrets.len() > MAX_SECRET_COUNT
         || input.secrets.iter().any(|(name, value)| {
-            !allowed_secret_env_name(name) || value.is_empty() || value.len() > MAX_SECRET_VALUE_LEN
+            !runtime_allows_secret_env(&input.runtime, name)
+                || value.is_empty()
+                || value.len() > MAX_SECRET_VALUE_LEN
         })
     {
         return Err(api_error(StatusCode::BAD_REQUEST, "invalid agent secrets"));
@@ -1027,6 +1063,17 @@ fn validate_create(input: &CreateAgentRequest) -> Result<(), (StatusCode, Json<V
             _ => None,
         };
         if required_secret.is_some_and(|name| !input.secrets.contains_key(name)) {
+            return Err(api_error(
+                StatusCode::BAD_REQUEST,
+                "required agent credential is missing",
+            ));
+        }
+        if runtime.custom
+            && runtime
+                .secret_fields
+                .iter()
+                .any(|field| field.required && !input.secrets.contains_key(&field.env))
+        {
             return Err(api_error(
                 StatusCode::BAD_REQUEST,
                 "required agent credential is missing",

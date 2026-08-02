@@ -105,6 +105,66 @@ async function submitEvent(template) {
   return event;
 }
 
+const catalog = await request("/api/agents/runtimes");
+if (
+  !Array.isArray(catalog.runtimes) ||
+  !["buzz-agent", "codex", "claude"].every((id) =>
+    catalog.runtimes.some((entry) => entry.id === id),
+  ) ||
+  catalog.runtimes.some(
+    (entry) => "command" in entry || "args" in entry || "model_env" in entry,
+  )
+) {
+  throw new Error(
+    "Runtime catalog is missing built-ins or exposed spawn details.",
+  );
+}
+const expectedRuntime = process.env.BUZZ_EXPECT_RUNTIME_ID;
+const expectedRuntimeEntry = expectedRuntime
+  ? catalog.runtimes.find(
+      (entry) => entry.id === expectedRuntime && entry.source === "operator",
+    )
+  : null;
+if (expectedRuntime && !expectedRuntimeEntry) {
+  throw new Error(`Operator runtime ${expectedRuntime} was not advertised.`);
+}
+if (expectedRuntimeEntry) {
+  const custom = await request("/api/agents", {
+    method: "POST",
+    body: JSON.stringify({
+      name: `Custom runtime smoke ${Date.now()}`,
+      system_prompt: "Remain stopped for control-plane verification.",
+      runtime: expectedRuntimeEntry.id,
+      ...(expectedRuntimeEntry.supports_model
+        ? { model: "verification-model" }
+        : {}),
+      agent_args: [],
+      parallelism: 1,
+      respond_to: "owner-only",
+      respond_to_allowlist: [],
+      secrets: Object.fromEntries(
+        expectedRuntimeEntry.secret_fields.map((field) => [
+          field.env,
+          "custom-runtime-verification-secret",
+        ]),
+      ),
+      credential_mode: "api-key",
+      start_immediately: false,
+    }),
+  });
+  if (
+    custom.agent?.runtime !== expectedRuntimeEntry.id ||
+    custom.agent?.desired_state !== "stopped" ||
+    "secrets" in custom.agent
+  ) {
+    throw new Error("Custom runtime configuration did not round-trip safely.");
+  }
+  await request(`/api/agents/${custom.agent.id}`, {
+    method: "DELETE",
+    body: "",
+  });
+}
+
 const channelId = randomUUID();
 await submitEvent({
   kind: 9007,
