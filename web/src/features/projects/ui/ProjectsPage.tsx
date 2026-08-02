@@ -24,6 +24,7 @@ import { truncatePubkey } from "@/shared/lib/pubkey";
 import { useEscapeSurface } from "@/shared/hooks/use-escape-surface";
 import { useSidebarVisibility } from "@/shared/hooks/use-sidebar-visibility";
 import { Button } from "@/shared/ui/button";
+import { DestructiveConfirmDialog } from "@/shared/ui/destructive-confirm-dialog";
 import { Input } from "@/shared/ui/input";
 import { SidebarToggleButton } from "@/shared/ui/sidebar-toggle-button";
 import {
@@ -61,6 +62,7 @@ function ProjectsWorkspace({
   onDisconnect: () => void;
 }) {
   const [createOpen, setCreateOpen] = useState(false);
+  const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
   const sidebar = useSidebarVisibility();
   const queryClient = useQueryClient();
   const projectsQuery = useQuery({
@@ -152,10 +154,7 @@ function ProjectsWorkspace({
                             aria-label={`Delete ${project.name}`}
                             className="opacity-0 group-hover:opacity-100"
                             disabled={deleteMutation.isPending}
-                            onClick={() => {
-                              if (window.confirm(`Delete ${project.name}?`))
-                                deleteMutation.mutate(project);
-                            }}
+                            onClick={() => setProjectToDelete(project)}
                             size="icon"
                             variant="ghost"
                           >
@@ -181,6 +180,22 @@ function ProjectsWorkspace({
           )}
         </div>
       </main>
+      <DestructiveConfirmDialog
+        confirmLabel="Delete project"
+        description={`Delete ${projectToDelete?.name ?? "this project"} from Projects for everyone. This can only be done for projects you own and cannot be undone.`}
+        onClose={() => setProjectToDelete(null)}
+        onConfirm={() => {
+          if (!projectToDelete) return;
+          void deleteMutation
+            .mutateAsync(projectToDelete)
+            .then(() => setProjectToDelete(null))
+            .catch(() => {});
+        }}
+        open={projectToDelete !== null}
+        pending={deleteMutation.isPending}
+        pendingLabel="Deleting..."
+        title="Delete project?"
+      />
       <CreateProjectDialog
         open={createOpen}
         pending={createMutation.isPending}

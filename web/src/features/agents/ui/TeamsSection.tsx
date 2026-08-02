@@ -12,6 +12,7 @@ import { useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/shared/ui/button";
+import { DestructiveConfirmDialog } from "@/shared/ui/destructive-confirm-dialog";
 import type { AgentDefaults } from "../agent-defaults-api";
 import { listAgents, type ManagedAgent } from "../agent-api";
 import {
@@ -52,6 +53,7 @@ export function TeamsSection({
   const [formOpen, setFormOpen] = useState(false);
   const [deploying, setDeploying] = useState<AgentTeam | null>(null);
   const [exporting, setExporting] = useState<AgentTeam | null>(null);
+  const [teamToDelete, setTeamToDelete] = useState<AgentTeam | null>(null);
   const [snapshotImport, setSnapshotImport] =
     useState<DecodedTeamSnapshot | null>(null);
   const [snapshotDeployPersonas, setSnapshotDeployPersonas] = useState<
@@ -264,10 +266,7 @@ export function TeamsSection({
                 <Button
                   aria-label={`Delete ${team.name}`}
                   disabled={remove.isPending}
-                  onClick={() => {
-                    if (window.confirm(`Delete ${team.name}?`))
-                      remove.mutate(team);
-                  }}
+                  onClick={() => setTeamToDelete(team)}
                   size="icon"
                   title="Delete team"
                   variant="ghost"
@@ -374,6 +373,26 @@ export function TeamsSection({
           onImport={(keepAllowlist) => importSnapshot.mutate(keepAllowlist)}
         />
       ) : null}
+      <DestructiveConfirmDialog
+        confirmLabel="Delete"
+        description={
+          teamToDelete
+            ? `Delete "${teamToDelete.name}". Already-deployed agents are not affected, but this team template will no longer be available.`
+            : "Delete this team."
+        }
+        onClose={() => setTeamToDelete(null)}
+        onConfirm={() => {
+          if (!teamToDelete) return;
+          void remove
+            .mutateAsync(teamToDelete)
+            .then(() => setTeamToDelete(null))
+            .catch(() => {});
+        }}
+        open={teamToDelete !== null}
+        pending={remove.isPending}
+        pendingLabel="Deleting..."
+        title="Delete team?"
+      />
     </section>
   );
 }

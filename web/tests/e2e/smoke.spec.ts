@@ -546,6 +546,29 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
       body: JSON.stringify({ agent }),
     });
   });
+  await page.route("**/api/agents/*/stop", async (route) => {
+    const request = route.request();
+    const authorization = request.headers().authorization ?? "";
+    const event = JSON.parse(
+      Buffer.from(authorization.slice("Nostr ".length), "base64").toString(
+        "utf8",
+      ),
+    );
+    expect(verifyEvent(event)).toBe(true);
+    expect(event.pubkey).toBe(ownerPubkey);
+    const id = new URL(request.url()).pathname.split("/").at(-2);
+    const agent = managedAgents.find((candidate) => candidate.id === id);
+    expect(agent).toBeTruthy();
+    if (agent) {
+      agent.desired_state = "stopped";
+      agent.observed_state = "stopped";
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ agent }),
+    });
+  });
   await page.route("**/api/agents/*/logs", async (route) => {
     const request = route.request();
     const authorization = request.headers().authorization ?? "";
@@ -870,6 +893,10 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
                 ),
               ]),
             );
+            for (const project of submittedEvents.filter(
+              (event) => event.kind === 30617,
+            ))
+              socket.send(JSON.stringify(["EVENT", subscriptionId, project]));
           }
           if (filters.includes("30620")) {
             for (const workflow of submittedEvents.filter(
@@ -1985,6 +2012,15 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
       ),
     )
     .toBe(true);
+  await page.getByRole("button", { name: "Delete Web parity" }).click();
+  const deleteProjectDialog = page.getByRole("dialog", {
+    name: "Delete project?",
+  });
+  await expect(deleteProjectDialog).toContainText(
+    "Delete Web parity from Projects for everyone. This can only be done for projects you own and cannot be undone.",
+  );
+  await page.keyboard.press("Escape");
+  await expect(deleteProjectDialog).toBeHidden();
   await page.getByRole("link", { name: "Relay project" }).click();
   await expect(page.getByRole("heading", { name: "Issues" })).toBeVisible();
   await page.getByRole("button", { name: "New issue" }).click();
@@ -2045,6 +2081,15 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
       );
     })
     .toBe(true);
+  await page.getByRole("button", { name: "Delete workflow" }).click();
+  const deleteWorkflowDialog = page.getByRole("dialog", {
+    name: "Delete workflow?",
+  });
+  await expect(deleteWorkflowDialog).toContainText(
+    'Delete "Incoming webhook". This will stop all future triggers and remove the workflow permanently.',
+  );
+  await deleteWorkflowDialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(deleteWorkflowDialog).toBeHidden();
   await page.getByRole("link", { name: "Pulse" }).click();
   await expect(page.getByRole("heading", { name: "Pulse" })).toBeVisible();
   await expect(page.getByText("Relay-native Pulse update")).toBeVisible();
@@ -2224,6 +2269,28 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     .poll(() => restoredMemory)
     .toEqual([{ slug: "core", body: "Remember imported reviews." }]);
   expect(createdAgentInputs[0]?.start_immediately).toBe(false);
+  const stoppedAgentCard = page.locator("article").filter({
+    hasText: "Snapshot auditor",
+  });
+  await stoppedAgentCard
+    .getByRole("button", { name: "Snapshot auditor actions" })
+    .click();
+  await stoppedAgentCard.getByRole("button", { name: "Stop agent" }).click();
+  await stoppedAgentCard
+    .getByRole("button", { name: "Snapshot auditor actions" })
+    .click();
+  await stoppedAgentCard.getByRole("button", { name: "Delete agent" }).click();
+  const deleteAgentDialog = page.getByRole("dialog", {
+    name: "Delete this agent?",
+  });
+  await expect(deleteAgentDialog).toContainText(
+    "Deleting this agent removes the hosted agent from this community.",
+  );
+  await expect(deleteAgentDialog).toContainText(
+    "Removes its management record and encrypted credentials",
+  );
+  await page.keyboard.press("Escape");
+  await expect(deleteAgentDialog).toBeHidden();
   await page.getByRole("button", { name: "Agent catalog" }).click();
   await expect(
     page.getByRole("heading", { name: "Agent catalog" }),
@@ -2317,6 +2384,13 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     })
     .toBe(true);
   await expect(page.getByText("Review crew")).toBeVisible();
+  await page.getByRole("button", { name: "Delete Review crew" }).click();
+  const deleteTeamDialog = page.getByRole("dialog", { name: "Delete team?" });
+  await expect(deleteTeamDialog).toContainText(
+    'Delete "Review crew". Already-deployed agents are not affected, but this team template will no longer be available.',
+  );
+  await deleteTeamDialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(deleteTeamDialog).toBeHidden();
   await page.getByRole("button", { name: "Deploy Review crew" }).click();
   await expect(
     page.getByLabel("Anthropic API key", { exact: true }),
@@ -2581,6 +2655,15 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
       );
     })
     .toBe(true);
+  await page.getByRole("button", { name: "Delete Review room" }).click();
+  const deleteTemplateDialog = page.getByRole("dialog", {
+    name: "Delete template",
+  });
+  await expect(deleteTemplateDialog).toContainText(
+    'Are you sure you want to delete "Review room"? This action cannot be undone.',
+  );
+  await page.keyboard.press("Escape");
+  await expect(deleteTemplateDialog).toBeHidden();
   await page.getByRole("link", { name: "Channels" }).click();
   await expect(page.getByRole("heading", { name: "general" })).toBeVisible();
   await page.getByRole("button", { name: "Create channel" }).click();

@@ -15,7 +15,7 @@ export function DestructiveConfirmDialog({
 }: {
   open: boolean;
   title: string;
-  description: string;
+  description: React.ReactNode;
   confirmLabel: string;
   pendingLabel?: string;
   pending?: boolean;
@@ -45,7 +45,7 @@ export function DestructiveConfirmDialog({
             <X />
           </Button>
         </header>
-        <p className="mt-3 text-sm text-muted-foreground">{description}</p>
+        <div className="mt-3 text-sm text-muted-foreground">{description}</div>
         <div className="mt-6 flex justify-end gap-2">
           <Button disabled={pending} onClick={onClose} variant="outline">
             Cancel

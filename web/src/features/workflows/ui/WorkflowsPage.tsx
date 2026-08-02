@@ -30,6 +30,7 @@ import { useEscapeSurface } from "@/shared/hooks/use-escape-surface";
 import { useSidebarVisibility } from "@/shared/hooks/use-sidebar-visibility";
 import { relayHttpBaseUrl } from "@/shared/lib/relay-url";
 import { Button } from "@/shared/ui/button";
+import { DestructiveConfirmDialog } from "@/shared/ui/destructive-confirm-dialog";
 import { SidebarToggleButton } from "@/shared/ui/sidebar-toggle-button";
 import {
   deleteWorkflow,
@@ -72,6 +73,9 @@ function WorkflowWorkspace({
   const [dialog, setDialog] = useState<DialogState>({ mode: "closed" });
   const sidebar = useSidebarVisibility();
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [workflowToDelete, setWorkflowToDelete] = useState<Workflow | null>(
+    null,
+  );
   const [webhook, setWebhook] = useState<{
     workflowId: string;
     secret: string;
@@ -204,10 +208,7 @@ function WorkflowWorkspace({
                     }
                     isOwner={workflow.owner === ownerPubkey}
                     key={`${workflow.owner}:${workflow.id}`}
-                    onDelete={() => {
-                      if (window.confirm(`Delete ${workflow.definition.name}?`))
-                        remove.mutate(workflow);
-                    }}
+                    onDelete={() => setWorkflowToDelete(workflow)}
                     onDuplicate={() =>
                       setDialog({ mode: "duplicate", workflow })
                     }
@@ -237,6 +238,26 @@ function WorkflowWorkspace({
           )}
         </div>
       </main>
+      <DestructiveConfirmDialog
+        confirmLabel="Delete"
+        description={
+          workflowToDelete
+            ? `Delete "${workflowToDelete.definition.name}". This will stop all future triggers and remove the workflow permanently.`
+            : "Delete this workflow."
+        }
+        onClose={() => setWorkflowToDelete(null)}
+        onConfirm={() => {
+          if (!workflowToDelete) return;
+          void remove
+            .mutateAsync(workflowToDelete)
+            .then(() => setWorkflowToDelete(null))
+            .catch(() => {});
+        }}
+        open={workflowToDelete !== null}
+        pending={remove.isPending}
+        pendingLabel="Deleting..."
+        title="Delete workflow?"
+      />
 
       {dialog.mode !== "closed" ? (
         <Modal

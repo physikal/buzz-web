@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { listPersonas } from "@/features/agents/persona-api";
 import { listTeams } from "@/features/agents/team-api";
 import { Button } from "@/shared/ui/button";
+import { DestructiveConfirmDialog } from "@/shared/ui/destructive-confirm-dialog";
 import { Input } from "@/shared/ui/input";
 import { useEscapeSurface } from "@/shared/hooks/use-escape-surface";
 import {
@@ -32,6 +33,8 @@ export function ChannelTemplatesPanel({
 }) {
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState<ChannelTemplate | null | undefined>();
+  const [templateToDelete, setTemplateToDelete] =
+    useState<ChannelTemplate | null>(null);
   const query = useQuery({
     queryKey: ["channel-templates", ownerPubkey],
     queryFn: () => listChannelTemplates(ownerPubkey),
@@ -141,10 +144,7 @@ export function ChannelTemplatesPanel({
               <Button
                 aria-label={`Delete ${template.name}`}
                 disabled={remove.isPending}
-                onClick={() => {
-                  if (window.confirm(`Delete ${template.name}?`))
-                    remove.mutate(template);
-                }}
+                onClick={() => setTemplateToDelete(template)}
                 size="icon"
                 title="Delete template"
                 variant="ghost"
@@ -170,6 +170,22 @@ export function ChannelTemplatesPanel({
           }
         />
       ) : null}
+      <DestructiveConfirmDialog
+        confirmLabel="Delete"
+        description={`Are you sure you want to delete "${templateToDelete?.name ?? "this template"}"? This action cannot be undone.`}
+        onClose={() => setTemplateToDelete(null)}
+        onConfirm={() => {
+          if (!templateToDelete) return;
+          void remove
+            .mutateAsync(templateToDelete)
+            .then(() => setTemplateToDelete(null))
+            .catch(() => {});
+        }}
+        open={templateToDelete !== null}
+        pending={remove.isPending}
+        pendingLabel="Deleting..."
+        title="Delete template"
+      />
     </section>
   );
 }

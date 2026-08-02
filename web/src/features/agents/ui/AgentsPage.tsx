@@ -32,6 +32,7 @@ import {
   type UpdateAgentInput,
 } from "../agent-api";
 import { Button } from "@/shared/ui/button";
+import { DestructiveConfirmDialog } from "@/shared/ui/destructive-confirm-dialog";
 import { useSidebarVisibility } from "@/shared/hooks/use-sidebar-visibility";
 import { SidebarToggleButton } from "@/shared/ui/sidebar-toggle-button";
 import { AddAgentToChannelDialog } from "./AddAgentToChannelDialog";
@@ -183,6 +184,7 @@ function AgentsWorkspace({
   const [agentToAuthenticate, setAgentToAuthenticate] =
     useState<ManagedAgent | null>(null);
   const [agentToEdit, setAgentToEdit] = useState<ManagedAgent | null>(null);
+  const [agentToDelete, setAgentToDelete] = useState<ManagedAgent | null>(null);
   const [agentToExport, setAgentToExport] = useState<ManagedAgent | null>(null);
   const [agentToInspect, setAgentToInspect] = useState<ManagedAgent | null>(
     null,
@@ -417,7 +419,7 @@ function AgentsWorkspace({
                     pending={pending || preview}
                     onAddToChannel={() => setAgentToAddToChannel(agent)}
                     onAuthenticate={() => setAgentToAuthenticate(agent)}
-                    onDelete={() => deleteMutation.mutate(agent.id)}
+                    onDelete={() => setAgentToDelete(agent)}
                     onEdit={() => setAgentToEdit(agent)}
                     onExport={() => setAgentToExport(agent)}
                     onViewActivity={() => setAgentActivity(agent)}
@@ -555,6 +557,37 @@ function AgentsWorkspace({
         onClose={() => setAgentActivity(null)}
       />
       <AgentLogDialog agent={agentLog} onClose={() => setAgentLog(null)} />
+      <DestructiveConfirmDialog
+        confirmLabel="Delete agent"
+        description={
+          <div className="space-y-3">
+            <p>
+              Deleting this agent removes the hosted agent from this community.
+            </p>
+            <ul className="list-disc space-y-1.5 pl-5">
+              <li>Removes its management record and encrypted credentials</li>
+              <li>Removes the agent from every channel it belongs to</li>
+              <li>
+                Hides its identity from active member lists and mention
+                suggestions
+              </li>
+              <li>The agent harness must already be stopped</li>
+            </ul>
+          </div>
+        }
+        onClose={() => setAgentToDelete(null)}
+        onConfirm={() => {
+          if (!agentToDelete) return;
+          void deleteMutation
+            .mutateAsync(agentToDelete.id)
+            .then(() => setAgentToDelete(null))
+            .catch(() => {});
+        }}
+        open={agentToDelete !== null}
+        pending={deleteMutation.isPending}
+        pendingLabel="Deleting..."
+        title="Delete this agent?"
+      />
     </div>
   );
 }
