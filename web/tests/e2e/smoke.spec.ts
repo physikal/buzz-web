@@ -7,6 +7,9 @@ import {
 import { v2 as nip44 } from "nostr-tools/nip44";
 import { finalizeEvent, getPublicKey, verifyEvent } from "nostr-tools/pure";
 
+const testPort = process.env.BUZZ_WEB_TEST_PORT ?? "4173";
+const testOrigin = `http://localhost:${testPort}`;
+
 async function downloadedBytes(download: PlaywrightDownload): Promise<Buffer> {
   const stream = await download.createReadStream();
   const chunks: Buffer[] = [];
@@ -149,6 +152,58 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
         nonce: claimedCredential?.nonce,
         ciphertext: claimedCredential?.ciphertext,
       }),
+    });
+  });
+  await page.route("**/query", async (route) => {
+    const request = route.request();
+    const body = request.postData() ?? "";
+    const authorization = request.headers().authorization ?? "";
+    expect(authorization).toMatch(/^Nostr /);
+    const authEvent = JSON.parse(
+      Buffer.from(authorization.slice("Nostr ".length), "base64").toString(
+        "utf8",
+      ),
+    );
+    expect(verifyEvent(authEvent)).toBe(true);
+    expect(authEvent.pubkey).toBe(ownerPubkey);
+    expect(authEvent.tags).toContainEqual([
+      "payload",
+      createHash("sha256").update(body).digest("hex"),
+    ]);
+    const filters = JSON.parse(body) as Array<{ kinds?: number[] }>;
+    const kinds = filters.flatMap((filter) => filter.kinds ?? []);
+    const events = [];
+    if (kinds.includes(20001))
+      events.push(
+        finalizeEvent(
+          {
+            kind: 20001,
+            created_at: Math.floor(Date.now() / 1000),
+            content: "online",
+            tags: [["p", catalogPubkey]],
+          },
+          agentSecret,
+        ),
+      );
+    if (kinds.includes(30315))
+      events.push(
+        finalizeEvent(
+          {
+            kind: 30315,
+            created_at: Math.floor(Date.now() / 1000),
+            content: "Reviewing builds",
+            tags: [
+              ["d", "general"],
+              ["emoji", "🔎"],
+            ],
+          },
+          catalogSecret,
+        ),
+      );
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(events),
     });
   });
   await page.route("**/api/agents/runtimes", async (route) => {
@@ -397,7 +452,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
       body: JSON.stringify({
         code: "owner-invite",
         expires_at: Math.floor(Date.now() / 1000) + 259200,
-        url: "http://localhost:4173/invite/owner-invite",
+        url: `${testOrigin}/invite/owner-invite`,
         max_uses: null,
         uses_remaining: null,
       }),
@@ -490,7 +545,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     });
   });
   await page.routeWebSocket(
-    /ws:\/\/(?:127\.0\.0\.1|localhost):4173\/?$/,
+    new RegExp(`ws:\\/\\/(?:127\\.0\\.0\\.1|localhost):${testPort}\\/?$`),
     (socket) => {
       socket.onMessage((message) => {
         const frame = JSON.parse(String(message)) as unknown[];
@@ -942,7 +997,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     },
   );
 
-  await page.goto(`http://localhost:4173/agents/setup#${token}`);
+  await page.goto(`${testOrigin}/agents/setup#${token}`);
   await expect(page).toHaveURL(/\/agents\/setup$/);
   await page.getByRole("button", { name: "Create owner passkey" }).click();
   await expect(
@@ -959,6 +1014,23 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await expect(page.getByRole("heading", { name: "general" })).toBeVisible();
   await expect(page.getByText("Welcome to Buzz Web.")).toBeVisible();
   await expect(page.getByLabel("Message #general")).toBeVisible();
+  await page.getByRole("button", { name: "Open Relay agent profile" }).click();
+  await expect(
+    page.getByRole("dialog", { name: "Relay agent profile" }),
+  ).toBeVisible();
+  await expect(page.getByText("Posts build updates")).toBeVisible();
+  await expect(page.getByText("Reviewing builds")).toBeVisible();
+  await expect(
+    page
+      .getByRole("dialog", { name: "Relay agent profile" })
+      .getByRole("img", { name: "online" }),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByRole("dialog", { name: "Relay agent profile" })
+      .getByRole("button", { name: "Message", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Close" }).click();
   expect(ownerPubkey).toMatch(/^[0-9a-f]{64}$/);
   await expect(page.getByText(/is typing…$/)).toBeVisible();
   await page.getByLabel("Message #general").fill("Typing interoperability");

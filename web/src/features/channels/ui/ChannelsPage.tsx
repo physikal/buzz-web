@@ -30,6 +30,8 @@ import {
 } from "@/features/channel-templates/channel-template-api";
 import { TemplateDeployDialog } from "@/features/channel-templates/ui/TemplateDeployDialog";
 import { lockOwnerVault } from "@/features/owner-vault/lib/vault-worker-client";
+import { useWorkspacePresence } from "@/features/presence/use-presence";
+import { UserProfileDialog } from "@/features/profile/UserProfileDialog";
 import { ReminderDialog } from "@/features/reminders/ui/ReminderDialog";
 import {
   HuddleBar,
@@ -59,7 +61,6 @@ import {
   removeReaction,
   restoreChannel,
   searchMessages,
-  sendPresence,
   sendChannelMessage,
   setChannelCanvas,
   sendTypingIndicator,
@@ -133,6 +134,7 @@ function ChannelsWorkspace({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [huddleStartOpen, setHuddleStartOpen] = useState(false);
   const [reportTarget, setReportTarget] = useState<ChannelMessage | null>(null);
+  const [profileTarget, setProfileTarget] = useState<string | null>(null);
   const [reminderTarget, setReminderTarget] = useState<ChannelMessage | null>(
     null,
   );
@@ -251,18 +253,6 @@ function ChannelsWorkspace({
     return subscription.close;
   }, [ownerPubkey, queryClient]);
   useEffect(() => {
-    const update = () => {
-      void sendPresence(document.hidden ? "away" : "online").catch(() => {});
-    };
-    update();
-    document.addEventListener("visibilitychange", update);
-    return () => {
-      document.removeEventListener("visibilitychange", update);
-      void sendPresence("offline").catch(() => {});
-    };
-  }, []);
-
-  useEffect(() => {
     if (channels[0] && !channels.some((channel) => channel.id === selectedId))
       setSelectedId(channels[0].id);
   }, [channels, selectedId]);
@@ -294,6 +284,7 @@ function ChannelsWorkspace({
     ],
   );
   const profileKey = [...new Set(allPubkeys)].sort().join(",");
+  const { presence, userStatuses } = useWorkspacePresence(allPubkeys);
   const profilesQuery = useQuery({
     queryKey: ["profiles", profileKey],
     queryFn: () => listProfiles([...new Set(allPubkeys)]),
@@ -535,6 +526,7 @@ function ChannelsWorkspace({
     },
     onReport: setReportTarget,
     onRemind: setReminderTarget,
+    onOpenProfile: setProfileTarget,
     onReact: (message, emoji, ownEventId, customEmojiUrl) =>
       reactionMutation.mutate({
         eventId: message.id,
@@ -648,6 +640,7 @@ function ChannelsWorkspace({
               loading={messagesQuery.isLoading}
               messages={messages}
               ownerPubkey={ownerPubkey}
+              presence={presence}
               profiles={profiles}
               selectedMessageId={highlightedId}
             />
@@ -708,6 +701,7 @@ function ChannelsWorkspace({
           }
           ownerPubkey={ownerPubkey}
           pending={sendMutation.isPending}
+          presence={presence}
           profiles={profiles}
           root={threadRoot}
           typingPubkeys={typingEntries
@@ -739,6 +733,21 @@ function ChannelsWorkspace({
         huddle={huddle}
         open={huddleStartOpen}
         onClose={() => setHuddleStartOpen(false)}
+      />
+      <UserProfileDialog
+        agentName={profileTarget ? agentNames.get(profileTarget) : undefined}
+        onClose={() => setProfileTarget(null)}
+        onMessage={(pubkey) => {
+          dmMutation.mutate([pubkey]);
+          setProfileTarget(null);
+        }}
+        ownerPubkey={ownerPubkey}
+        presence={
+          profileTarget ? (presence.get(profileTarget) ?? "offline") : "offline"
+        }
+        profile={profileTarget ? profiles.get(profileTarget) : undefined}
+        pubkey={profileTarget}
+        userStatus={profileTarget ? userStatuses.get(profileTarget) : undefined}
       />
       <ChannelBrowserDialog
         channels={allChannels}

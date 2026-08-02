@@ -1,5 +1,8 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const port = process.env.BUZZ_WEB_TEST_PORT ?? "4173";
+const baseURL = `http://127.0.0.1:${port}`;
+
 export default defineConfig({
   testDir: "./tests/e2e",
   timeout: 30_000,
@@ -10,7 +13,7 @@ export default defineConfig({
     ["html", { open: "never", outputFolder: "playwright-report" }],
   ],
   use: {
-    baseURL: "http://127.0.0.1:4173",
+    baseURL,
     screenshot: "only-on-failure",
     trace: "on-first-retry",
     video: "retain-on-failure",
@@ -25,9 +28,9 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "pnpm exec vite preview --port 4173 --strictPort --host 127.0.0.1",
+    command: `pnpm exec vite preview --port ${port} --strictPort --host 127.0.0.1`,
     cwd: ".",
     reuseExistingServer: !process.env.CI,
-    url: "http://127.0.0.1:4173",
+    url: baseURL,
   },
 });

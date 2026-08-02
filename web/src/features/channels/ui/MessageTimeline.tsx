@@ -16,6 +16,8 @@ import { relativeTime } from "@/shared/lib/relative-time";
 import { truncatePubkey } from "@/shared/lib/pubkey";
 import { Button } from "@/shared/ui/button";
 import type { CustomEmoji } from "@/features/settings/custom-emoji-api";
+import { PresenceDot } from "@/features/profile/UserProfileDialog";
+import type { PresenceStatus } from "@/features/presence/presence-api";
 import type {
   Channel,
   ChannelMessage,
@@ -30,6 +32,7 @@ export type MessageActions = {
   onDelete: (message: ChannelMessage) => void;
   onReport: (message: ChannelMessage) => void;
   onRemind: (message: ChannelMessage) => void;
+  onOpenProfile: (pubkey: string) => void;
   onReact: (
     message: ChannelMessage,
     emoji: string,
@@ -43,6 +46,7 @@ export function MessageTimeline({
   messages,
   ownerPubkey,
   profiles,
+  presence,
   agentNames,
   loading,
   selectedMessageId,
@@ -53,6 +57,7 @@ export function MessageTimeline({
   messages: ChannelMessage[];
   ownerPubkey: string;
   profiles: Map<string, UserProfile>;
+  presence: Map<string, PresenceStatus>;
   agentNames: Map<string, string>;
   loading: boolean;
   selectedMessageId?: string | null;
@@ -104,6 +109,7 @@ export function MessageTimeline({
           message={message}
           ownerPubkey={ownerPubkey}
           profile={profiles.get(message.pubkey)}
+          presence={presence.get(message.pubkey) ?? "offline"}
           replyCount={repliesByRoot.get(message.id) ?? 0}
         />
       ))}
@@ -115,6 +121,7 @@ function MessageRow({
   message,
   ownerPubkey,
   profile,
+  presence,
   agentNames,
   replyCount,
   forum,
@@ -125,6 +132,7 @@ function MessageRow({
   message: ChannelMessage;
   ownerPubkey: string;
   profile?: UserProfile;
+  presence: PresenceStatus;
   agentNames: Map<string, string>;
   replyCount: number;
   forum: boolean;
@@ -148,20 +156,36 @@ function MessageRow({
       className={`group relative flex gap-3 px-3 py-2 ${forum ? "rounded-md border bg-card py-4" : "rounded-md hover:bg-muted/40"} ${highlighted ? "bg-primary/10 ring-1 ring-primary/30" : ""}`}
       id={`message-${message.id}`}
     >
-      {profile?.avatarUrl ? (
-        <img
-          alt=""
-          className="h-9 w-9 shrink-0 rounded-md object-cover"
-          src={profile.avatarUrl}
-        />
-      ) : (
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-muted text-xs font-semibold">
-          {initials}
-        </div>
-      )}
+      <button
+        aria-label={`Open ${author} profile`}
+        className="relative h-9 w-9 shrink-0"
+        onClick={() => actions.onOpenProfile(message.pubkey)}
+        type="button"
+      >
+        {profile?.avatarUrl ? (
+          <img
+            alt=""
+            className="h-9 w-9 rounded-md object-cover"
+            src={profile.avatarUrl}
+          />
+        ) : (
+          <span className="flex h-9 w-9 items-center justify-center rounded-md bg-muted text-xs font-semibold">
+            {initials}
+          </span>
+        )}
+        <span className="absolute -bottom-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full border-2 border-background bg-background">
+          <PresenceDot status={presence} />
+        </span>
+      </button>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-baseline gap-x-2">
-          <span className="text-sm font-semibold">{author}</span>
+          <button
+            className="text-sm font-semibold hover:underline"
+            onClick={() => actions.onOpenProfile(message.pubkey)}
+            type="button"
+          >
+            {author}
+          </button>
           <time
             className="text-xs text-muted-foreground"
             dateTime={new Date(message.createdAt * 1000).toISOString()}
@@ -464,6 +488,7 @@ export function ThreadPanel({
   messages,
   ownerPubkey,
   profiles,
+  presence,
   agentNames,
   pending,
   actions,
@@ -478,6 +503,7 @@ export function ThreadPanel({
   messages: ChannelMessage[];
   ownerPubkey: string;
   profiles: Map<string, UserProfile>;
+  presence: Map<string, PresenceStatus>;
   agentNames: Map<string, string>;
   pending: boolean;
   actions: MessageActions;
@@ -518,6 +544,7 @@ export function ThreadPanel({
             message={message}
             ownerPubkey={ownerPubkey}
             profile={profiles.get(message.pubkey)}
+            presence={presence.get(message.pubkey) ?? "offline"}
             replyCount={0}
           />
         ))}
