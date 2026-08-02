@@ -64,6 +64,15 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   const catalogSecret = new Uint8Array(32);
   catalogSecret[31] = 1;
   const catalogPubkey = getPublicKey(catalogSecret);
+  const welcomeMessageEvent = finalizeEvent(
+    {
+      kind: 9,
+      created_at: Math.floor(Date.now() / 1000) - 60,
+      content: "Welcome to Buzz Web.",
+      tags: [["h", "44444444-4444-4444-8444-444444444444"]],
+    },
+    catalogSecret,
+  );
   let catalogImageRequests = 0;
   let ownerPubkey = "";
   const managedAgents: Array<Record<string, unknown>> = [];
@@ -722,7 +731,11 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
         }
         if (frame[0] === "REQ" && typeof frame[1] === "string") {
           const subscriptionId = frame[1];
-          const filters = JSON.stringify(frame.slice(2));
+          const requestFilters = frame.slice(2) as Array<{
+            kinds?: number[];
+            "#h"?: string[];
+          }>;
+          const filters = JSON.stringify(requestFilters);
           const signer = catalogSecret;
           const createdAt = Math.floor(Date.now() / 1000) - 60;
           if (filters.includes("39000")) {
@@ -769,20 +782,19 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
           }
           if (filters.includes("40008")) {
             socket.send(
-              JSON.stringify([
-                "EVENT",
-                subscriptionId,
-                finalizeEvent(
-                  {
-                    kind: 9,
-                    created_at: createdAt,
-                    content: "Welcome to Buzz Web.",
-                    tags: [["h", "44444444-4444-4444-8444-444444444444"]],
-                  },
-                  signer,
-                ),
-              ]),
+              JSON.stringify(["EVENT", subscriptionId, welcomeMessageEvent]),
             );
+            const channelIds = new Set(
+              requestFilters.flatMap((filter) => filter["#h"] ?? []),
+            );
+            for (const event of submittedEvents.filter(
+              (event) =>
+                event.kind === 9 &&
+                event.tags.some(
+                  (tag) => tag[0] === "h" && channelIds.has(tag[1]),
+                ),
+            ))
+              socket.send(JSON.stringify(["EVENT", subscriptionId, event]));
           }
           if (filters.includes("13534")) {
             socket.send(
@@ -1683,6 +1695,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
       event.kind === 9 &&
       event.content === "Send from the web inbox to @Relay agent",
   );
+  expect(sentDraft?.id).toMatch(/^[0-9a-f]{64}$/u);
   expect(sentDraft?.tags).toContainEqual(["p", catalogPubkey]);
   await expect(page.getByText("No drafts")).toBeVisible();
   await page.getByLabel("Inbox filter").selectOption("reminders");
@@ -1737,6 +1750,52 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await expect(shortcutSearch).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(shortcutSearch).toBeHidden();
+  await page.getByRole("link", { name: "Channels" }).click();
+  await expect(page.getByRole("heading", { name: "general" })).toBeVisible();
+  const sentDraftMessage = page.locator(
+    `article[id="message-${sentDraft?.id}"]`,
+  );
+  await expect(sentDraftMessage).toBeVisible();
+  await sentDraftMessage.hover();
+  await sentDraftMessage.getByRole("button", { name: "Edit message" }).click();
+  const messageEditor = sentDraftMessage.locator("textarea");
+  await messageEditor.fill("");
+  await sentDraftMessage.getByRole("button", { name: "Save" }).click();
+  const deleteMessageDialog = page.getByRole("dialog", {
+    name: "Delete message",
+  });
+  await expect(deleteMessageDialog).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(deleteMessageDialog).toBeHidden();
+  await expect(messageEditor).toBeVisible();
+  await sentDraftMessage.getByRole("button", { name: "Cancel" }).click();
+  await sentDraftMessage.hover();
+  await sentDraftMessage
+    .getByRole("button", { name: "Delete message" })
+    .click();
+  await expect(deleteMessageDialog).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(deleteMessageDialog).toBeHidden();
+  await sentDraftMessage.hover();
+  await sentDraftMessage
+    .getByRole("button", { name: "Delete message" })
+    .click();
+  await deleteMessageDialog.getByRole("button", { name: "Delete" }).click();
+  await expect(deleteMessageDialog).toBeHidden();
+  await expect
+    .poll(() =>
+      submittedEvents.some(
+        (event) =>
+          event.kind === 9005 &&
+          event.tags.some(
+            (tag) =>
+              tag[0] === "h" &&
+              tag[1] === "44444444-4444-4444-8444-444444444444",
+          ) &&
+          event.tags.some((tag) => tag[0] === "e" && tag[1].length === 64),
+      ),
+    )
+    .toBe(true);
   await page.keyboard.press(`${shortcutModifier}+Shift+K`);
   const shortcutDm = page.getByRole("dialog", { name: "New message" });
   await expect(shortcutDm).toBeVisible();

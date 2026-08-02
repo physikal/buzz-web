@@ -568,6 +568,7 @@ function ChannelsWorkspace({
   }
 
   const actions: MessageActions = {
+    deletePending: deleteMessageMutation.isPending,
     onReply: (message) => setThreadRootId(message.rootId ?? message.id),
     onEdit: async (message, content) => {
       if (!selected) return;
@@ -578,11 +579,13 @@ function ChannelsWorkspace({
       });
     },
     onDelete: (message) => {
-      if (!selected || !window.confirm("Delete this message?")) return;
-      deleteMessageMutation.mutate({
-        channelId: selected.id,
-        eventId: message.id,
-      });
+      if (!selected) return Promise.resolve();
+      return deleteMessageMutation
+        .mutateAsync({
+          channelId: selected.id,
+          eventId: message.id,
+        })
+        .then(() => undefined);
     },
     onReport: setReportTarget,
     onRemind: setReminderTarget,

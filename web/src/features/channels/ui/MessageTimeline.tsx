@@ -28,12 +28,14 @@ import type {
   UserProfile,
 } from "../channel-api";
 import { MessageComposer, type ComposerPayload } from "./MessageComposer";
+import { DeleteMessageDialog } from "./DeleteMessageDialog";
 import { MessageMoreActions } from "./MessageMoreActions";
 
 export type MessageActions = {
   onReply: (message: ChannelMessage) => void;
   onEdit: (message: ChannelMessage, content: string) => Promise<void>;
-  onDelete: (message: ChannelMessage) => void;
+  onDelete: (message: ChannelMessage) => Promise<void>;
+  deletePending: boolean;
   onReport: (message: ChannelMessage) => void;
   onRemind: (message: ChannelMessage) => void;
   isUnread: (message: ChannelMessage) => boolean;
@@ -158,6 +160,7 @@ function MessageRow({
   const [editing, setEditing] = useState(false);
   const [editContent, setEditContent] = useState(message.content);
   const [reactionOpen, setReactionOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const author =
     message.pubkey === ownerPubkey
       ? "You"
@@ -220,6 +223,10 @@ function MessageRow({
             className="mt-2"
             onSubmit={async (event) => {
               event.preventDefault();
+              if (!editContent.trim()) {
+                setDeleteOpen(true);
+                return;
+              }
               await actions.onEdit(message, editContent);
               setEditing(false);
             }}
@@ -387,7 +394,7 @@ function MessageRow({
               </Button>
               <Button
                 aria-label="Delete message"
-                onClick={() => actions.onDelete(message)}
+                onClick={() => setDeleteOpen(true)}
                 size="icon"
                 variant="ghost"
               >
@@ -406,6 +413,20 @@ function MessageRow({
           )}
         </div>
       ) : null}
+      <DeleteMessageDialog
+        onClose={() => setDeleteOpen(false)}
+        onConfirm={() => {
+          void actions
+            .onDelete(message)
+            .then(() => {
+              setDeleteOpen(false);
+              setEditing(false);
+            })
+            .catch(() => {});
+        }}
+        open={deleteOpen}
+        pending={actions.deletePending}
+      />
     </article>
   );
 }
