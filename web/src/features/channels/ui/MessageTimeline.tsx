@@ -28,6 +28,7 @@ import type {
   UserProfile,
 } from "../channel-api";
 import { MessageComposer, type ComposerPayload } from "./MessageComposer";
+import { MessageMoreActions } from "./MessageMoreActions";
 
 export type MessageActions = {
   onReply: (message: ChannelMessage) => void;
@@ -35,6 +36,9 @@ export type MessageActions = {
   onDelete: (message: ChannelMessage) => void;
   onReport: (message: ChannelMessage) => void;
   onRemind: (message: ChannelMessage) => void;
+  isUnread: (message: ChannelMessage) => boolean;
+  onMarkRead: (message: ChannelMessage) => void;
+  onMarkUnread: (message: ChannelMessage) => void;
   onOpenProfile: (pubkey: string) => void;
   onReact: (
     message: ChannelMessage,
@@ -106,6 +110,7 @@ export function MessageTimeline({
       {roots.map((message) => (
         <MessageRow
           actions={actions}
+          channelId={channel.id}
           agentNames={agentNames}
           forum={channel.channelType === "forum"}
           highlighted={selectedMessageId === message.id}
@@ -124,6 +129,7 @@ export function MessageTimeline({
 }
 
 function MessageRow({
+  channelId,
   message,
   ownerPubkey,
   profile,
@@ -136,6 +142,7 @@ function MessageRow({
   customEmoji,
   actions,
 }: {
+  channelId: string;
   message: ChannelMessage;
   ownerPubkey: string;
   profile?: UserProfile;
@@ -361,6 +368,13 @@ function MessageRow({
           >
             <Clock />
           </Button>
+          <MessageMoreActions
+            channelId={channelId}
+            message={message}
+            onMarkRead={() => actions.onMarkRead(message)}
+            onMarkUnread={() => actions.onMarkUnread(message)}
+            unread={actions.isUnread(message)}
+          />
           {message.pubkey === ownerPubkey ? (
             <>
               <Button
@@ -565,6 +579,7 @@ export function ThreadPanel({
         {[root, ...replies].map((message) => (
           <MessageRow
             actions={actions}
+            channelId={channel.id}
             customEmoji={customEmoji}
             agentNames={agentNames}
             forum={false}

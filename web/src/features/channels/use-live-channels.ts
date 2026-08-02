@@ -96,6 +96,9 @@ export function useLiveChannels({
   const [forcedUnread, setForcedUnread] = useState<ForcedUnread>(() =>
     readForcedUnread(ownerPubkey),
   );
+  const [forcedUnreadMessageIds, setForcedUnreadMessageIds] = useState(
+    () => new Set<string>(),
+  );
   const managerRef = useRef<ReadStateManager | null>(null);
   const channelIds = useMemo(
     () => channels.map((channel) => channel.id).sort(),
@@ -104,6 +107,7 @@ export function useLiveChannels({
 
   useEffect(() => {
     setForcedUnread(readForcedUnread(ownerPubkey));
+    setForcedUnreadMessageIds(new Set());
     const manager = new ReadStateManager(ownerPubkey);
     managerRef.current = manager;
     const unsubscribe = manager.subscribe(() =>
@@ -250,9 +254,22 @@ export function useLiveChannels({
       ).length;
       if (hasForcedUnread(forcedUnread, channelId))
         result[channelId] = Math.max(1, result[channelId]);
+      if (
+        Object.keys(activity[channelId] ?? {}).some((id) =>
+          forcedUnreadMessageIds.has(id),
+        )
+      )
+        result[channelId] = Math.max(1, result[channelId]);
     }
     return result;
-  }, [activity, channelIds, forcedUnread, ownerPubkey, readMarkers]);
+  }, [
+    activity,
+    channelIds,
+    forcedUnread,
+    forcedUnreadMessageIds,
+    ownerPubkey,
+    readMarkers,
+  ]);
   const lastActivity = useMemo(
     () =>
       Object.fromEntries(
@@ -305,8 +322,48 @@ export function useLiveChannels({
       );
       if (timestamps.length)
         managerRef.current?.markRead(channelId, Math.max(...timestamps));
+      setForcedUnreadMessageIds((current) => {
+        const next = new Set(current);
+        for (const id of Object.keys(activity[channelId] ?? {}))
+          next.delete(id);
+        return next.size === current.size ? current : next;
+      });
     },
     [activity, ownerPubkey],
+  );
+
+  const markMessagesRead = useCallback(
+    (messages: Array<{ id: string; createdAt: number }>) => {
+      setForcedUnreadMessageIds((current) => {
+        const next = new Set(current);
+        for (const message of messages) next.delete(message.id);
+        return next.size === current.size ? current : next;
+      });
+      for (const message of messages)
+        managerRef.current?.markRead(`msg:${message.id}`, message.createdAt);
+    },
+    [],
+  );
+  const markMessagesUnread = useCallback((messageIds: string[]) => {
+    setForcedUnreadMessageIds((current) => {
+      const next = new Set(current);
+      for (const id of messageIds) next.add(id);
+      return next;
+    });
+  }, []);
+  const isMessageUnread = useCallback(
+    (
+      channelId: string,
+      message: { id: string; createdAt: number; pubkey: string },
+    ) =>
+      forcedUnreadMessageIds.has(message.id) ||
+      (message.pubkey !== ownerPubkey &&
+        message.createdAt >
+          Math.max(
+            readMarkers[channelId] ?? 0,
+            readMarkers[`msg:${message.id}`] ?? 0,
+          )),
+    [forcedUnreadMessageIds, ownerPubkey, readMarkers],
   );
 
   return {
@@ -316,5 +373,8 @@ export function useLiveChannels({
     markContextRead,
     markChannelRead,
     markChannelUnread,
+    markMessagesRead,
+    markMessagesUnread,
+    isMessageUnread,
   };
 }

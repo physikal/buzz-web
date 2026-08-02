@@ -1422,6 +1422,48 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     hasText: "Welcome to Buzz Web.",
   });
   await welcomeMessage.hover();
+  await welcomeMessage.getByRole("button", { name: "More actions" }).click();
+  await expect(page.getByRole("menu")).toBeVisible();
+  await page.getByRole("menuitem", { name: "Copy message" }).click();
+  await expect(page.getByRole("menu")).toBeHidden();
+  await expect
+    .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+    .toBe("Welcome to Buzz Web.");
+  await welcomeMessage.hover();
+  await welcomeMessage.getByRole("button", { name: "More actions" }).click();
+  await expect(page.getByRole("menu")).toBeVisible();
+  await page.getByRole("menuitem", { name: "Copy link" }).click();
+  await expect(page.getByRole("menu")).toBeHidden();
+  const copiedMessageUrl = new URL(
+    await page.evaluate(() => navigator.clipboard.readText()),
+  );
+  expect(copiedMessageUrl.pathname).toBe("/channels");
+  expect(copiedMessageUrl.searchParams.get("channel")).toBe(
+    "44444444-4444-4444-8444-444444444444",
+  );
+  expect(copiedMessageUrl.searchParams.get("message")).toMatch(
+    /^[0-9a-f]{64}$/u,
+  );
+  await welcomeMessage.hover();
+  await welcomeMessage.getByRole("button", { name: "More actions" }).click();
+  await expect(page.getByRole("menu")).toBeVisible();
+  const initialMarkRead = page.getByRole("menuitem", { name: "Mark read" });
+  if (await initialMarkRead.isVisible()) {
+    await initialMarkRead.click();
+    await welcomeMessage.hover();
+    await welcomeMessage.getByRole("button", { name: "More actions" }).click();
+  }
+  await page.getByRole("menuitem", { name: "Mark unread" }).click();
+  await expect(
+    page.getByRole("button", { name: "Mark read #general" }),
+  ).toBeVisible();
+  await welcomeMessage.hover();
+  await welcomeMessage.getByRole("button", { name: "More actions" }).click();
+  await page.getByRole("menuitem", { name: "Mark read" }).click();
+  await expect(
+    page.getByRole("button", { name: "Mark unread #general" }),
+  ).toBeVisible();
+  await welcomeMessage.hover();
   await welcomeMessage.getByRole("button", { name: "Reply" }).click();
   await expect(page.getByRole("heading", { name: "Thread" })).toBeVisible();
   await page.getByRole("button", { name: "Follow thread" }).click();

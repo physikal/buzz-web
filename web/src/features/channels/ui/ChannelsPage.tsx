@@ -62,6 +62,7 @@ import {
   type ChannelMessage,
 } from "../channel-api";
 import { useLiveChannels } from "../use-live-channels";
+import { useHighlightedMessage } from "../use-highlighted-message";
 import { useChannelMutes } from "../use-channel-mutes";
 import { useChannelStars } from "../use-channel-stars";
 import { useChannelSort } from "../use-channel-sort";
@@ -69,6 +70,7 @@ import { useChannelSections } from "../use-channel-sections";
 import { useThreadFollows } from "../use-thread-follows";
 import { useTypingIndicators } from "../use-typing";
 import { buildDmCandidates } from "../dm-candidates";
+import { messageSubtree } from "../message-tree";
 import { ChannelSidebar } from "./ChannelSidebar";
 import { ChannelFindBar } from "./ChannelFindBar";
 import { ChannelIcon } from "./ChannelIcon";
@@ -260,6 +262,9 @@ function ChannelsWorkspace({
     lastActivity,
     markChannelRead,
     markChannelUnread,
+    markMessagesRead,
+    markMessagesUnread,
+    isMessageUnread,
   } = useLiveChannels({
     ownerPubkey,
     channels,
@@ -311,16 +316,7 @@ function ChannelsWorkspace({
     if (channels[0] && !channels.some((channel) => channel.id === selectedId))
       setSelectedId(channels[0].id);
   }, [channels, selectedId]);
-  useEffect(() => {
-    if (!highlightedId || messages.length === 0) return;
-    const timer = setTimeout(() => {
-      document.getElementById(`message-${highlightedId}`)?.scrollIntoView({
-        behavior: "smooth",
-        block: "center",
-      });
-    }, 100);
-    return () => clearTimeout(timer);
-  }, [highlightedId, messages.length]);
+  useHighlightedMessage(highlightedId, messages, setThreadRootId);
 
   const allPubkeys = useMemo(
     () => [
@@ -590,6 +586,12 @@ function ChannelsWorkspace({
     },
     onReport: setReportTarget,
     onRemind: setReminderTarget,
+    isUnread: (message) =>
+      selected ? isMessageUnread(selected.id, message) : false,
+    onMarkRead: (message) =>
+      markMessagesRead(messageSubtree(message, messages)),
+    onMarkUnread: (message) =>
+      markMessagesUnread(messageSubtree(message, messages).map(({ id }) => id)),
     onOpenProfile: setProfileTarget,
     onReact: (message, emoji, ownEventId, customEmojiUrl) =>
       reactionMutation.mutate({
