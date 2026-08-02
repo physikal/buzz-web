@@ -1,4 +1,5 @@
 import {
+  publishEphemeralEvent,
   queryEvents,
   subscribeEvents,
   type NostrEvent,
@@ -9,9 +10,11 @@ import {
   addChannelMember,
   archiveChannel,
   leaveChannel,
+  listChannelMembers,
 } from "@/features/channels/channel-api";
 
 export const HUDDLE_KINDS = [48100, 48101, 48102, 48103] as const;
+export const HUDDLE_REACTION_KIND = 24810;
 const JOINABLE_WINDOW_SECONDS = 60 * 60;
 
 export type ActiveHuddle = {
@@ -163,4 +166,117 @@ export async function leaveHuddleChannel(
     if (!(error instanceof Error) || !error.message.includes("archived"))
       throw error;
   });
+}
+
+export type HuddleReaction = {
+  id: string;
+  pubkey: string;
+  emoji: string;
+  emojiUrl: string | null;
+  senderName: string;
+};
+
+export function parseHuddleReaction(event: NostrEvent): HuddleReaction | null {
+  if (event.kind !== HUDDLE_REACTION_KIND) return null;
+  const emoji =
+    event.tags.find((tag) => tag[0] === "reaction")?.[1]?.trim() ||
+    event.content.trim();
+  if (!emoji || emoji.length > 128) return null;
+  const senderName =
+    event.tags.find((tag) => tag[0] === "sender_name")?.[1]?.trim() ||
+    "Participant";
+  const emojiUrl =
+    event.tags.find(
+      (tag) =>
+        tag[0] === "emoji" &&
+        tag.length === 3 &&
+        /^https?:\/\//.test(tag[2] ?? ""),
+    )?.[2] ?? null;
+  return {
+    id: event.id,
+    pubkey: event.pubkey,
+    emoji,
+    emojiUrl,
+    senderName: senderName.slice(0, 80),
+  };
+}
+
+export function subscribeHuddleReactions(
+  ephemeralChannelId: string,
+  onReaction: (reaction: HuddleReaction) => void,
+) {
+  return subscribeEvents(
+    relayWsUrl(),
+    {
+      kinds: [HUDDLE_REACTION_KIND],
+      "#h": [ephemeralChannelId],
+      since: Math.floor(Date.now() / 1_000),
+    },
+    (event) => {
+      const reaction = parseHuddleReaction(event);
+      if (reaction) onReaction(reaction);
+    },
+    { requireNip07: true },
+  );
+}
+
+export async function sendHuddleReaction(input: {
+  ephemeralChannelId: string;
+  emoji: string;
+  senderName: string;
+  emojiUrl?: string;
+}) {
+  const emoji = input.emoji.trim();
+  if (!emoji || emoji.length > 128) throw new Error("Choose a valid reaction.");
+  const tags = [
+    ["h", input.ephemeralChannelId],
+    ["reaction", emoji],
+    ["sender_name", input.senderName.trim().slice(0, 80)],
+  ];
+  const shortcode =
+    emoji.startsWith(":") && emoji.endsWith(":")
+      ? emoji.slice(1, -1).trim().toLowerCase()
+      : "";
+  if (shortcode && input.emojiUrl)
+    tags.push(["emoji", shortcode, input.emojiUrl]);
+  const event = await publishEphemeralEvent({
+    kind: HUDDLE_REACTION_KIND,
+    content: emoji,
+    tags,
+  });
+  return parseHuddleReaction(event);
+}
+
+export async function addAgentToHuddle(
+  parentChannelId: string,
+  ephemeralChannelId: string,
+  pubkey: string,
+) {
+  await addChannelMember(ephemeralChannelId, pubkey, "bot");
+  let parentWarning: string | null = null;
+  const alreadyInParent = await listChannelMembers(parentChannelId)
+    .then((members) => members.some((member) => member.pubkey === pubkey))
+    .catch(() => false);
+  if (!alreadyInParent)
+    await addChannelMember(parentChannelId, pubkey, "bot").catch(
+      async (error) => {
+        const activeAfterError = await listChannelMembers(parentChannelId)
+          .then((members) => members.some((member) => member.pubkey === pubkey))
+          .catch(() => false);
+        if (!activeAfterError)
+          parentWarning =
+            error instanceof Error
+              ? error.message
+              : "Could not add the agent to the parent channel.";
+      },
+    );
+  return { parentWarning };
+}
+
+export async function listHuddleAgentPubkeys(ephemeralChannelId: string) {
+  return listChannelMembers(ephemeralChannelId).then((members) =>
+    members
+      .filter((member) => member.role === "bot")
+      .map((member) => member.pubkey),
+  );
 }

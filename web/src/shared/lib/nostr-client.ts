@@ -11,6 +11,7 @@ import {
   type SignedNostrEvent,
   signNostrEvent,
 } from "@/shared/lib/nostr-signer";
+import { relayWsUrl } from "@/shared/lib/relay-url";
 
 export interface NostrFilter {
   ids?: string[];
@@ -26,6 +27,100 @@ export interface NostrFilter {
 export type NostrEvent = SignedNostrEvent;
 
 const QUERY_TIMEOUT_MS = 10_000;
+
+export async function publishEphemeralEvent(
+  template: Parameters<typeof signNostrEvent>[0],
+): Promise<NostrEvent> {
+  const event = await signNostrEvent(template, { requireNip07: true });
+  const wsUrl = relayWsUrl();
+
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(wsUrl);
+    let settled = false;
+    let authEventId: string | null = null;
+    let published = false;
+    const timeout = window.setTimeout(() => {
+      finish(new Error("Relay publish timed out."));
+    }, QUERY_TIMEOUT_MS);
+
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeout);
+      try {
+        ws.close();
+      } catch {
+        // Already closed.
+      }
+      if (error) reject(error);
+      else resolve(event);
+    };
+
+    ws.addEventListener("message", async (message) => {
+      let frame: unknown;
+      try {
+        frame = JSON.parse(String(message.data));
+      } catch {
+        return;
+      }
+      if (!Array.isArray(frame) || settled) return;
+      if (frame[0] === "AUTH" && typeof frame[1] === "string") {
+        try {
+          const authEvent = await signNostrEvent(
+            makeAuthEvent(wsUrl, frame[1]),
+            { requireNip07: true },
+          );
+          if (settled) return;
+          authEventId = authEvent.id;
+          ws.send(JSON.stringify(["AUTH", authEvent]));
+        } catch (cause) {
+          finish(
+            cause instanceof Error
+              ? cause
+              : new Error("Failed to sign relay authentication."),
+          );
+        }
+        return;
+      }
+      if (frame[0] !== "OK") return;
+      if (frame[1] === authEventId) {
+        if (frame[2] !== true) {
+          finish(
+            new Error(
+              typeof frame[3] === "string"
+                ? frame[3]
+                : "Relay authentication failed.",
+            ),
+          );
+          return;
+        }
+        if (!published) {
+          published = true;
+          ws.send(JSON.stringify(["EVENT", event]));
+        }
+        return;
+      }
+      if (frame[1] === event.id) {
+        finish(
+          frame[2] === true
+            ? undefined
+            : new Error(
+                typeof frame[3] === "string"
+                  ? frame[3]
+                  : "The relay rejected the event.",
+              ),
+        );
+      }
+    });
+    ws.addEventListener("error", () =>
+      finish(new Error("WebSocket connection failed.")),
+    );
+    ws.addEventListener("close", () => {
+      if (!settled)
+        finish(new Error("Relay connection closed before receipt."));
+    });
+  });
+}
 
 export function validNostrEvent(value: unknown): value is NostrEvent {
   try {

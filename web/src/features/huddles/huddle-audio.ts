@@ -51,6 +51,7 @@ export class BrowserHuddleAudio {
   private stream: MediaStream | null = null;
   private context: AudioContext | null = null;
   private source: MediaStreamAudioSourceNode | null = null;
+  private inputGain: GainNode | null = null;
   private processor: ScriptProcessorNode | null = null;
   private encoder: AudioEncoder | null = null;
   private decoders = new Map<number, AudioDecoder>();
@@ -62,6 +63,7 @@ export class BrowserHuddleAudio {
   private timestamp = 0;
   private frameNumber = 0;
   private muted = false;
+  private transmitting = true;
   private stopped = false;
   private micLevel = 0;
 
@@ -171,10 +173,50 @@ export class BrowserHuddleAudio {
     }
   }
 
+  setTransmitting(transmitting: boolean): void {
+    this.transmitting = transmitting;
+    if (!transmitting) {
+      this.micLevel = 0;
+      this.emitUpdate();
+    }
+  }
+
+  setInputGain(value: number): void {
+    if (this.inputGain)
+      this.inputGain.gain.value = Math.max(0, Math.min(2, value));
+  }
+
+  async setInputDevice(deviceId: string): Promise<void> {
+    const context = this.context;
+    const processor = this.processor;
+    if (!context || !processor) throw new Error("Huddle audio is not active.");
+    const nextStream = await navigator.mediaDevices.getUserMedia({
+      audio: this.mediaConstraints(deviceId),
+    });
+    for (const track of nextStream.getAudioTracks())
+      track.enabled = !this.muted;
+    const nextSource = context.createMediaStreamSource(nextStream);
+    nextSource.connect(this.inputGain ?? processor);
+    this.source?.disconnect();
+    for (const track of this.stream?.getTracks() ?? []) track.stop();
+    this.stream = nextStream;
+    this.source = nextSource;
+  }
+
+  async setOutputDevice(deviceId: string): Promise<void> {
+    const context = this.context as
+      | (AudioContext & { setSinkId?: (id: string) => Promise<void> })
+      | null;
+    if (!context?.setSinkId)
+      throw new Error("This browser cannot select an audio output device.");
+    await context.setSinkId(deviceId);
+  }
+
   stop(): void {
     this.stopped = true;
     this.processor?.disconnect();
     this.source?.disconnect();
+    this.inputGain?.disconnect();
     try {
       this.encoder?.close();
     } catch {
@@ -194,6 +236,7 @@ export class BrowserHuddleAudio {
     this.socket = null;
     void this.context?.close();
     this.context = null;
+    this.inputGain = null;
   }
 
   private async startMedia(): Promise<void> {
@@ -215,13 +258,7 @@ export class BrowserHuddleAudio {
     if (!encoderSupport.supported || !decoderSupport.supported)
       throw new Error("This browser does not support the Opus huddle codec.");
     this.stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        channelCount: 1,
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-        sampleRate: SAMPLE_RATE,
-      },
+      audio: this.mediaConstraints(),
     });
     this.context = new AudioContext({ sampleRate: SAMPLE_RATE });
     if (this.context.state === "suspended") {
@@ -243,13 +280,26 @@ export class BrowserHuddleAudio {
     });
     this.encoder.configure(encoderConfig);
     this.source = this.context.createMediaStreamSource(this.stream);
+    this.inputGain = this.context.createGain();
     this.processor = this.context.createScriptProcessor(2048, 1, 1);
     this.processor.onaudioprocess = (event) => {
-      if (this.muted || this.stopped) return;
+      if (this.muted || !this.transmitting || this.stopped) return;
       this.pushSamples(event.inputBuffer.getChannelData(0));
     };
-    this.source.connect(this.processor);
+    this.source.connect(this.inputGain);
+    this.inputGain.connect(this.processor);
     this.processor.connect(this.context.destination);
+  }
+
+  private mediaConstraints(deviceId = ""): MediaTrackConstraints {
+    return {
+      channelCount: 1,
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+      sampleRate: SAMPLE_RATE,
+      ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
+    };
   }
 
   private pushSamples(input: Float32Array): void {

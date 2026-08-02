@@ -652,6 +652,7 @@ function ChannelsWorkspace({
         </section>
         <HuddleBar
           agentNames={agentNames}
+          agents={agentsQuery.data ?? []}
           channelName={
             allChannels.find(
               (channel) => channel.id === huddle.joined?.parentChannelId,
@@ -660,6 +661,8 @@ function ChannelsWorkspace({
             null
           }
           huddle={huddle}
+          customEmoji={customEmojiQuery.data?.community ?? []}
+          ownerPubkey={ownerPubkey}
           profiles={profiles}
         />
         {selected ? (
