@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
-import { FileText, Pencil, Trash2 } from "lucide-react";
+import { FileText, Pencil, Send, Trash2 } from "lucide-react";
+import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -57,13 +58,20 @@ export function HomeDraftDetail({
   mobileVisible,
   onBack,
   onDelete,
+  canSend,
+  pending,
+  onSend,
 }: {
   draft: WebDraft | null;
   channel?: Channel;
   mobileVisible: boolean;
   onBack: () => void;
   onDelete: (key: string) => void;
+  canSend: boolean;
+  pending: boolean;
+  onSend: (draft: WebDraft) => Promise<void>;
 }) {
+  const [confirming, setConfirming] = useState(false);
   if (!draft)
     return (
       <section className="hidden min-w-0 flex-1 items-center justify-center sm:flex">
@@ -105,6 +113,16 @@ export function HomeDraftDetail({
           </Button>
         ) : null}
         <Button
+          aria-label="Send draft"
+          disabled={!canSend || pending}
+          onClick={() => setConfirming(true)}
+          size="icon"
+          title={canSend ? "Send draft" : "Open this draft before sending it"}
+          variant="ghost"
+        >
+          <Send />
+        </Button>
+        <Button
           aria-label="Delete draft"
           onClick={() => onDelete(draft.key)}
           size="icon"
@@ -120,6 +138,47 @@ export function HomeDraftDetail({
           </ReactMarkdown>
         </article>
       </div>
+      {confirming ? (
+        <div
+          aria-label="Send draft"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+          role="dialog"
+        >
+          <div className="w-full max-w-sm rounded-lg bg-background p-5 shadow-2xl">
+            <h3 className="font-semibold">Send this draft?</h3>
+            <p className="mt-2 text-sm text-muted-foreground">
+              It will be posted to{" "}
+              {channel?.channelType === "dm"
+                ? channel.name
+                : `#${channel?.name ?? "the channel"}`}
+              .
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button
+                disabled={pending}
+                onClick={() => setConfirming(false)}
+                variant="outline"
+              >
+                Cancel
+              </Button>
+              <Button
+                disabled={pending}
+                onClick={async () => {
+                  try {
+                    await onSend(draft);
+                    setConfirming(false);
+                  } catch {
+                    // The mutation surfaces the actionable error toast.
+                  }
+                }}
+              >
+                <Send /> {pending ? "Sending…" : "Send"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

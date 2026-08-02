@@ -1449,6 +1449,22 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await page.getByRole("link", { name: "Inbox" }).click();
   await page.getByLabel("Inbox filter").selectOption("drafts");
   await expect(page.getByText("No drafts")).toBeVisible();
+  await page.getByRole("link", { name: "Channels" }).click();
+  await page.getByLabel("Message #general").fill("Send from the web inbox");
+  await page.getByRole("link", { name: "Inbox" }).click();
+  await page.getByLabel("Inbox filter").selectOption("drafts");
+  await page.getByRole("button", { name: "Send draft" }).click();
+  const sendDraftDialog = page.getByRole("dialog", { name: "Send draft" });
+  await sendDraftDialog.getByRole("button", { name: "Send" }).click();
+  await expect
+    .poll(() =>
+      submittedEvents.some(
+        (event) =>
+          event.kind === 9 && event.content === "Send from the web inbox",
+      ),
+    )
+    .toBe(true);
+  await expect(page.getByText("No drafts")).toBeVisible();
   await page.getByLabel("Inbox filter").selectOption("reminders");
   await expect(page.getByText("Follow up privately")).toBeVisible();
   await expect(page.getByLabel("Snooze reminder")).toBeVisible();

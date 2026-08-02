@@ -25,6 +25,7 @@ import { OwnerConnection } from "@/features/agents/ui/OwnerConnection";
 import {
   ensureStarterChannels,
   listProfiles,
+  sendChannelMessage,
   type Channel,
   type UserProfile,
 } from "@/features/channels/channel-api";
@@ -160,6 +161,14 @@ function HomeWorkspace({
   const explicitlySelectedDraft =
     drafts.find((draft) => draft.key === selectedDraftId) ?? null;
   const selectedDraft = explicitlySelectedDraft ?? drafts[0] ?? null;
+  const selectedDraftChannel = channels.find(
+    (channel) => channel.id === selectedDraft?.channelId,
+  );
+  const selectedDraftCanSend = Boolean(
+    selectedDraftChannel?.isMember &&
+      !selectedDraftChannel.archived &&
+      selectedDraftChannel.channelType !== "forum",
+  );
   const isDrafts = filter === "drafts";
   const ownedAgentPubkeys = new Set(agentPubkeys);
   const isUnread = (item: InboxItem) =>
@@ -211,6 +220,35 @@ function HomeWorkspace({
     },
     onError: (error) =>
       toast.error("Could not update reminder", { description: error.message }),
+  });
+  const sendDraftMutation = useMutation({
+    mutationFn: async (draft: (typeof drafts)[number]) => {
+      const channel = channels.find((item) => item.id === draft.channelId);
+      if (
+        !channel?.isMember ||
+        channel.archived ||
+        channel.channelType === "forum"
+      )
+        throw new Error("Open this draft before sending it.");
+      const lower = draft.content.toLowerCase();
+      await sendChannelMessage({
+        channelId: channel.id,
+        content: draft.content,
+        mentionPubkeys: (agentsQuery.data ?? [])
+          .filter((agent) => lower.includes(`@${agent.name.toLowerCase()}`))
+          .map((agent) => agent.agent_pubkey),
+        parentId: draft.parentId,
+        rootId: draft.parentId,
+      });
+      return draft;
+    },
+    onSuccess: (draft) => {
+      deleteDraft(ownerPubkey, draft.key);
+      setSelectedDraftId(null);
+      toast.success("Draft sent");
+    },
+    onError: (error) =>
+      toast.error("Could not send draft", { description: error.message }),
   });
 
   useEffect(() => {
@@ -419,16 +457,20 @@ function HomeWorkspace({
         </section>
         {isDrafts ? (
           <HomeDraftDetail
-            channel={channels.find(
-              (channel) => channel.id === selectedDraft?.channelId,
-            )}
+            canSend={selectedDraftCanSend}
+            channel={selectedDraftChannel}
             draft={selectedDraft}
+            key={selectedDraft?.key ?? "empty-draft"}
             mobileVisible={Boolean(explicitlySelectedDraft)}
+            pending={sendDraftMutation.isPending}
             onBack={() => setSelectedDraftId(null)}
             onDelete={(key) => {
               deleteDraft(ownerPubkey, key);
               setSelectedDraftId(null);
             }}
+            onSend={(draft) =>
+              sendDraftMutation.mutateAsync(draft).then(() => undefined)
+            }
           />
         ) : isReminders ? (
           <HomeReminderDetail
