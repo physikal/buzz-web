@@ -29,6 +29,7 @@ import { OwnerConnection } from "@/features/agents/ui/OwnerConnection";
 import { openDm } from "@/features/channels/channel-api";
 import { lockOwnerVault } from "@/features/owner-vault/lib/vault-worker-client";
 import { truncatePubkey } from "@/shared/lib/pubkey";
+import { hasPrimaryShortcutModifier } from "@/shared/lib/keyboard-shortcuts";
 import { relativeTime } from "@/shared/lib/relative-time";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
@@ -302,6 +303,20 @@ function PulseComposer({
             className="min-h-20 w-full resize-none bg-transparent text-sm outline-none"
             disabled={disabled}
             onChange={(event) => setContent(event.target.value)}
+            onKeyDown={(event) => {
+              if (
+                event.key === "Enter" &&
+                hasPrimaryShortcutModifier(event) &&
+                !event.altKey &&
+                !event.shiftKey &&
+                !event.repeat &&
+                !disabled &&
+                (content.trim() || files.length)
+              ) {
+                event.preventDefault();
+                void submit();
+              }
+            }}
             placeholder="What's on your mind?"
             value={content}
           />

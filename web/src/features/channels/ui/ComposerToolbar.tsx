@@ -17,6 +17,7 @@ import { type RefObject, useState } from "react";
 import type { CustomEmoji } from "@/features/settings/custom-emoji-api";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
+import { wrapComposerSelection } from "../composer-edit";
 import type { DmCandidate } from "../dm-candidates";
 
 const COMMON_EMOJI = ["😀", "😂", "❤️", "👍", "🎉", "👀", "🚀", "✅"];
@@ -75,11 +76,15 @@ export function ComposerToolbar({
     const textarea = textareaRef.current;
     const start = textarea?.selectionStart ?? value.length;
     const end = textarea?.selectionEnd ?? start;
-    const selected = value.slice(start, end) || placeholder;
-    const replacement = `${before}${selected}${after}`;
-    const next = `${value.slice(0, start)}${replacement}${value.slice(end)}`;
-    const selectionStart = start + before.length;
-    replaceSelection(next, selectionStart, selectionStart + selected.length);
+    const edit = wrapComposerSelection(
+      value,
+      start,
+      end,
+      before,
+      after,
+      placeholder,
+    );
+    replaceSelection(edit.value, edit.selectionStart, edit.selectionEnd);
   };
   const prefixLines = (prefix: string, ordered = false) => {
     const textarea = textareaRef.current;

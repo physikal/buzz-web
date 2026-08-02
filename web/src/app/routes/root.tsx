@@ -12,6 +12,10 @@ import {
 } from "@/features/channels/channel-actions";
 import { hasUnlockedOwnerVault } from "@/features/owner-vault/lib/vault-worker-client";
 import { ReminderNotifier } from "@/features/reminders/ui/ReminderNotifier";
+import {
+  hasPrimaryShortcutModifier,
+  isMacPlatform,
+} from "@/shared/lib/keyboard-shortcuts";
 
 export const Route = createRootRoute({
   component: RootLayout,
@@ -54,8 +58,8 @@ function RootLayout() {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (!hasUnlockedOwnerVault()) return;
       if (event.defaultPrevented || event.repeat) return;
-      const mac = /Mac|iPhone|iPad|iPod/u.test(navigator.platform);
-      const primary = mac ? event.metaKey : event.ctrlKey;
+      const mac = isMacPlatform();
+      const primary = hasPrimaryShortcutModifier(event);
       if (
         !mac &&
         event.altKey &&

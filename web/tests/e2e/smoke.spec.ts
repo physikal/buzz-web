@@ -1205,6 +1205,13 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await page.getByRole("button", { name: "Toggle formatting" }).click();
   await page.getByRole("button", { name: "Bold" }).click();
   await expect(composer).toHaveValue("**format me**");
+  const shortcutModifier = await page.evaluate(() =>
+    /Mac|iPhone|iPad|iPod/u.test(navigator.platform) ? "Meta" : "Control",
+  );
+  await composer.fill("keyboard bold");
+  await composer.selectText();
+  await composer.press(`${shortcutModifier}+B`);
+  await expect(composer).toHaveValue("**keyboard bold**");
   await page.getByRole("button", { name: "Insert emoji" }).click();
   await page.getByRole("button", { name: "Insert 🚀" }).click();
   await expect(composer).toHaveValue(/🚀/u);
@@ -1357,7 +1364,12 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await expect(
     page.getByRole("button", { name: "Mark read #general" }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Mark read #general" }).click();
+  await page.keyboard.press("Escape");
+  await expect(
+    page.getByRole("button", { name: "Mark unread #general" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Mark unread #general" }).click();
+  await page.keyboard.press("Shift+Escape");
   await expect(
     page.getByRole("button", { name: "Mark unread #general" }),
   ).toBeVisible();
@@ -1641,9 +1653,6 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     page.getByRole("heading", { name: "Keyboard shortcuts" }),
   ).toBeVisible();
   await expect(page.getByText("Quick search", { exact: true })).toBeVisible();
-  const shortcutModifier = await page.evaluate(() =>
-    /Mac|iPhone|iPad|iPod/u.test(navigator.platform) ? "Meta" : "Control",
-  );
   await page.keyboard.press(`${shortcutModifier}+K`);
   const shortcutSearch = page.getByRole("dialog", {
     name: "Search messages",
@@ -1845,7 +1854,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await expect(page.getByText("Relay-native Pulse update")).toBeVisible();
   await expect(page.getByText("Forged relay frame")).toHaveCount(0);
   await page.getByLabel("Create Pulse note").fill("Published from Buzz Web");
-  await page.getByRole("button", { name: "Post" }).click();
+  await page.getByLabel("Create Pulse note").press(`${shortcutModifier}+Enter`);
   await expect
     .poll(() =>
       submittedEvents.some(

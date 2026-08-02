@@ -1,4 +1,8 @@
-export type ShortcutCategory = "Navigation" | "Messages";
+export type ShortcutCategory =
+  | "Navigation"
+  | "Messages"
+  | "Formatting"
+  | "Zoom";
 
 export type KeyboardShortcut = {
   id: string;
@@ -106,9 +110,94 @@ export const KEYBOARD_SHORTCUTS: KeyboardShortcut[] = [
     keysWindows: "Ctrl+Space",
     category: "Messages",
   },
+  {
+    id: "mark-current-read",
+    label: "Mark as read",
+    description: "Mark the current conversation as read",
+    keys: "Escape",
+    keysWindows: "Escape",
+    category: "Navigation",
+  },
+  {
+    id: "mark-all-read",
+    label: "Mark all as read",
+    description: "Mark all conversations as read",
+    keys: "⇧Escape",
+    keysWindows: "Shift+Esc",
+    category: "Navigation",
+  },
+  {
+    id: "format-bold",
+    label: "Bold",
+    description: "Toggle bold formatting",
+    keys: "⌘B",
+    keysWindows: "Ctrl+B",
+    category: "Formatting",
+  },
+  {
+    id: "format-italic",
+    label: "Italic",
+    description: "Toggle italic formatting",
+    keys: "⌘I",
+    keysWindows: "Ctrl+I",
+    category: "Formatting",
+  },
+  {
+    id: "format-strikethrough",
+    label: "Strikethrough",
+    description: "Toggle strikethrough formatting",
+    keys: "⌘⇧X",
+    keysWindows: "Ctrl+Shift+X",
+    category: "Formatting",
+  },
+  {
+    id: "format-code",
+    label: "Inline code",
+    description: "Toggle inline code formatting",
+    keys: "⌘E",
+    keysWindows: "Ctrl+E",
+    category: "Formatting",
+  },
+  {
+    id: "format-link",
+    label: "Insert link",
+    description: "Link selected composer text",
+    keys: "⌘K",
+    keysWindows: "Ctrl+K",
+    category: "Formatting",
+  },
+  {
+    id: "zoom-in",
+    label: "Zoom in",
+    description: "Increase the browser zoom level",
+    keys: "⌘+",
+    keysWindows: "Ctrl+=",
+    category: "Zoom",
+  },
+  {
+    id: "zoom-out",
+    label: "Zoom out",
+    description: "Decrease the browser zoom level",
+    keys: "⌘-",
+    keysWindows: "Ctrl+-",
+    category: "Zoom",
+  },
+  {
+    id: "zoom-reset",
+    label: "Reset zoom",
+    description: "Reset browser zoom to its default level",
+    keys: "⌘0",
+    keysWindows: "Ctrl+0",
+    category: "Zoom",
+  },
 ];
 
-const CATEGORY_ORDER: ShortcutCategory[] = ["Navigation", "Messages"];
+const CATEGORY_ORDER: ShortcutCategory[] = [
+  "Navigation",
+  "Messages",
+  "Formatting",
+  "Zoom",
+];
 
 export function getShortcutsByCategory() {
   return new Map(
@@ -120,7 +209,16 @@ export function getShortcutsByCategory() {
 }
 
 export function getPlatformKeys(shortcut: KeyboardShortcut) {
-  return /Mac|iPhone|iPad|iPod/u.test(navigator.platform)
-    ? shortcut.keys
-    : shortcut.keysWindows;
+  return isMacPlatform() ? shortcut.keys : shortcut.keysWindows;
+}
+
+export function isMacPlatform() {
+  return /Mac|iPhone|iPad|iPod/u.test(navigator.platform);
+}
+
+export function hasPrimaryShortcutModifier(event: {
+  ctrlKey: boolean;
+  metaKey: boolean;
+}) {
+  return isMacPlatform() ? event.metaKey : event.ctrlKey;
 }

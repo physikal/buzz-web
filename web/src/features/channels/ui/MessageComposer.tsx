@@ -10,12 +10,14 @@ import { toast } from "sonner";
 
 import type { CustomEmoji } from "@/features/settings/custom-emoji-api";
 import { Button } from "@/shared/ui/button";
+import { hasPrimaryShortcutModifier } from "@/shared/lib/keyboard-shortcuts";
 import {
   mediaImetaTag,
   type Channel,
   type ChannelMessage,
   uploadMedia,
 } from "../channel-api";
+import { wrapComposerSelection } from "../composer-edit";
 import {
   deleteDraft,
   type DraftAttachment,
@@ -241,6 +243,44 @@ export function MessageComposer({
     });
   }
 
+  function applyFormattingShortcut(
+    before: string,
+    after: string,
+    placeholder: string,
+  ) {
+    const textarea = textareaRef.current;
+    const start = textarea?.selectionStart ?? draft.length;
+    const end = textarea?.selectionEnd ?? start;
+    const edit = wrapComposerSelection(
+      draft,
+      start,
+      end,
+      before,
+      after,
+      placeholder,
+    );
+    const nextMentionRefs = reconcileMentionRefs(edit.value, mentionRefs);
+    setDraft(edit.value);
+    setMentionRefs(nextMentionRefs);
+    setMentionAutocomplete(null);
+    saveDraft(
+      ownerPubkey,
+      channel.id,
+      parent?.id,
+      edit.value,
+      edit.selectionEnd,
+      attachments,
+      nextMentionRefs,
+    );
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+      textareaRef.current?.setSelectionRange(
+        edit.selectionStart,
+        edit.selectionEnd,
+      );
+    });
+  }
+
   return (
     <form
       className="relative border-t p-3 sm:p-4"
@@ -403,6 +443,43 @@ export function MessageComposer({
               }
             }}
             onKeyDown={(event) => {
+              if (
+                hasPrimaryShortcutModifier(event) &&
+                !event.altKey &&
+                !event.repeat
+              ) {
+                const key = event.key.toLowerCase();
+                if (key === "b" && !event.shiftKey) {
+                  event.preventDefault();
+                  applyFormattingShortcut("**", "**", "bold text");
+                  return;
+                }
+                if (key === "i" && !event.shiftKey) {
+                  event.preventDefault();
+                  applyFormattingShortcut("_", "_", "italic text");
+                  return;
+                }
+                if (key === "x" && event.shiftKey) {
+                  event.preventDefault();
+                  applyFormattingShortcut("~~", "~~", "text");
+                  return;
+                }
+                if (key === "e" && !event.shiftKey) {
+                  event.preventDefault();
+                  applyFormattingShortcut("`", "`", "code");
+                  return;
+                }
+                if (
+                  key === "k" &&
+                  !event.shiftKey &&
+                  event.currentTarget.selectionStart !==
+                    event.currentTarget.selectionEnd
+                ) {
+                  event.preventDefault();
+                  applyFormattingShortcut("[", "](https://)", "link text");
+                  return;
+                }
+              }
               if (mentionAutocomplete && mentionSuggestions.length) {
                 if (event.key === "ArrowDown" || event.key === "ArrowUp") {
                   event.preventDefault();

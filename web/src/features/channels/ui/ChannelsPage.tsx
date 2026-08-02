@@ -35,6 +35,7 @@ import {
   StartHuddleDialog,
 } from "@/features/huddles/HuddleControls";
 import { useHuddle } from "@/features/huddles/use-huddle";
+import { useChannelReadShortcuts } from "../use-channel-read-shortcuts";
 import { getCustomEmoji } from "@/features/settings/custom-emoji-api";
 import { submitModerationReport } from "@/features/settings/moderation-api";
 import { subscribeEvents } from "@/shared/lib/nostr-client";
@@ -272,6 +273,16 @@ function ChannelsWorkspace({
     onChannelEvent: handleLiveChannelEvent,
     mutedChannelIds,
     mutedRootIds,
+  });
+
+  const channelIds = useMemo(
+    () => channels.map((channel) => channel.id),
+    [channels],
+  );
+  useChannelReadShortcuts({
+    channelIds,
+    selectedChannelId: selected?.id ?? null,
+    markChannelRead,
   });
 
   const reactionEventIds = useMemo(
