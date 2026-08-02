@@ -1,5 +1,5 @@
-import { Activity, OctagonX, RefreshCw, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { OctagonX, RefreshCw, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { subscribeEvents, type NostrEvent } from "@/shared/lib/nostr-client";
@@ -11,25 +11,18 @@ import { submitEvent } from "@/shared/lib/relay-events";
 import { relayWsUrl } from "@/shared/lib/relay-url";
 import { Button } from "@/shared/ui/button";
 import type { ManagedAgent } from "../agent-api";
+import { AgentSessionTranscriptView } from "../session/AgentSessionTranscriptView";
+import {
+  buildTranscriptState,
+  describeRawEvent,
+} from "../session/agentSessionTranscript";
+import type { ObserverEvent } from "../session/agentSessionTypes";
 
-type ObserverFrame = {
+type ObserverFrame = ObserverEvent & {
   id: string;
-  seq: number;
-  timestamp: string;
-  kind: "acp_read" | "acp_write" | "turn_started" | "session_resolved";
-  channelId: string | null;
-  sessionId: string | null;
-  turnId: string | null;
-  payload: Record<string, unknown>;
 };
 
 type ConnectionState = "connecting" | "live" | "offline";
-const KNOWN_KINDS = new Set([
-  "acp_read",
-  "acp_write",
-  "turn_started",
-  "session_resolved",
-]);
 
 export function AgentActivityDialog({
   agent,
@@ -57,7 +50,8 @@ export function AgentActivityDialog({
       {
         kinds: [24200],
         "#p": [ownerPubkey],
-        since: Math.floor(Date.now() / 1000),
+        limit: 1000,
+        since: Math.floor(Date.now() / 1000) - 300,
       },
       (event) => {
         if (!active || seen.current.has(event.id)) return;
@@ -86,6 +80,10 @@ export function AgentActivityDialog({
       seen.current.clear();
     };
   }, [agent, generation, ownerPubkey]);
+  const transcript = useMemo(
+    () => buildTranscriptState(frames).items,
+    [frames],
+  );
   if (!agent) return null;
   const activeAgent = agent;
   const activeChannelId = [...frames]
@@ -125,7 +123,7 @@ export function AgentActivityDialog({
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
       role="dialog"
     >
-      <div className="flex max-h-[88dvh] w-full max-w-3xl flex-col rounded-lg bg-background shadow-2xl">
+      <div className="flex max-h-[90dvh] w-full max-w-6xl flex-col rounded-lg bg-background shadow-2xl">
         <header className="flex items-start justify-between border-b px-6 py-5">
           <div>
             <div className="flex items-center gap-2">
@@ -138,7 +136,9 @@ export function AgentActivityDialog({
               </span>
             </div>
             <p className="mt-1 text-sm text-muted-foreground">
-              Live encrypted ACP telemetry. Frames are held only in this window.
+              {frames.length
+                ? `${frames.length} encrypted event${frames.length === 1 ? "" : "s"} in this session`
+                : "Waiting for the next agent turn."}
             </p>
           </div>
           <div className="flex gap-1">
@@ -172,28 +172,10 @@ export function AgentActivityDialog({
           </div>
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto p-6">
-          {frames.length ? (
-            <div className="space-y-2">
-              {frames.map((frame) => (
-                <article className="rounded-md border p-4" key={frame.id}>
-                  <header className="flex items-center gap-2 text-xs">
-                    <Activity className="h-4 w-4 text-muted-foreground" />
-                    <strong>{frameLabel(frame.kind)}</strong>
-                    <time className="ml-auto text-muted-foreground">
-                      {new Date(frame.timestamp).toLocaleTimeString()}
-                    </time>
-                  </header>
-                  <pre className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono text-xs">
-                    {JSON.stringify(frame.payload, null, 2)}
-                  </pre>
-                </article>
-              ))}
-            </div>
-          ) : (
-            <p className="py-12 text-center text-sm text-muted-foreground">
-              Waiting for the next agent turn…
-            </p>
-          )}
+          <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_20rem]">
+            <AgentSessionTranscriptView items={transcript} />
+            <RawEventRail events={frames} />
+          </div>
         </div>
       </div>
     </div>
@@ -230,10 +212,8 @@ async function parseObserverFrame(
       timestamp.length > 64 ||
       !Number.isFinite(Date.parse(timestamp)) ||
       typeof kind !== "string" ||
-      !KNOWN_KINDS.has(kind) ||
-      !payload ||
-      typeof payload !== "object" ||
-      Array.isArray(payload)
+      !/^[a-z][a-z0-9_./-]{0,63}$/.test(kind) ||
+      payload === undefined
     )
       return null;
     const nullableString = (input: unknown) =>
@@ -245,10 +225,20 @@ async function parseObserverFrame(
     const channelId = nullableString(value.channelId);
     const sessionId = nullableString(value.sessionId);
     const turnId = nullableString(value.turnId);
+    const startedAt = nullableString(value.startedAt);
+    const agentIndex =
+      value.agentIndex === null || value.agentIndex === undefined
+        ? null
+        : Number.isSafeInteger(value.agentIndex) &&
+            Number(value.agentIndex) >= 0
+          ? Number(value.agentIndex)
+          : undefined;
     if (
       channelId === undefined ||
       sessionId === undefined ||
-      turnId === undefined
+      turnId === undefined ||
+      startedAt === undefined ||
+      agentIndex === undefined
     )
       return null;
     if (
@@ -262,22 +252,50 @@ async function parseObserverFrame(
       id: event.id,
       seq: Number(seq),
       timestamp,
-      kind: kind as ObserverFrame["kind"],
+      kind,
+      agentIndex,
       channelId,
       sessionId,
       turnId,
-      payload: payload as Record<string, unknown>,
+      startedAt,
+      payload,
     };
   } catch {
     return null;
   }
 }
 
-function frameLabel(kind: ObserverFrame["kind"]) {
-  return {
-    acp_read: "Agent received",
-    acp_write: "Agent sent",
-    turn_started: "Turn started",
-    session_resolved: "Session resolved",
-  }[kind];
+function RawEventRail({ events }: { events: ObserverFrame[] }) {
+  return (
+    <section className="min-w-0 border-t pt-5 xl:border-l xl:border-t-0 xl:pl-5 xl:pt-0">
+      <h3 className="text-sm font-semibold">Raw ACP events</h3>
+      <p className="mt-1 text-xs text-muted-foreground">
+        Decrypted locally for owner inspection.
+      </p>
+      {events.length ? (
+        <div className="mt-3 space-y-2">
+          {events.map((event) => (
+            <details
+              className="group rounded-md border border-border/55 bg-muted/25 px-2.5 py-1.5 open:bg-muted/35"
+              key={event.id}
+            >
+              <summary className="cursor-pointer select-none text-xs text-muted-foreground group-open:text-foreground">
+                <span className="font-mono text-muted-foreground/70">
+                  #{event.seq}
+                </span>{" "}
+                {describeRawEvent(event)}
+              </summary>
+              <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border/40 bg-background/45 p-2 font-mono text-xs leading-5 text-muted-foreground">
+                {JSON.stringify(event.payload, null, 2)}
+              </pre>
+            </details>
+          ))}
+        </div>
+      ) : (
+        <p className="py-8 text-center text-sm text-muted-foreground">
+          No raw events yet.
+        </p>
+      )}
+    </section>
+  );
 }

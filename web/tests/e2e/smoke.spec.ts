@@ -696,8 +696,8 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
               agentSecret,
               ownerPubkey,
             );
-            const content = nip44.encrypt(
-              JSON.stringify({
+            const observerFrames = [
+              {
                 seq: 1,
                 timestamp: new Date().toISOString(),
                 kind: "acp_write",
@@ -710,29 +710,125 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
                   method: "tools/call",
                   params: { name: "shell" },
                 },
-              }),
-              conversationKey,
-            );
-            conversationKey.fill(0);
-            socket.send(
-              JSON.stringify([
-                "EVENT",
-                subscriptionId,
-                finalizeEvent(
-                  {
-                    kind: 24200,
-                    created_at: Math.floor(Date.now() / 1000),
-                    content,
-                    tags: [
-                      ["p", ownerPubkey],
-                      ["agent", agentPubkey],
-                      ["frame", "telemetry"],
-                    ],
+              },
+              {
+                seq: 2,
+                timestamp: new Date().toISOString(),
+                kind: "acp_read",
+                agentIndex: 0,
+                channelId: "44444444-4444-4444-8444-444444444444",
+                sessionId: "session-1",
+                turnId: "turn-1",
+                payload: {
+                  jsonrpc: "2.0",
+                  method: "session/update",
+                  params: {
+                    update: {
+                      sessionUpdate: "agent_message_chunk",
+                      messageId: "assistant-message-1",
+                      content: { type: "text", text: "Review in progress." },
+                    },
                   },
-                  agentSecret,
-                ),
-              ]),
-            );
+                },
+              },
+              {
+                seq: 3,
+                timestamp: new Date().toISOString(),
+                kind: "acp_read",
+                agentIndex: 0,
+                channelId: "44444444-4444-4444-8444-444444444444",
+                sessionId: "session-1",
+                turnId: "turn-1",
+                payload: {
+                  jsonrpc: "2.0",
+                  method: "session/update",
+                  params: {
+                    update: {
+                      sessionUpdate: "plan",
+                      entries: [
+                        {
+                          status: "in_progress",
+                          content: "Inspect repository",
+                        },
+                      ],
+                    },
+                  },
+                },
+              },
+              {
+                seq: 4,
+                timestamp: new Date().toISOString(),
+                kind: "acp_read",
+                agentIndex: 0,
+                channelId: "44444444-4444-4444-8444-444444444444",
+                sessionId: "session-1",
+                turnId: "turn-1",
+                payload: {
+                  jsonrpc: "2.0",
+                  method: "session/update",
+                  params: {
+                    update: {
+                      sessionUpdate: "tool_call",
+                      toolCallId: "tool-1",
+                      title: "shell",
+                      status: "executing",
+                      args: { command: "pwd" },
+                    },
+                  },
+                },
+              },
+              {
+                seq: 5,
+                timestamp: new Date().toISOString(),
+                kind: "acp_read",
+                agentIndex: 0,
+                channelId: "44444444-4444-4444-8444-444444444444",
+                sessionId: "session-1",
+                turnId: "turn-1",
+                payload: {
+                  jsonrpc: "2.0",
+                  method: "session/update",
+                  params: {
+                    update: {
+                      sessionUpdate: "tool_call_update",
+                      toolCallId: "tool-1",
+                      title: "shell",
+                      status: "completed",
+                      args: { command: "pwd" },
+                      result: {
+                        content: [{ type: "text", text: "/workspace" }],
+                      },
+                    },
+                  },
+                },
+              },
+            ];
+            for (const observerFrame of observerFrames) {
+              const content = nip44.encrypt(
+                JSON.stringify(observerFrame),
+                conversationKey,
+              );
+              socket.send(
+                JSON.stringify([
+                  "EVENT",
+                  subscriptionId,
+                  finalizeEvent(
+                    {
+                      kind: 24200,
+                      created_at: Math.floor(Date.now() / 1000),
+                      content,
+                      tags: [
+                        ["p", ownerPubkey],
+                        ["agent", agentPubkey],
+                        ["frame", "telemetry"],
+                      ],
+                    },
+                    agentSecret,
+                  ),
+                ]),
+              );
+            }
+            conversationKey.fill(0);
           }
           if (filters.includes('"kinds":[0]')) {
             socket.send(
@@ -1509,7 +1605,22 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await expect(
     page.getByRole("heading", { name: "Review lead activity" }),
   ).toBeVisible();
-  await expect(page.getByText(/tools\/call/)).toBeVisible();
+  const activityTranscript = page.getByRole("log", {
+    name: "Live ACP transcript",
+  });
+  await expect(page.getByText("#1 tools/call", { exact: true })).toBeVisible();
+  await expect(
+    activityTranscript.getByText("Review in progress.", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    activityTranscript.getByText("Inspect repository"),
+  ).toBeVisible();
+  await expect(
+    activityTranscript.getByText("Ran command", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    activityTranscript.getByText("pwd", { exact: true }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Cancel active turn" }).click();
   await expect
     .poll(() => {
