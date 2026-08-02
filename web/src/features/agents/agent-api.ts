@@ -2,6 +2,12 @@ import { makeNip98AuthHeader } from "@/shared/lib/nip98";
 import { relayHttpBaseUrl } from "@/shared/lib/relay-url";
 
 export type AgentRuntime = "buzz-agent" | "codex" | "claude";
+export type AgentProvider =
+  | "anthropic"
+  | "openai"
+  | "openrouter"
+  | "databricks"
+  | "databricks_v2";
 export type RespondToMode = "owner-only" | "allowlist" | "anyone";
 export type AgentCredentialMode = "api-key" | "subscription";
 
@@ -14,6 +20,12 @@ export type ManagedAgent = {
   system_prompt: string;
   runtime: AgentRuntime;
   model: string | null;
+  provider: AgentProvider | null;
+  agent_args: string[];
+  parallelism: number;
+  idle_timeout_seconds: number | null;
+  max_turn_duration_seconds: number | null;
+  runtime_config: Record<string, string>;
   credential_mode: AgentCredentialMode;
   respond_to: RespondToMode;
   respond_to_allowlist: string[];
@@ -36,6 +48,12 @@ export type CreateAgentInput = {
   system_prompt: string;
   runtime: AgentRuntime;
   model?: string;
+  provider?: AgentProvider;
+  agent_args?: string[];
+  parallelism?: number;
+  idle_timeout_seconds?: number;
+  max_turn_duration_seconds?: number;
+  runtime_config?: Record<string, string>;
   respond_to: RespondToMode;
   respond_to_allowlist: string[];
   secrets: Record<string, string>;
@@ -44,9 +62,19 @@ export type CreateAgentInput = {
 };
 
 export type UpdateAgentInput = Partial<
-  Omit<CreateAgentInput, "model" | "secrets">
+  Omit<
+    CreateAgentInput,
+    | "model"
+    | "provider"
+    | "idle_timeout_seconds"
+    | "max_turn_duration_seconds"
+    | "secrets"
+  >
 > & {
   model?: string | null;
+  provider?: AgentProvider | null;
+  idle_timeout_seconds?: number | null;
+  max_turn_duration_seconds?: number | null;
   secrets?: Record<string, string>;
 };
 

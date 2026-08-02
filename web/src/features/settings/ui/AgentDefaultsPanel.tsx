@@ -12,6 +12,16 @@ import type {
   AgentCredentialMode,
   AgentRuntime,
 } from "@/features/agents/agent-api";
+import {
+  AGENT_PROVIDERS,
+  buildRuntimeConfig,
+  EMPTY_ADVANCED_RUNTIME_DRAFT,
+  parseAgentArgs,
+  providerMetadata,
+  type AdvancedRuntimeDraft,
+  validateAdvancedRuntimeDraft,
+} from "@/features/agents/runtime-config";
+import { AdvancedRuntimeFields } from "@/features/agents/ui/AdvancedRuntimeFields";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 
@@ -20,12 +30,18 @@ export function AgentDefaultsPanel({ ownerPubkey }: { ownerPubkey: string }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showKey, setShowKey] = useState(false);
+  const [advancedDraft, setAdvancedDraft] = useState<AdvancedRuntimeDraft>(
+    EMPTY_ADVANCED_RUNTIME_DRAFT,
+  );
 
   useEffect(() => {
     let active = true;
     void getAgentDefaults(ownerPubkey)
       .then((value) => {
-        if (active) setDraft(value);
+        if (active) {
+          setDraft(value);
+          setAdvancedDraft(advancedDraftFromDefaults(value));
+        }
       })
       .catch((error) => {
         if (active)
@@ -45,8 +61,25 @@ export function AgentDefaultsPanel({ ownerPubkey }: { ownerPubkey: string }) {
   async function save() {
     setSaving(true);
     try {
-      await saveAgentDefaults(draft);
-      setDraft(await getAgentDefaults(ownerPubkey));
+      await saveAgentDefaults({
+        ...draft,
+        agentArgs: parseAgentArgs(advancedDraft.agentArgsText),
+        parallelism: Number(advancedDraft.parallelism),
+        idleTimeoutSeconds: advancedDraft.idleTimeout
+          ? Number(advancedDraft.idleTimeout)
+          : null,
+        maxTurnDurationSeconds: advancedDraft.maxTurnDuration
+          ? Number(advancedDraft.maxTurnDuration)
+          : null,
+        runtimeConfig: buildRuntimeConfig(
+          draft.runtime,
+          draft.provider,
+          advancedDraft,
+        ),
+      });
+      const saved = await getAgentDefaults(ownerPubkey);
+      setDraft(saved);
+      setAdvancedDraft(advancedDraftFromDefaults(saved));
       toast.success("Agent defaults saved");
     } catch (error) {
       toast.error("Could not save agent defaults", {
@@ -56,6 +89,16 @@ export function AgentDefaultsPanel({ ownerPubkey }: { ownerPubkey: string }) {
       setSaving(false);
     }
   }
+
+  const advancedError = validateAdvancedRuntimeDraft(
+    draft.runtime,
+    draft.provider,
+    advancedDraft,
+  );
+  const credentialRequired =
+    draft.credentialMode === "api-key" &&
+    (draft.runtime !== "buzz-agent" ||
+      providerMetadata(draft.provider).credentialRequired);
 
   return (
     <section>
@@ -108,8 +151,11 @@ export function AgentDefaultsPanel({ ownerPubkey }: { ownerPubkey: string }) {
                   }))
                 }
               >
-                <option value="anthropic">Anthropic</option>
-                <option value="openai">OpenAI compatible</option>
+                {AGENT_PROVIDERS.map((entry) => (
+                  <option key={entry.value} value={entry.value}>
+                    {entry.label}
+                  </option>
+                ))}
               </select>
             </label>
           ) : (
@@ -161,7 +207,9 @@ export function AgentDefaultsPanel({ ownerPubkey }: { ownerPubkey: string }) {
                 className="block text-sm font-medium"
                 htmlFor="default-agent-key"
               >
-                Default API key
+                {draft.runtime === "buzz-agent"
+                  ? `Default ${providerMetadata(draft.provider).credentialLabel}`
+                  : "Default API key"}
               </label>
               <div className="mt-2 flex items-center gap-2 rounded-md border px-3">
                 <Input
@@ -194,11 +242,22 @@ export function AgentDefaultsPanel({ ownerPubkey }: { ownerPubkey: string }) {
               </div>
             </div>
           ) : null}
+          <AdvancedRuntimeFields
+            disabled={saving}
+            draft={advancedDraft}
+            onChange={setAdvancedDraft}
+            provider={draft.provider}
+            runtime={draft.runtime}
+          />
+          {advancedError ? (
+            <p className="text-xs text-destructive">{advancedError}</p>
+          ) : null}
           <Button
             disabled={
               saving ||
               (draft.runtime === "buzz-agent" && !draft.model.trim()) ||
-              (draft.credentialMode === "api-key" && !draft.apiKey)
+              (credentialRequired && !draft.apiKey) ||
+              advancedError !== null
             }
             onClick={() => void save()}
           >
@@ -208,4 +267,23 @@ export function AgentDefaultsPanel({ ownerPubkey }: { ownerPubkey: string }) {
       )}
     </section>
   );
+}
+
+function advancedDraftFromDefaults(
+  defaults: AgentDefaults,
+): AdvancedRuntimeDraft {
+  return {
+    agentArgsText: defaults.agentArgs.join(", "),
+    parallelism: String(defaults.parallelism),
+    idleTimeout: defaults.idleTimeoutSeconds?.toString() ?? "",
+    maxTurnDuration: defaults.maxTurnDurationSeconds?.toString() ?? "",
+    thinkingEffort: defaults.runtimeConfig.thinking_effort ?? "",
+    maxRounds: defaults.runtimeConfig.max_rounds ?? "",
+    maxOutputTokens: defaults.runtimeConfig.max_output_tokens ?? "",
+    maxContextTokens: defaults.runtimeConfig.max_context_tokens ?? "",
+    baseUrl: defaults.runtimeConfig.base_url ?? "",
+    apiMode: defaults.runtimeConfig.api_mode ?? "",
+    apiVersion: defaults.runtimeConfig.api_version ?? "",
+    databricksHost: defaults.runtimeConfig.databricks_host ?? "",
+  };
 }

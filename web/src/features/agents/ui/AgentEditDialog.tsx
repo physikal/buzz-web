@@ -1,15 +1,26 @@
-import { Eye, EyeOff, X } from "lucide-react";
+import { AlertTriangle, ChevronDown, Eye, EyeOff, X } from "lucide-react";
 import { type FormEvent, useMemo, useState } from "react";
 
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import type {
   AgentCredentialMode,
+  AgentProvider,
   AgentRuntime,
   ManagedAgent,
   RespondToMode,
   UpdateAgentInput,
 } from "../agent-api";
+import {
+  AGENT_PROVIDERS,
+  buildCredentialSecrets,
+  buildRuntimeConfig,
+  parseAgentArgs,
+  providerMetadata,
+  type AdvancedRuntimeDraft,
+  validateAdvancedRuntimeDraft,
+} from "../runtime-config";
+import { AdvancedRuntimeFields } from "./AdvancedRuntimeFields";
 
 export function AgentEditDialog({
   agent,
@@ -48,12 +59,29 @@ function AgentEditForm({
   const [instructions, setInstructions] = useState(agent.system_prompt);
   const [runtime, setRuntime] = useState<AgentRuntime>(agent.runtime);
   const [model, setModel] = useState(agent.model ?? "");
-  const [provider, setProvider] = useState<"anthropic" | "openai">("anthropic");
+  const [provider, setProvider] = useState<AgentProvider>(
+    agent.provider ?? "anthropic",
+  );
   const [credentialMode, setCredentialMode] = useState<AgentCredentialMode>(
     agent.credential_mode,
   );
   const [apiKey, setApiKey] = useState("");
   const [showApiKey, setShowApiKey] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [advancedDraft, setAdvancedDraft] = useState<AdvancedRuntimeDraft>({
+    agentArgsText: agent.agent_args.join(", "),
+    parallelism: String(agent.parallelism),
+    idleTimeout: agent.idle_timeout_seconds?.toString() ?? "",
+    maxTurnDuration: agent.max_turn_duration_seconds?.toString() ?? "",
+    thinkingEffort: agent.runtime_config.thinking_effort ?? "",
+    maxRounds: agent.runtime_config.max_rounds ?? "",
+    maxOutputTokens: agent.runtime_config.max_output_tokens ?? "",
+    maxContextTokens: agent.runtime_config.max_context_tokens ?? "",
+    baseUrl: agent.runtime_config.base_url ?? "",
+    apiMode: agent.runtime_config.api_mode ?? "",
+    apiVersion: agent.runtime_config.api_version ?? "",
+    databricksHost: agent.runtime_config.databricks_host ?? "",
+  });
   const [respondTo, setRespondTo] = useState<RespondToMode>(agent.respond_to);
   const [allowlistText, setAllowlistText] = useState(
     agent.respond_to_allowlist.join("\n"),
@@ -69,6 +97,19 @@ function AgentEditForm({
   const allowlistValid = allowlist.every((key) => /^[0-9a-f]{64}$/.test(key));
   const stopped =
     agent.desired_state === "stopped" && agent.observed_state === "stopped";
+  const advancedError = validateAdvancedRuntimeDraft(
+    runtime,
+    provider,
+    advancedDraft,
+  );
+  const credentialChanged =
+    runtime !== agent.runtime ||
+    (runtime === "buzz-agent" && provider !== agent.provider) ||
+    credentialMode !== agent.credential_mode;
+  const replacementCredentialRequired =
+    credentialMode === "api-key" &&
+    credentialChanged &&
+    (runtime !== "buzz-agent" || providerMetadata(provider).credentialRequired);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -77,25 +118,22 @@ function AgentEditForm({
       system_prompt: instructions.trim(),
       runtime,
       model: model.trim() || null,
+      provider: runtime === "buzz-agent" ? provider : null,
+      agent_args: parseAgentArgs(advancedDraft.agentArgsText),
+      parallelism: Number(advancedDraft.parallelism),
+      idle_timeout_seconds: advancedDraft.idleTimeout
+        ? Number(advancedDraft.idleTimeout)
+        : null,
+      max_turn_duration_seconds: advancedDraft.maxTurnDuration
+        ? Number(advancedDraft.maxTurnDuration)
+        : null,
+      runtime_config: buildRuntimeConfig(runtime, provider, advancedDraft),
       credential_mode: credentialMode,
       respond_to: respondTo,
       respond_to_allowlist: respondTo === "allowlist" ? allowlist : [],
     };
     if (apiKey) {
-      if (runtime === "buzz-agent") {
-        input.secrets = {
-          BUZZ_AGENT_PROVIDER: provider,
-          BUZZ_AGENT_MODEL: model.trim(),
-          [provider === "anthropic"
-            ? "ANTHROPIC_API_KEY"
-            : "OPENAI_COMPAT_API_KEY"]: apiKey,
-        };
-      } else {
-        input.secrets = {
-          [runtime === "claude" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY"]:
-            apiKey,
-        };
-      }
+      input.secrets = buildCredentialSecrets(runtime, provider, apiKey);
     }
     await onSubmit(input);
   }
@@ -180,11 +218,14 @@ function AgentEditForm({
                 className="h-9 w-full rounded-md border bg-background px-3 text-sm"
                 value={provider}
                 onChange={(event) =>
-                  setProvider(event.target.value as "anthropic" | "openai")
+                  setProvider(event.target.value as AgentProvider)
                 }
               >
-                <option value="anthropic">Anthropic</option>
-                <option value="openai">OpenAI compatible</option>
+                {AGENT_PROVIDERS.map((entry) => (
+                  <option key={entry.value} value={entry.value}>
+                    {entry.label}
+                  </option>
+                ))}
               </select>
             </Field>
           ) : null}
@@ -205,7 +246,15 @@ function AgentEditForm({
             </Field>
           ) : null}
           {credentialMode === "api-key" ? (
-            <Field label="Replace API key">
+            <Field
+              label={
+                runtime === "buzz-agent"
+                  ? `Replace ${providerMetadata(provider).credentialLabel.toLowerCase()}`
+                  : runtime === "claude"
+                    ? "Replace Anthropic API key"
+                    : "Replace OpenAI API key"
+              }
+            >
               <div className="flex items-center rounded-md border px-3">
                 <Input
                   className="border-0 px-0 shadow-none"
@@ -228,31 +277,69 @@ function AgentEditForm({
               </div>
             </Field>
           ) : null}
-          <Field label="Who can send instructions">
-            <select
-              className="h-9 w-full rounded-md border bg-background px-3 text-sm"
-              value={respondTo}
-              onChange={(event) =>
-                setRespondTo(event.target.value as RespondToMode)
-              }
-            >
-              <option value="owner-only">Only me</option>
-              <option value="allowlist">Selected people</option>
-              <option value="anyone">Anyone</option>
-            </select>
-            {respondTo === "allowlist" ? (
-              <textarea
-                className="mt-2 min-h-20 w-full rounded-md border bg-background p-2 font-mono text-xs"
-                value={allowlistText}
-                onChange={(event) => setAllowlistText(event.target.value)}
+          <button
+            aria-expanded={showAdvanced}
+            className="inline-flex h-9 items-center gap-1.5 text-sm font-medium"
+            onClick={() => setShowAdvanced((shown) => !shown)}
+            type="button"
+          >
+            <ChevronDown
+              className={`h-4 w-4 transition-transform ${showAdvanced ? "rotate-180" : ""}`}
+            />
+            Advanced
+          </button>
+          {!showAdvanced && advancedError ? (
+            <p className="text-xs text-destructive">{advancedError}</p>
+          ) : null}
+          {showAdvanced ? (
+            <div className="space-y-5">
+              <AdvancedRuntimeFields
+                disabled={pending || !stopped}
+                draft={advancedDraft}
+                onChange={setAdvancedDraft}
+                provider={provider}
+                runtime={runtime}
               />
-            ) : null}
-            {!allowlistValid ? (
-              <p className="mt-1 text-xs text-destructive">
-                Enter 64-character hexadecimal public keys.
-              </p>
-            ) : null}
-          </Field>
+              {advancedError ? (
+                <p className="text-xs text-destructive">{advancedError}</p>
+              ) : null}
+              <Field label="Who can send instructions">
+                <select
+                  className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+                  value={respondTo}
+                  onChange={(event) =>
+                    setRespondTo(event.target.value as RespondToMode)
+                  }
+                >
+                  <option value="owner-only">Only me</option>
+                  <option value="allowlist">Selected people</option>
+                  <option value="anyone">Anyone</option>
+                </select>
+                {respondTo === "allowlist" ? (
+                  <textarea
+                    className="mt-2 min-h-20 w-full rounded-md border bg-background p-2 font-mono text-xs"
+                    value={allowlistText}
+                    onChange={(event) => setAllowlistText(event.target.value)}
+                  />
+                ) : null}
+                {respondTo !== "owner-only" ? (
+                  <div className="mt-2 flex items-start gap-2 rounded-md border border-warning/30 bg-warning-bg px-3 py-2.5 text-xs leading-5 text-warning">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                    <p>
+                      {respondTo === "anyone" ? "Anyone" : "Selected people"}{" "}
+                      can use this agent to access the server it runs on,
+                      including any accounts and tools available there.
+                    </p>
+                  </div>
+                ) : null}
+                {!allowlistValid ? (
+                  <p className="mt-1 text-xs text-destructive">
+                    Enter 64-character hexadecimal public keys.
+                  </p>
+                ) : null}
+              </Field>
+            </div>
+          ) : null}
         </form>
         <footer className="flex justify-end gap-2 border-t px-6 py-4">
           <Button disabled={pending} onClick={onClose} variant="outline">
@@ -264,9 +351,8 @@ function AgentEditForm({
               !stopped ||
               !name.trim() ||
               !allowlistValid ||
-              (runtime !== agent.runtime &&
-                credentialMode === "api-key" &&
-                !apiKey) ||
+              (replacementCredentialRequired && !apiKey) ||
+              advancedError !== null ||
               (runtime === "buzz-agent" && !model.trim()) ||
               (respondTo === "allowlist" && !allowlist.length)
             }

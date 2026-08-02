@@ -3,12 +3,14 @@ import { useMemo, useState } from "react";
 
 import {
   createAgent,
+  type AgentProvider,
   type CreateAgentInput,
   type ManagedAgent,
 } from "@/features/agents/agent-api";
 import { addAgentToChannel } from "@/features/agents/agent-channels";
 import type { AgentPersona } from "@/features/agents/persona-api";
 import type { AgentTeam } from "@/features/agents/team-api";
+import { buildCredentialSecrets } from "@/features/agents/runtime-config";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import type { ChannelTemplate } from "../channel-template-api";
@@ -41,19 +43,34 @@ export function TemplateDeployDialog({
   );
   const needsAnthropic = members.some(
     ({ persona }) =>
-      persona.runtime === "buzz-agent" && persona.provider !== "openai",
+      persona.runtime === "buzz-agent" &&
+      (persona.provider ?? "anthropic") === "anthropic",
   );
   const needsOpenAi = members.some(
     ({ persona }) =>
       persona.runtime === "buzz-agent" && persona.provider === "openai",
   );
+  const needsOpenRouter = members.some(
+    ({ persona }) =>
+      persona.runtime === "buzz-agent" && persona.provider === "openrouter",
+  );
+  const needsDatabricks = members.some(
+    ({ persona }) =>
+      persona.runtime === "buzz-agent" &&
+      persona.provider?.startsWith("databricks"),
+  );
   const [anthropicKey, setAnthropicKey] = useState("");
   const [openAiKey, setOpenAiKey] = useState("");
+  const [openRouterKey, setOpenRouterKey] = useState("");
+  const [databricksToken, setDatabricksToken] = useState("");
+  const [databricksHost, setDatabricksHost] = useState("");
   const [pending, setPending] = useState(false);
   const canDeploy =
     members.length > 0 &&
     (!needsAnthropic || anthropicKey.length > 0) &&
     (!needsOpenAi || openAiKey.length > 0) &&
+    (!needsOpenRouter || openRouterKey.length > 0) &&
+    (!needsDatabricks || databricksHost.length > 0) &&
     members.every(
       ({ persona }) =>
         persona.runtime !== "buzz-agent" || Boolean(persona.model),
@@ -68,7 +85,18 @@ export function TemplateDeployDialog({
       if (usedNames.has(name)) name = `${name} ${index + 1}`;
       usedNames.add(name);
       const agent = await createAgent(
-        agentInput(member, name, anthropicKey, openAiKey),
+        agentInput(
+          member,
+          name,
+          {
+            anthropic: anthropicKey,
+            openai: openAiKey,
+            openrouter: openRouterKey,
+            databricks: databricksToken,
+            databricks_v2: databricksToken,
+          },
+          databricksHost,
+        ),
       );
       await addAgentToChannel({
         channelId,
@@ -147,6 +175,38 @@ export function TemplateDeployDialog({
               onChange={setOpenAiKey}
             />
           ) : null}
+          {needsOpenRouter ? (
+            <CredentialField
+              id="template-openrouter-key"
+              label="OpenRouter API key"
+              onChange={setOpenRouterKey}
+              value={openRouterKey}
+            />
+          ) : null}
+          {needsDatabricks ? (
+            <>
+              <label
+                className="block text-sm font-medium"
+                htmlFor="template-databricks-host"
+              >
+                Databricks host
+                <Input
+                  className="mt-2"
+                  id="template-databricks-host"
+                  onChange={(event) => setDatabricksHost(event.target.value)}
+                  placeholder="https://workspace.cloud.databricks.com"
+                  type="url"
+                  value={databricksHost}
+                />
+              </label>
+              <CredentialField
+                id="template-databricks-token"
+                label="Databricks token (optional)"
+                onChange={setDatabricksToken}
+                value={databricksToken}
+              />
+            </>
+          ) : null}
           {members.some(({ persona }) => persona.runtime !== "buzz-agent") ? (
             <p className="flex items-start gap-2 rounded-md border p-3 text-sm text-muted-foreground">
               <KeyRound className="mt-0.5 h-4 w-4 shrink-0" />
@@ -212,18 +272,22 @@ function resolveMembers(
 function agentInput(
   member: TemplateMember,
   name: string,
-  anthropicKey: string,
-  openAiKey: string,
+  credentials: Record<AgentProvider, string>,
+  databricksHost: string,
 ): CreateAgentInput {
   const { persona } = member;
   const runtime = persona.runtime ?? "codex";
   const secrets: Record<string, string> = {};
+  let provider: AgentProvider | undefined;
+  const runtimeConfig: Record<string, string> = {};
   if (runtime === "buzz-agent") {
-    const provider = persona.provider ?? "anthropic";
-    secrets.BUZZ_AGENT_PROVIDER = provider;
-    secrets.BUZZ_AGENT_MODEL = persona.model ?? "";
-    if (provider === "openai") secrets.OPENAI_COMPAT_API_KEY = openAiKey;
-    else secrets.ANTHROPIC_API_KEY = anthropicKey;
+    provider = persona.provider ?? "anthropic";
+    Object.assign(
+      secrets,
+      buildCredentialSecrets(runtime, provider, credentials[provider]),
+    );
+    if (provider.startsWith("databricks"))
+      runtimeConfig.databricks_host = databricksHost;
   }
   return {
     name,
@@ -232,6 +296,9 @@ function agentInput(
       .join("\n\nTeam instructions:\n"),
     runtime,
     model: persona.model ?? undefined,
+    provider,
+    parallelism: persona.parallelism ?? 1,
+    runtime_config: runtimeConfig,
     respond_to: persona.respondTo ?? "owner-only",
     respond_to_allowlist: persona.respondToAllowlist,
     credential_mode: runtime === "buzz-agent" ? "api-key" : "subscription",

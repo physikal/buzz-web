@@ -570,7 +570,7 @@ mod tests {
         let mut migrations: Vec<_> = MIGRATOR.iter().collect();
         migrations.sort_by_key(|migration| migration.version);
 
-        assert_eq!(migrations.len(), 30);
+        assert_eq!(migrations.len(), 31);
         assert_eq!(migrations[0].version, 1);
         assert_eq!(&*migrations[0].description, "initial schema");
         assert!(migrations[0]
@@ -591,6 +591,8 @@ mod tests {
             &*migrations[29].description,
             "managed agent persona lineage"
         );
+        assert_eq!(migrations[30].version, 31);
+        assert_eq!(&*migrations[30].description, "managed agent runtime config");
         assert!(migrations[0]
             .sql
             .as_str()

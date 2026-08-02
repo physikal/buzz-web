@@ -146,6 +146,37 @@ pub fn runtime_command(runtime: &str) -> Option<RuntimeCommand> {
     }
 }
 
+/// Map one validated, non-secret runtime setting to its fixed environment key.
+/// The relay and host both consume this catalog so an accepted setting can
+/// never drift into a different spawn-time capability.
+pub fn runtime_config_env_name(
+    runtime: &str,
+    provider: Option<&str>,
+    key: &str,
+) -> Option<&'static str> {
+    if runtime != "buzz-agent" {
+        return None;
+    }
+    match key {
+        "thinking_effort" => Some("BUZZ_AGENT_THINKING_EFFORT"),
+        "max_rounds" => Some("BUZZ_AGENT_MAX_ROUNDS"),
+        "max_output_tokens" => Some("BUZZ_AGENT_MAX_OUTPUT_TOKENS"),
+        "max_context_tokens" => Some("BUZZ_AGENT_MAX_CONTEXT_TOKENS"),
+        "api_mode" if provider == Some("openai") => Some("OPENAI_COMPAT_API"),
+        "api_version" if provider == Some("anthropic") => Some("ANTHROPIC_API_VERSION"),
+        "databricks_host" if matches!(provider, Some("databricks" | "databricks_v2")) => {
+            Some("DATABRICKS_HOST")
+        }
+        "base_url" => match provider {
+            Some("anthropic") => Some("ANTHROPIC_BASE_URL"),
+            Some("openai") => Some("OPENAI_COMPAT_BASE_URL"),
+            Some("openrouter") => Some("OPENROUTER_BASE_URL"),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 /// Accept only provider configuration needed by the packaged harnesses.
 pub fn allowed_secret_env_name(name: &str) -> bool {
     matches!(
@@ -166,9 +197,13 @@ pub fn allowed_secret_env_name(name: &str) -> bool {
             | "DATABRICKS_HOST"
             | "DATABRICKS_MODEL"
             | "DATABRICKS_TOKEN"
-            | "BUZZ_AGENT_PROVIDER"
-            | "BUZZ_AGENT_MODEL"
     )
+}
+
+/// Read-only compatibility for envelopes created before provider became a
+/// normalized database field. The relay never accepts this name on new writes.
+pub fn legacy_secret_env_name(name: &str) -> bool {
+    name == "BUZZ_AGENT_PROVIDER"
 }
 
 #[cfg(test)]
@@ -207,11 +242,36 @@ mod tests {
     #[test]
     fn reserved_environment_is_rejected() {
         assert!(allowed_secret_env_name("OPENAI_API_KEY"));
-        assert!(allowed_secret_env_name("BUZZ_AGENT_PROVIDER"));
+        assert!(!allowed_secret_env_name("BUZZ_AGENT_PROVIDER"));
+        assert!(legacy_secret_env_name("BUZZ_AGENT_PROVIDER"));
         assert!(!allowed_secret_env_name("DATABASE_URL"));
         assert!(!allowed_secret_env_name("BUZZ_ACP_SYSTEM_PROMPT"));
         assert!(!allowed_secret_env_name("NODE_OPTIONS"));
         assert!(!allowed_secret_env_name("LD_PRELOAD"));
         assert!(!allowed_secret_env_name("lowercase"));
+    }
+
+    #[test]
+    fn normalized_runtime_config_has_a_fixed_catalog() {
+        assert_eq!(
+            runtime_config_env_name("buzz-agent", Some("anthropic"), "thinking_effort"),
+            Some("BUZZ_AGENT_THINKING_EFFORT")
+        );
+        assert_eq!(
+            runtime_config_env_name("buzz-agent", Some("openai"), "base_url"),
+            Some("OPENAI_COMPAT_BASE_URL")
+        );
+        assert_eq!(
+            runtime_config_env_name("buzz-agent", Some("databricks_v2"), "databricks_host"),
+            Some("DATABRICKS_HOST")
+        );
+        assert_eq!(
+            runtime_config_env_name("codex", None, "thinking_effort"),
+            None
+        );
+        assert_eq!(
+            runtime_config_env_name("buzz-agent", Some("anthropic"), "LD_PRELOAD"),
+            None
+        );
     }
 }

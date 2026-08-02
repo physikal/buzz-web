@@ -96,8 +96,14 @@ function parseCatalogPersona(
     )
       ? (runtime as AgentPersona["runtime"])
       : null;
-    const safeProvider = ["anthropic", "openai"].includes(provider ?? "")
-      ? provider
+    const safeProvider = [
+      "anthropic",
+      "openai",
+      "openrouter",
+      "databricks",
+      "databricks_v2",
+    ].includes(provider ?? "")
+      ? (provider as AgentPersona["provider"])
       : null;
     const safeRespondTo =
       respondTo === "anyone" || respondTo === "owner-only"

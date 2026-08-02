@@ -3,12 +3,24 @@ import { type FormEvent, useMemo, useState } from "react";
 
 import type {
   AgentCredentialMode,
+  AgentProvider,
   AgentRuntime,
   CreateAgentInput,
   RespondToMode,
 } from "../agent-api";
+import {
+  AGENT_PROVIDERS,
+  buildCredentialSecrets,
+  buildRuntimeConfig,
+  EMPTY_ADVANCED_RUNTIME_DRAFT,
+  parseAgentArgs,
+  providerMetadata,
+  type AdvancedRuntimeDraft,
+  validateAdvancedRuntimeDraft,
+} from "../runtime-config";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
+import { AdvancedRuntimeFields } from "./AdvancedRuntimeFields";
 
 const FIELD_SHELL =
   "rounded-md border border-input bg-background shadow-xs focus-within:ring-1 focus-within:ring-ring";
@@ -24,7 +36,12 @@ export type AgentCreateDefaults = {
   instructions?: string;
   runtime?: AgentRuntime;
   model?: string;
-  provider?: string;
+  provider?: AgentProvider;
+  agentArgs?: string[];
+  parallelism?: number;
+  idleTimeoutSeconds?: number | null;
+  maxTurnDurationSeconds?: number | null;
+  runtimeConfig?: Record<string, string>;
   respondTo?: RespondToMode;
   respondToAllowlist?: string[];
   apiKey?: string;
@@ -59,7 +76,7 @@ export function AgentCreateDialog({
     (initialRuntime !== "buzz-agent" ||
       initialProvider === globalDefaults.provider);
   const [runtime, setRuntime] = useState<AgentRuntime>(initialRuntime);
-  const [provider, setProvider] = useState(initialProvider);
+  const [provider, setProvider] = useState<AgentProvider>(initialProvider);
   const [model, setModel] = useState(
     defaults?.model ?? globalDefaults?.model ?? "",
   );
@@ -81,6 +98,61 @@ export function AgentCreateDialog({
     defaults?.respondToAllowlist?.join("\n") ?? "",
   );
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [advancedDraft, setAdvancedDraft] = useState<AdvancedRuntimeDraft>({
+    ...EMPTY_ADVANCED_RUNTIME_DRAFT,
+    agentArgsText: (
+      defaults?.agentArgs ??
+      (globalMatches ? globalDefaults?.agentArgs : undefined) ??
+      []
+    ).join(", "),
+    parallelism: String(
+      defaults?.parallelism ??
+        (globalMatches ? globalDefaults?.parallelism : undefined) ??
+        1,
+    ),
+    idleTimeout:
+      (
+        defaults?.idleTimeoutSeconds ??
+        (globalMatches ? globalDefaults?.idleTimeoutSeconds : null)
+      )?.toString() ?? "",
+    maxTurnDuration:
+      (
+        defaults?.maxTurnDurationSeconds ??
+        (globalMatches ? globalDefaults?.maxTurnDurationSeconds : null)
+      )?.toString() ?? "",
+    thinkingEffort:
+      defaults?.runtimeConfig?.thinking_effort ??
+      (globalMatches
+        ? (globalDefaults?.runtimeConfig?.thinking_effort ?? "")
+        : ""),
+    maxRounds:
+      defaults?.runtimeConfig?.max_rounds ??
+      (globalMatches ? (globalDefaults?.runtimeConfig?.max_rounds ?? "") : ""),
+    maxOutputTokens:
+      defaults?.runtimeConfig?.max_output_tokens ??
+      (globalMatches
+        ? (globalDefaults?.runtimeConfig?.max_output_tokens ?? "")
+        : ""),
+    maxContextTokens:
+      defaults?.runtimeConfig?.max_context_tokens ??
+      (globalMatches
+        ? (globalDefaults?.runtimeConfig?.max_context_tokens ?? "")
+        : ""),
+    baseUrl:
+      defaults?.runtimeConfig?.base_url ??
+      (globalMatches ? (globalDefaults?.runtimeConfig?.base_url ?? "") : ""),
+    apiMode:
+      defaults?.runtimeConfig?.api_mode ??
+      (globalMatches ? (globalDefaults?.runtimeConfig?.api_mode ?? "") : ""),
+    apiVersion:
+      defaults?.runtimeConfig?.api_version ??
+      (globalMatches ? (globalDefaults?.runtimeConfig?.api_version ?? "") : ""),
+    databricksHost:
+      defaults?.runtimeConfig?.databricks_host ??
+      (globalMatches
+        ? (globalDefaults?.runtimeConfig?.databricks_host ?? "")
+        : ""),
+  });
 
   const allowlist = useMemo(
     () =>
@@ -92,10 +164,19 @@ export function AgentCreateDialog({
   );
   const allowlistValid = allowlist.every((key) => /^[0-9a-f]{64}$/.test(key));
   const usesProvider = runtime === "buzz-agent";
+  const advancedError = validateAdvancedRuntimeDraft(
+    runtime,
+    provider,
+    advancedDraft,
+  );
+  const credentialRequired =
+    credentialMode === "api-key" &&
+    (!usesProvider || providerMetadata(provider).credentialRequired);
   const canSubmit =
     name.trim().length > 0 &&
     (!usesProvider || (provider.length > 0 && model.trim().length > 0)) &&
-    (credentialMode === "subscription" || apiKey.length > 0) &&
+    (!credentialRequired || apiKey.length > 0) &&
+    advancedError === null &&
     (respondTo !== "allowlist" || (allowlist.length > 0 && allowlistValid));
 
   if (!open) return null;
@@ -103,25 +184,25 @@ export function AgentCreateDialog({
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (!canSubmit) return;
-    const secrets: Record<string, string> = {};
-    if (runtime === "buzz-agent") {
-      secrets.BUZZ_AGENT_PROVIDER = provider;
-      secrets.BUZZ_AGENT_MODEL = model.trim();
-    }
-    if (credentialMode === "api-key" && runtime === "buzz-agent") {
-      secrets[
-        provider === "anthropic" ? "ANTHROPIC_API_KEY" : "OPENAI_COMPAT_API_KEY"
-      ] = apiKey;
-    } else if (credentialMode === "api-key" && runtime === "codex") {
-      secrets.OPENAI_API_KEY = apiKey;
-    } else if (credentialMode === "api-key" && runtime === "claude") {
-      secrets.ANTHROPIC_API_KEY = apiKey;
-    }
+    const secrets =
+      credentialMode === "api-key"
+        ? buildCredentialSecrets(runtime, provider, apiKey)
+        : {};
     await onSubmit({
       name: name.trim(),
       system_prompt: instructions.trim(),
       runtime,
       model: model.trim() || undefined,
+      provider: usesProvider ? provider : undefined,
+      agent_args: parseAgentArgs(advancedDraft.agentArgsText),
+      parallelism: Number(advancedDraft.parallelism),
+      idle_timeout_seconds: advancedDraft.idleTimeout
+        ? Number(advancedDraft.idleTimeout)
+        : undefined,
+      max_turn_duration_seconds: advancedDraft.maxTurnDuration
+        ? Number(advancedDraft.maxTurnDuration)
+        : undefined,
+      runtime_config: buildRuntimeConfig(runtime, provider, advancedDraft),
       respond_to: respondTo,
       respond_to_allowlist: respondTo === "allowlist" ? allowlist : [],
       secrets,
@@ -224,12 +305,9 @@ export function AgentCreateDialog({
                 <Field label="LLM provider" required>
                   <Select
                     disabled={pending}
-                    onChange={setProvider}
+                    onChange={(value) => setProvider(value as AgentProvider)}
                     value={provider}
-                    options={[
-                      { value: "anthropic", label: "Anthropic" },
-                      { value: "openai", label: "OpenAI compatible" },
-                    ]}
+                    options={AGENT_PROVIDERS}
                   />
                 </Field>
               ) : null}
@@ -260,22 +338,24 @@ export function AgentCreateDialog({
               {credentialMode === "api-key" ? (
                 <Field
                   label={
-                    runtime === "claude" ||
-                    (runtime === "buzz-agent" && provider === "anthropic")
-                      ? "Anthropic API key"
-                      : "OpenAI API key"
+                    runtime === "buzz-agent"
+                      ? providerMetadata(provider).credentialLabel
+                      : runtime === "claude"
+                        ? "Anthropic API key"
+                        : "OpenAI API key"
                   }
-                  required
+                  required={credentialRequired}
                 >
                   <div
                     className={`${FIELD_SHELL} flex min-h-11 items-center gap-2 px-3`}
                   >
                     <Input
                       aria-label={
-                        runtime === "claude" ||
-                        (runtime === "buzz-agent" && provider === "anthropic")
-                          ? "Anthropic API key"
-                          : "OpenAI API key"
+                        runtime === "buzz-agent"
+                          ? providerMetadata(provider).credentialLabel
+                          : runtime === "claude"
+                            ? "Anthropic API key"
+                            : "OpenAI API key"
                       }
                       autoComplete="off"
                       className="h-8 flex-1 border-0 px-0 shadow-none focus-visible:ring-0"
@@ -337,51 +417,70 @@ export function AgentCreateDialog({
                   />
                   Advanced
                 </button>
+                {!showAdvanced && advancedError ? (
+                  <p className="text-xs text-destructive">{advancedError}</p>
+                ) : null}
                 {showAdvanced ? (
-                  <Field label="Who can send instructions">
-                    <Select
+                  <div className="space-y-5">
+                    <AdvancedRuntimeFields
                       disabled={pending}
-                      onChange={(value) => setRespondTo(value as RespondToMode)}
-                      value={respondTo}
-                      options={[
-                        { value: "owner-only", label: "Only me (default)" },
-                        { value: "anyone", label: "Anyone" },
-                        { value: "allowlist", label: "Selected people" },
-                      ]}
+                      draft={advancedDraft}
+                      onChange={setAdvancedDraft}
+                      provider={provider}
+                      runtime={runtime}
                     />
-                    {respondTo === "owner-only" ? (
-                      <p className="mt-2 text-xs text-muted-foreground">
-                        Only you can send instructions.
+                    {advancedError ? (
+                      <p className="text-xs text-destructive">
+                        {advancedError}
                       </p>
                     ) : null}
-                    {respondTo === "allowlist" ? (
-                      <textarea
-                        className={`${FIELD_SHELL} mt-2 min-h-24 w-full px-3 py-2 font-mono text-xs outline-none`}
-                        onChange={(event) =>
-                          setAllowlistText(event.target.value)
+                    <Field label="Who can send instructions">
+                      <Select
+                        disabled={pending}
+                        onChange={(value) =>
+                          setRespondTo(value as RespondToMode)
                         }
-                        placeholder="Paste pubkeys, separated by commas or new lines"
-                        value={allowlistText}
+                        value={respondTo}
+                        options={[
+                          { value: "owner-only", label: "Only me (default)" },
+                          { value: "anyone", label: "Anyone" },
+                          { value: "allowlist", label: "Selected people" },
+                        ]}
                       />
-                    ) : null}
-                    {respondTo !== "owner-only" ? (
-                      <div className="mt-2 flex items-start gap-2 rounded-xl border border-warning/30 bg-warning-bg px-3 py-2.5 text-xs leading-5 text-warning">
-                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                        <p>
-                          {respondTo === "anyone"
-                            ? "Anyone"
-                            : "Selected people"}{" "}
-                          can use this agent to access the server it runs on,
-                          including any accounts and tools available there.
+                      {respondTo === "owner-only" ? (
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          Only you can send instructions.
                         </p>
-                      </div>
-                    ) : null}
-                    {!allowlistValid ? (
-                      <p className="mt-2 text-xs text-destructive">
-                        Enter 64-character hex public keys.
-                      </p>
-                    ) : null}
-                  </Field>
+                      ) : null}
+                      {respondTo === "allowlist" ? (
+                        <textarea
+                          className={`${FIELD_SHELL} mt-2 min-h-24 w-full px-3 py-2 font-mono text-xs outline-none`}
+                          onChange={(event) =>
+                            setAllowlistText(event.target.value)
+                          }
+                          placeholder="Paste pubkeys, separated by commas or new lines"
+                          value={allowlistText}
+                        />
+                      ) : null}
+                      {respondTo !== "owner-only" ? (
+                        <div className="mt-2 flex items-start gap-2 rounded-xl border border-warning/30 bg-warning-bg px-3 py-2.5 text-xs leading-5 text-warning">
+                          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                          <p>
+                            {respondTo === "anyone"
+                              ? "Anyone"
+                              : "Selected people"}{" "}
+                            can use this agent to access the server it runs on,
+                            including any accounts and tools available there.
+                          </p>
+                        </div>
+                      ) : null}
+                      {!allowlistValid ? (
+                        <p className="mt-2 text-xs text-destructive">
+                          Enter 64-character hex public keys.
+                        </p>
+                      ) : null}
+                    </Field>
+                  </div>
                 ) : null}
               </div>
             </div>

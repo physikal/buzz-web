@@ -397,10 +397,14 @@ export function snapshotPersonaInput(
   )
     ? (snapshot.definition.runtime as PersonaInput["runtime"])
     : null;
-  const provider = ["anthropic", "openai"].includes(
-    snapshot.definition.provider ?? "",
-  )
-    ? (snapshot.definition.provider ?? null)
+  const provider = [
+    "anthropic",
+    "openai",
+    "openrouter",
+    "databricks",
+    "databricks_v2",
+  ].includes(snapshot.definition.provider ?? "")
+    ? (snapshot.definition.provider as PersonaInput["provider"])
     : null;
   return {
     displayName: snapshot.profile.displayName.trim(),

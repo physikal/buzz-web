@@ -11,7 +11,7 @@ use axum::{
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use buzz_agent_host::{
     allowed_secret_env_name, decrypt_secret, derive_control_token, encrypt_secret,
-    parse_envelope_key, runtime_command, AgentSecretPayload,
+    parse_envelope_key, runtime_command, runtime_config_env_name, AgentSecretPayload,
 };
 use buzz_core::TenantContext;
 use nostr::{EventBuilder, JsonUtil, Keys, Kind, Tag, ToBech32};
@@ -26,6 +26,10 @@ use crate::state::AppState;
 const MAX_NAME_LEN: usize = 120;
 const MAX_SYSTEM_PROMPT_LEN: usize = 128 * 1024;
 const MAX_MODEL_LEN: usize = 255;
+const MAX_AGENT_ARGS: usize = 32;
+const MAX_AGENT_ARG_LEN: usize = 1024;
+const MAX_RUNTIME_CONFIG_ENTRIES: usize = 16;
+const MAX_RUNTIME_CONFIG_VALUE_LEN: usize = 2048;
 const MAX_SECRET_COUNT: usize = 32;
 const MAX_SECRET_VALUE_LEN: usize = 16 * 1024;
 
@@ -41,6 +45,18 @@ pub struct CreateAgentRequest {
     runtime: String,
     #[serde(default)]
     model: Option<String>,
+    #[serde(default)]
+    provider: Option<String>,
+    #[serde(default)]
+    agent_args: Vec<String>,
+    #[serde(default = "default_parallelism")]
+    parallelism: u8,
+    #[serde(default)]
+    idle_timeout_seconds: Option<u64>,
+    #[serde(default)]
+    max_turn_duration_seconds: Option<u64>,
+    #[serde(default)]
+    runtime_config: BTreeMap<String, String>,
     #[serde(default = "default_respond_to")]
     respond_to: String,
     #[serde(default)]
@@ -62,6 +78,12 @@ pub struct UpdateAgentRequest {
     system_prompt: Option<String>,
     runtime: Option<String>,
     model: Option<Option<String>>,
+    provider: Option<Option<String>>,
+    agent_args: Option<Vec<String>>,
+    parallelism: Option<u8>,
+    idle_timeout_seconds: Option<Option<u64>>,
+    max_turn_duration_seconds: Option<Option<u64>>,
+    runtime_config: Option<BTreeMap<String, String>>,
     respond_to: Option<String>,
     respond_to_allowlist: Option<Vec<String>>,
     secrets: Option<BTreeMap<String, String>>,
@@ -78,6 +100,10 @@ fn default_credential_mode() -> String {
 
 const fn default_start_immediately() -> bool {
     true
+}
+
+const fn default_parallelism() -> u8 {
+    1
 }
 
 pub(crate) async fn authorize_owner(
@@ -154,12 +180,22 @@ pub async fn create_agent(
         system_prompt,
         runtime,
         model,
+        provider,
+        agent_args,
+        parallelism,
+        idle_timeout_seconds,
+        max_turn_duration_seconds,
+        runtime_config,
         respond_to,
         respond_to_allowlist,
         secrets,
         credential_mode,
         start_immediately,
     } = input;
+    let runtime_config_json = runtime_config
+        .iter()
+        .map(|(key, value)| (key.clone(), Value::String(value.clone())))
+        .collect::<serde_json::Map<String, Value>>();
 
     let envelope_key = std::env::var("BUZZ_AGENT_SECRET_KEY")
         .map_err(|_| {
@@ -213,6 +249,12 @@ pub async fn create_agent(
                 system_prompt: system_prompt.trim(),
                 runtime: &runtime,
                 model: model.as_deref().map(str::trim),
+                provider: provider.as_deref().map(str::trim),
+                agent_args: &agent_args,
+                parallelism: i16::from(parallelism),
+                idle_timeout_seconds: idle_timeout_seconds.map(|value| value as i64),
+                max_turn_duration_seconds: max_turn_duration_seconds.map(|value| value as i64),
+                runtime_config: &runtime_config_json,
                 credential_mode: &credential_mode,
                 desired_state: if credential_mode == "subscription" || !start_immediately {
                     "stopped"
@@ -304,6 +346,37 @@ pub async fn update_agent(
             .runtime
             .unwrap_or_else(|| existing.record.runtime.clone()),
         model: input.model.unwrap_or_else(|| existing.record.model.clone()),
+        provider: input
+            .provider
+            .unwrap_or_else(|| existing.record.provider.clone()),
+        agent_args: input
+            .agent_args
+            .unwrap_or_else(|| existing.record.agent_args.clone()),
+        parallelism: input
+            .parallelism
+            .unwrap_or(existing.record.parallelism as u8),
+        idle_timeout_seconds: input.idle_timeout_seconds.unwrap_or_else(|| {
+            existing
+                .record
+                .idle_timeout_seconds
+                .map(|value| value as u64)
+        }),
+        max_turn_duration_seconds: input.max_turn_duration_seconds.unwrap_or_else(|| {
+            existing
+                .record
+                .max_turn_duration_seconds
+                .map(|value| value as u64)
+        }),
+        runtime_config: input.runtime_config.unwrap_or_else(|| {
+            existing
+                .record
+                .runtime_config
+                .iter()
+                .filter_map(|(key, value)| {
+                    value.as_str().map(|value| (key.clone(), value.to_owned()))
+                })
+                .collect()
+        }),
         respond_to: input
             .respond_to
             .unwrap_or_else(|| existing.record.respond_to.clone()),
@@ -315,6 +388,11 @@ pub async fn update_agent(
         start_immediately: true,
     };
     validate_create(&validation)?;
+    let runtime_config_json = validation
+        .runtime_config
+        .iter()
+        .map(|(key, value)| (key.clone(), Value::String(value.clone())))
+        .collect::<serde_json::Map<String, Value>>();
     let encrypted = encrypt_secret(
         &envelope_key,
         *tenant.community().as_uuid(),
@@ -339,6 +417,14 @@ pub async fn update_agent(
                 system_prompt: validation.system_prompt.trim(),
                 runtime: &validation.runtime,
                 model: validation.model.as_deref().map(str::trim),
+                provider: validation.provider.as_deref().map(str::trim),
+                agent_args: &validation.agent_args,
+                parallelism: i16::from(validation.parallelism),
+                idle_timeout_seconds: validation.idle_timeout_seconds.map(|value| value as i64),
+                max_turn_duration_seconds: validation
+                    .max_turn_duration_seconds
+                    .map(|value| value as i64),
+                runtime_config: &runtime_config_json,
                 credential_mode: &validation.credential_mode,
                 respond_to: &validation.respond_to,
                 respond_to_allowlist: &validation.respond_to_allowlist,
@@ -839,6 +925,34 @@ fn validate_create(input: &CreateAgentRequest) -> Result<(), (StatusCode, Json<V
     {
         return Err(api_error(StatusCode::BAD_REQUEST, "invalid model"));
     }
+    if input.agent_args.len() > MAX_AGENT_ARGS
+        || input
+            .agent_args
+            .iter()
+            .any(|arg| arg.is_empty() || arg.len() > MAX_AGENT_ARG_LEN || arg.contains(['\0', ',']))
+    {
+        return Err(api_error(
+            StatusCode::BAD_REQUEST,
+            "invalid agent arguments",
+        ));
+    }
+    if !(1..=32).contains(&input.parallelism) {
+        return Err(api_error(StatusCode::BAD_REQUEST, "invalid parallelism"));
+    }
+    if input
+        .idle_timeout_seconds
+        .is_some_and(|value| !(1..=604_799).contains(&value))
+        || input
+            .max_turn_duration_seconds
+            .is_some_and(|value| !(2..=604_800).contains(&value))
+        || matches!(
+            (input.idle_timeout_seconds, input.max_turn_duration_seconds),
+            (Some(idle), Some(maximum)) if idle >= maximum
+        )
+    {
+        return Err(api_error(StatusCode::BAD_REQUEST, "invalid turn timeout"));
+    }
+    validate_runtime_config(input)?;
     if !matches!(
         input.respond_to.as_str(),
         "owner-only" | "allowlist" | "anyone"
@@ -872,6 +986,130 @@ fn validate_create(input: &CreateAgentRequest) -> Result<(), (StatusCode, Json<V
     {
         return Err(api_error(StatusCode::BAD_REQUEST, "invalid agent secrets"));
     }
+    if input.credential_mode == "api-key" {
+        let required_secret = match (input.runtime.as_str(), input.provider.as_deref()) {
+            ("codex", _) => Some("OPENAI_API_KEY"),
+            ("claude", _) | ("buzz-agent", Some("anthropic")) => Some("ANTHROPIC_API_KEY"),
+            ("buzz-agent", Some("openai")) => Some("OPENAI_COMPAT_API_KEY"),
+            ("buzz-agent", Some("openrouter")) => Some("OPENROUTER_API_KEY"),
+            ("buzz-agent", Some("databricks" | "databricks_v2")) => None,
+            _ => None,
+        };
+        if required_secret.is_some_and(|name| !input.secrets.contains_key(name)) {
+            return Err(api_error(
+                StatusCode::BAD_REQUEST,
+                "required agent credential is missing",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_runtime_config(input: &CreateAgentRequest) -> Result<(), (StatusCode, Json<Value>)> {
+    let provider = input.provider.as_deref().map(str::trim);
+    if input.runtime == "buzz-agent" {
+        if !matches!(
+            provider,
+            Some("anthropic" | "openai" | "openrouter" | "databricks" | "databricks_v2")
+        ) || input
+            .model
+            .as_deref()
+            .is_none_or(|model| model.trim().is_empty())
+        {
+            return Err(api_error(
+                StatusCode::BAD_REQUEST,
+                "Buzz Agent requires a provider and model",
+            ));
+        }
+    } else if provider.is_some() || !input.runtime_config.is_empty() {
+        return Err(api_error(
+            StatusCode::BAD_REQUEST,
+            "runtime tuning is not supported by this harness",
+        ));
+    }
+    if input.runtime_config.len() > MAX_RUNTIME_CONFIG_ENTRIES
+        || input.runtime_config.iter().any(|(key, value)| {
+            runtime_config_env_name(&input.runtime, provider, key).is_none()
+                || value.is_empty()
+                || value.len() > MAX_RUNTIME_CONFIG_VALUE_LEN
+        })
+    {
+        return Err(api_error(
+            StatusCode::BAD_REQUEST,
+            "invalid runtime configuration",
+        ));
+    }
+    if input
+        .runtime_config
+        .get("thinking_effort")
+        .is_some_and(|value| {
+            !matches!(
+                value.as_str(),
+                "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"
+            )
+        })
+        || input
+            .runtime_config
+            .get("max_rounds")
+            .is_some_and(|value| value.parse::<u32>().is_err())
+        || input
+            .runtime_config
+            .get("max_output_tokens")
+            .is_some_and(|value| value.parse::<u32>().ok().is_none_or(|number| number == 0))
+        || input
+            .runtime_config
+            .get("max_context_tokens")
+            .is_some_and(|value| value.parse::<u64>().ok().is_none_or(|number| number == 0))
+    {
+        return Err(api_error(
+            StatusCode::BAD_REQUEST,
+            "invalid runtime tuning value",
+        ));
+    }
+    if let (Some(output), Some(context)) = (
+        input
+            .runtime_config
+            .get("max_output_tokens")
+            .and_then(|value| value.parse::<u64>().ok()),
+        input
+            .runtime_config
+            .get("max_context_tokens")
+            .and_then(|value| value.parse::<u64>().ok()),
+    ) {
+        if output >= context {
+            return Err(api_error(
+                StatusCode::BAD_REQUEST,
+                "context limit must exceed max output tokens",
+            ));
+        }
+    }
+    let http_url = |key: &str| {
+        input.runtime_config.get(key).is_none_or(|value| {
+            (value.starts_with("https://") || value.starts_with("http://"))
+                && !value.chars().any(char::is_whitespace)
+        })
+    };
+    if !http_url("base_url") || !http_url("databricks_host") {
+        return Err(api_error(StatusCode::BAD_REQUEST, "invalid provider URL"));
+    }
+    if input
+        .runtime_config
+        .get("api_mode")
+        .is_some_and(|value| !matches!(value.as_str(), "auto" | "chat" | "responses"))
+        || input.runtime_config.contains_key("api_mode") && provider != Some("openai")
+        || input.runtime_config.contains_key("api_version") && provider != Some("anthropic")
+        || input.runtime_config.contains_key("databricks_host")
+            && !matches!(provider, Some("databricks" | "databricks_v2"))
+        || matches!(provider, Some("databricks" | "databricks_v2"))
+            && !input.runtime_config.contains_key("databricks_host")
+        || input.runtime_config.contains_key("base_url")
+            && matches!(provider, Some("databricks" | "databricks_v2"))
+    {
+        return Err(api_error(
+            StatusCode::BAD_REQUEST,
+            "provider setting does not match the selected provider",
+        ));
+    }
     Ok(())
 }
 
@@ -886,9 +1124,15 @@ mod tests {
             system_prompt: "Review pull requests.".into(),
             runtime: "codex".into(),
             model: None,
+            provider: None,
+            agent_args: vec![],
+            parallelism: 1,
+            idle_timeout_seconds: None,
+            max_turn_duration_seconds: None,
+            runtime_config: BTreeMap::new(),
             respond_to: "owner-only".into(),
             respond_to_allowlist: vec![],
-            secrets: BTreeMap::new(),
+            secrets: BTreeMap::from([("OPENAI_API_KEY".into(), "test-key".into())]),
             credential_mode: "api-key".into(),
             start_immediately: true,
         }
@@ -908,12 +1152,18 @@ mod tests {
             .secrets
             .insert("DATABASE_URL".into(), "stolen".into());
         assert!(validate_create(&request).is_err());
+        request.secrets = BTreeMap::from([
+            ("OPENAI_API_KEY".into(), "test-key".into()),
+            ("BUZZ_AGENT_PROVIDER".into(), "openai".into()),
+        ]);
+        assert!(validate_create(&request).is_err());
     }
 
     #[test]
     fn subscription_login_is_limited_to_vendor_harnesses_without_api_secrets() {
         let mut request = valid_request();
         request.credential_mode = "subscription".into();
+        request.secrets.clear();
         assert!(validate_create(&request).is_ok());
 
         request.runtime = "buzz-agent".into();
@@ -923,6 +1173,37 @@ mod tests {
         request
             .secrets
             .insert("OPENAI_API_KEY".into(), "mixed-mode".into());
+        assert!(validate_create(&request).is_err());
+    }
+
+    #[test]
+    fn advanced_runtime_config_is_fixed_and_bounded() {
+        let mut request = valid_request();
+        request.runtime = "buzz-agent".into();
+        request.model = Some("claude-sonnet-4-6".into());
+        request.provider = Some("anthropic".into());
+        request.secrets = BTreeMap::from([("ANTHROPIC_API_KEY".into(), "test-key".into())]);
+        request.agent_args = vec!["serve".into()];
+        request.parallelism = 4;
+        request.idle_timeout_seconds = Some(900);
+        request.max_turn_duration_seconds = Some(7200);
+        request
+            .runtime_config
+            .insert("thinking_effort".into(), "high".into());
+        request
+            .runtime_config
+            .insert("max_output_tokens".into(), "8192".into());
+        request
+            .runtime_config
+            .insert("max_context_tokens".into(), "200000".into());
+        assert!(validate_create(&request).is_ok());
+
+        request.agent_args = vec!["--config,/etc/passwd".into()];
+        assert!(validate_create(&request).is_err());
+        request.agent_args.clear();
+        request
+            .runtime_config
+            .insert("LD_PRELOAD".into(), "/tmp/inject.so".into());
         assert!(validate_create(&request).is_err());
     }
 

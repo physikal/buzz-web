@@ -39,11 +39,19 @@ runtime and does not give an agent process access to Docker.
   entry, then submits it through the ordinary event-ingest validation path. The
   control plane does not persist or return the plaintext or private key.
 - Agent processes receive an empty environment plus a fixed set of relay,
-  identity, and ACP values. Provider settings use a positive allowlist;
-  executable paths, `NODE_OPTIONS`, loader variables, database credentials,
-  Redis credentials, and the envelope key cannot be supplied by the browser.
-- Runtime commands come from a fixed server-side catalog. No API value is
-  interpreted as a command, argument list, image name, or host path.
+  identity, and ACP values. Non-secret provider and tuning fields are stored as
+  normalized values, then the relay and agent host use one shared Rust catalog
+  to map them onto a positive environment allowlist. Executable paths,
+  arbitrary environment names, `NODE_OPTIONS`, loader variables, database
+  credentials, Redis credentials, and the envelope key cannot be supplied by
+  the browser.
+- Runtime commands come from a fixed server-side catalog. The owner may supply
+  a bounded argument array for that fixed command; arguments are passed
+  directly to `exec` without shell interpretation and may not contain the
+  comma delimiter used by the ACP transport. No API value is interpreted as an
+  executable, shell command, image name, or host path. Custom web harnesses
+  must therefore be installed and advertised by the server operator rather
+  than accepting a browser-supplied command.
 - Codex and Claude subscription login uses a separate private control port on
   the agent host. Public requests still require an owner-signed NIP-98 event;
   relay-to-host requests also require a domain-separated token derived from the

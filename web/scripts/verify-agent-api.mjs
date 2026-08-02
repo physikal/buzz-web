@@ -123,16 +123,38 @@ const created = await request("/api/agents", {
     name,
     persona_id: "smoke-persona",
     system_prompt: "Wait for owner instructions.",
-    runtime: "codex",
+    runtime: "buzz-agent",
+    model: "claude-sonnet-4-6",
+    provider: "anthropic",
+    agent_args: [],
+    parallelism: 3,
+    idle_timeout_seconds: 900,
+    max_turn_duration_seconds: 7200,
+    runtime_config: {
+      thinking_effort: "high",
+      max_rounds: "8",
+      max_output_tokens: "8192",
+      max_context_tokens: "200000",
+    },
     respond_to: "owner-only",
     respond_to_allowlist: [],
-    secrets: { OPENAI_API_KEY: "smoke-test-not-a-real-key" },
+    secrets: { ANTHROPIC_API_KEY: "smoke-test-not-a-real-key" },
     start_immediately: false,
   }),
 });
 const agent = created?.agent;
 if (!agent?.id || agent.name !== name || agent.persona_id !== "smoke-persona")
   throw new Error("Create response is invalid.");
+if (
+  agent.provider !== "anthropic" ||
+  agent.parallelism !== 3 ||
+  agent.idle_timeout_seconds !== 900 ||
+  agent.max_turn_duration_seconds !== 7200 ||
+  agent.runtime_config?.thinking_effort !== "high" ||
+  agent.runtime_config?.max_output_tokens !== "8192"
+) {
+  throw new Error("Advanced agent configuration did not round-trip.");
+}
 if (
   "sandbox_uid" in agent ||
   "secret_ciphertext" in agent ||

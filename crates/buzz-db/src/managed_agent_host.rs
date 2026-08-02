@@ -31,6 +31,18 @@ pub struct ManagedAgentHostRecord {
     pub runtime: String,
     /// Optional model override.
     pub model: Option<String>,
+    /// Normalized LLM provider id for harnesses that expose one.
+    pub provider: Option<String>,
+    /// Fixed-runtime arguments passed without shell interpretation.
+    pub agent_args: Vec<String>,
+    /// Maximum number of concurrent harness subprocesses.
+    pub parallelism: i16,
+    /// Optional silence timeout for one turn.
+    pub idle_timeout_seconds: Option<i64>,
+    /// Optional absolute wall-clock cap for one turn.
+    pub max_turn_duration_seconds: Option<i64>,
+    /// Validated, non-secret runtime tuning values.
+    pub runtime_config: serde_json::Map<String, serde_json::Value>,
     /// Provider credential source used by this runtime.
     pub credential_mode: String,
     /// Inbound author gate.
@@ -82,6 +94,18 @@ pub struct NewManagedAgentHost<'a> {
     pub runtime: &'a str,
     /// Model override.
     pub model: Option<&'a str>,
+    /// Normalized provider id.
+    pub provider: Option<&'a str>,
+    /// Runtime arguments.
+    pub agent_args: &'a [String],
+    /// Harness subprocess parallelism.
+    pub parallelism: i16,
+    /// Optional silence timeout.
+    pub idle_timeout_seconds: Option<i64>,
+    /// Optional hard turn timeout.
+    pub max_turn_duration_seconds: Option<i64>,
+    /// Validated, non-secret tuning map.
+    pub runtime_config: &'a serde_json::Map<String, serde_json::Value>,
     /// Provider credential source.
     pub credential_mode: &'a str,
     /// Initial requested runner state.
@@ -106,6 +130,18 @@ pub struct UpdateManagedAgentHost<'a> {
     pub runtime: &'a str,
     /// Optional model override.
     pub model: Option<&'a str>,
+    /// Normalized provider id.
+    pub provider: Option<&'a str>,
+    /// Runtime arguments.
+    pub agent_args: &'a [String],
+    /// Harness subprocess parallelism.
+    pub parallelism: i16,
+    /// Optional silence timeout.
+    pub idle_timeout_seconds: Option<i64>,
+    /// Optional hard turn timeout.
+    pub max_turn_duration_seconds: Option<i64>,
+    /// Validated, non-secret tuning map.
+    pub runtime_config: &'a serde_json::Map<String, serde_json::Value>,
     /// Provider credential source.
     pub credential_mode: &'a str,
     /// Inbound author gate.
@@ -120,6 +156,8 @@ pub struct UpdateManagedAgentHost<'a> {
 
 fn row_to_record(row: &sqlx::postgres::PgRow) -> Result<ManagedAgentHostRecord> {
     let allowlist: serde_json::Value = row.try_get("respond_to_allowlist")?;
+    let agent_args: serde_json::Value = row.try_get("agent_args")?;
+    let runtime_config: serde_json::Value = row.try_get("runtime_config")?;
     Ok(ManagedAgentHostRecord {
         community_id: row.try_get("community_id")?,
         id: row.try_get("id")?,
@@ -131,6 +169,12 @@ fn row_to_record(row: &sqlx::postgres::PgRow) -> Result<ManagedAgentHostRecord> 
         system_prompt: row.try_get("system_prompt")?,
         runtime: row.try_get("runtime")?,
         model: row.try_get("model")?,
+        provider: row.try_get("provider")?,
+        agent_args: serde_json::from_value(agent_args)?,
+        parallelism: row.try_get("parallelism")?,
+        idle_timeout_seconds: row.try_get("idle_timeout_seconds")?,
+        max_turn_duration_seconds: row.try_get("max_turn_duration_seconds")?,
+        runtime_config: serde_json::from_value(runtime_config)?,
         credential_mode: row.try_get("credential_mode")?,
         respond_to: row.try_get("respond_to")?,
         respond_to_allowlist: serde_json::from_value(allowlist)?,
@@ -155,6 +199,8 @@ pub async fn create(
     let agent_bytes = hex::decode(input.agent_pubkey)
         .map_err(|_| crate::error::DbError::InvalidData("invalid agent pubkey".into()))?;
     let allowlist = serde_json::to_value(input.respond_to_allowlist)?;
+    let agent_args = serde_json::to_value(input.agent_args)?;
+    let runtime_config = serde_json::to_value(input.runtime_config)?;
     let mut tx = pool.begin().await?;
 
     sqlx::query("INSERT INTO users (community_id, pubkey) VALUES ($1, $2) ON CONFLICT DO NOTHING")
@@ -184,10 +230,13 @@ pub async fn create(
 
     let row = sqlx::query(
         "INSERT INTO managed_agent_hosts \
-         (community_id, id, owner_pubkey, agent_pubkey, persona_id, name, system_prompt, runtime, model, credential_mode, respond_to, \
-          respond_to_allowlist, secret_nonce, secret_ciphertext, desired_state, observed_state) \
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,CASE WHEN $15 = 'stopped' THEN 'stopped' ELSE 'pending' END) RETURNING \
-         community_id, id, sandbox_uid, owner_pubkey, agent_pubkey, persona_id, name, system_prompt, runtime, model, credential_mode, respond_to, \
+         (community_id, id, owner_pubkey, agent_pubkey, persona_id, name, system_prompt, runtime, model, provider, agent_args, parallelism, \
+          idle_timeout_seconds, max_turn_duration_seconds, runtime_config, credential_mode, respond_to, respond_to_allowlist, \
+          secret_nonce, secret_ciphertext, desired_state, observed_state) \
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21, \
+          CASE WHEN $21 = 'stopped' THEN 'stopped' ELSE 'pending' END) RETURNING \
+         community_id, id, sandbox_uid, owner_pubkey, agent_pubkey, persona_id, name, system_prompt, runtime, model, provider, \
+         agent_args, parallelism, idle_timeout_seconds, max_turn_duration_seconds, runtime_config, credential_mode, respond_to, \
          respond_to_allowlist, desired_state, observed_state, lease_epoch, runtime_pid, \
          last_error, created_at, updated_at",
     )
@@ -200,6 +249,12 @@ pub async fn create(
         .bind(input.system_prompt)
         .bind(input.runtime)
         .bind(input.model)
+        .bind(input.provider)
+        .bind(agent_args)
+        .bind(input.parallelism)
+        .bind(input.idle_timeout_seconds)
+        .bind(input.max_turn_duration_seconds)
+        .bind(runtime_config)
         .bind(input.credential_mode)
         .bind(input.respond_to)
         .bind(allowlist)
@@ -220,7 +275,7 @@ pub async fn list_owned(
     owner_pubkey: &str,
 ) -> Result<Vec<ManagedAgentHostRecord>> {
     let rows = sqlx::query(
-        "SELECT community_id, id, sandbox_uid, owner_pubkey, agent_pubkey, persona_id, name, system_prompt, runtime, model, credential_mode, respond_to, \
+        "SELECT community_id, id, sandbox_uid, owner_pubkey, agent_pubkey, persona_id, name, system_prompt, runtime, model, provider, agent_args, parallelism, idle_timeout_seconds, max_turn_duration_seconds, runtime_config, credential_mode, respond_to, \
          respond_to_allowlist, desired_state, observed_state, lease_epoch, runtime_pid, \
          last_error, created_at, updated_at FROM managed_agent_hosts \
          WHERE community_id = $1 AND owner_pubkey = $2 ORDER BY created_at",
@@ -240,7 +295,7 @@ pub async fn get_owned(
     id: Uuid,
 ) -> Result<Option<ManagedAgentHostRecord>> {
     let row = sqlx::query(
-        "SELECT community_id, id, sandbox_uid, owner_pubkey, agent_pubkey, persona_id, name, system_prompt, runtime, model, credential_mode, respond_to, \
+        "SELECT community_id, id, sandbox_uid, owner_pubkey, agent_pubkey, persona_id, name, system_prompt, runtime, model, provider, agent_args, parallelism, idle_timeout_seconds, max_turn_duration_seconds, runtime_config, credential_mode, respond_to, \
          respond_to_allowlist, desired_state, observed_state, lease_epoch, runtime_pid, \
          last_error, created_at, updated_at FROM managed_agent_hosts \
          WHERE community_id = $1 AND owner_pubkey = $2 AND id = $3",
@@ -261,7 +316,7 @@ pub async fn get_owned_with_secret(
     id: Uuid,
 ) -> Result<Option<ManagedAgentLease>> {
     let row = sqlx::query(
-        "SELECT community_id, id, sandbox_uid, owner_pubkey, agent_pubkey, persona_id, name, system_prompt, runtime, model, credential_mode, respond_to, \
+        "SELECT community_id, id, sandbox_uid, owner_pubkey, agent_pubkey, persona_id, name, system_prompt, runtime, model, provider, agent_args, parallelism, idle_timeout_seconds, max_turn_duration_seconds, runtime_config, credential_mode, respond_to, \
          respond_to_allowlist, desired_state, observed_state, lease_epoch, runtime_pid, \
          last_error, created_at, updated_at, secret_nonce, secret_ciphertext FROM managed_agent_hosts \
          WHERE community_id = $1 AND owner_pubkey = $2 AND id = $3",
@@ -291,19 +346,28 @@ pub async fn update_owned(
     input: UpdateManagedAgentHost<'_>,
 ) -> Result<Option<ManagedAgentHostRecord>> {
     let allowlist = serde_json::to_value(input.respond_to_allowlist)?;
+    let agent_args = serde_json::to_value(input.agent_args)?;
+    let runtime_config = serde_json::to_value(input.runtime_config)?;
     let row = sqlx::query(
-        "UPDATE managed_agent_hosts SET name = $1, system_prompt = $2, runtime = $3, model = $4, \
-         credential_mode = $5, respond_to = $6, respond_to_allowlist = $7, secret_nonce = $8, \
-         secret_ciphertext = $9, last_error = NULL, updated_at = NOW() \
-         WHERE community_id = $10 AND owner_pubkey = $11 AND id = $12 \
+        "UPDATE managed_agent_hosts SET name = $1, system_prompt = $2, runtime = $3, model = $4, provider = $5, \
+         agent_args = $6, parallelism = $7, idle_timeout_seconds = $8, max_turn_duration_seconds = $9, \
+         runtime_config = $10, credential_mode = $11, respond_to = $12, respond_to_allowlist = $13, secret_nonce = $14, \
+         secret_ciphertext = $15, last_error = NULL, updated_at = NOW() \
+         WHERE community_id = $16 AND owner_pubkey = $17 AND id = $18 \
            AND desired_state = 'stopped' AND lease_expires_at IS NULL \
-         RETURNING community_id, id, sandbox_uid, owner_pubkey, agent_pubkey, persona_id, name, system_prompt, runtime, model, credential_mode, respond_to, \
+         RETURNING community_id, id, sandbox_uid, owner_pubkey, agent_pubkey, persona_id, name, system_prompt, runtime, model, provider, agent_args, parallelism, idle_timeout_seconds, max_turn_duration_seconds, runtime_config, credential_mode, respond_to, \
          respond_to_allowlist, desired_state, observed_state, lease_epoch, runtime_pid, last_error, created_at, updated_at",
     )
     .bind(input.name)
     .bind(input.system_prompt)
     .bind(input.runtime)
     .bind(input.model)
+    .bind(input.provider)
+    .bind(agent_args)
+    .bind(input.parallelism)
+    .bind(input.idle_timeout_seconds)
+    .bind(input.max_turn_duration_seconds)
+    .bind(runtime_config)
     .bind(input.credential_mode)
     .bind(input.respond_to)
     .bind(allowlist)
@@ -324,7 +388,7 @@ pub async fn get(
     id: Uuid,
 ) -> Result<Option<ManagedAgentHostRecord>> {
     let row = sqlx::query(
-        "SELECT community_id, id, sandbox_uid, owner_pubkey, agent_pubkey, persona_id, name, system_prompt, runtime, model, credential_mode, respond_to, \
+        "SELECT community_id, id, sandbox_uid, owner_pubkey, agent_pubkey, persona_id, name, system_prompt, runtime, model, provider, agent_args, parallelism, idle_timeout_seconds, max_turn_duration_seconds, runtime_config, credential_mode, respond_to, \
          respond_to_allowlist, desired_state, observed_state, lease_epoch, runtime_pid, \
          last_error, created_at, updated_at FROM managed_agent_hosts \
          WHERE community_id = $1 AND id = $2",
@@ -352,7 +416,7 @@ pub async fn set_desired_state(
              WHEN $1 = 'stopped' AND observed_state IN ('pending','starting','running') THEN 'stopping' \
              ELSE observed_state END \
          WHERE community_id = $2 AND owner_pubkey = $3 AND id = $4 RETURNING \
-         community_id, id, sandbox_uid, owner_pubkey, agent_pubkey, persona_id, name, system_prompt, runtime, model, credential_mode, respond_to, \
+         community_id, id, sandbox_uid, owner_pubkey, agent_pubkey, persona_id, name, system_prompt, runtime, model, provider, agent_args, parallelism, idle_timeout_seconds, max_turn_duration_seconds, runtime_config, credential_mode, respond_to, \
          respond_to_allowlist, desired_state, observed_state, lease_epoch, runtime_pid, \
          last_error, created_at, updated_at",
     )
@@ -426,7 +490,8 @@ pub async fn claim_next(
            last_error = NULL, updated_at = NOW() FROM candidate c \
          WHERE a.community_id = c.community_id AND a.id = c.id \
          RETURNING a.community_id, a.id, a.sandbox_uid, a.owner_pubkey, a.agent_pubkey, a.persona_id, a.name, a.runtime, \
-         a.system_prompt, a.model, a.credential_mode, a.respond_to, a.respond_to_allowlist, a.desired_state, a.observed_state, \
+         a.system_prompt, a.model, a.provider, a.agent_args, a.parallelism, a.idle_timeout_seconds, a.max_turn_duration_seconds, \
+         a.runtime_config, a.credential_mode, a.respond_to, a.respond_to_allowlist, a.desired_state, a.observed_state, \
          a.lease_epoch, a.runtime_pid, a.last_error, a.created_at, a.updated_at, \
          a.secret_nonce, a.secret_ciphertext",
     )

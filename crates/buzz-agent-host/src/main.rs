@@ -1,6 +1,9 @@
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
-use buzz_agent_host::{decrypt_secret, parse_envelope_key, runtime_command};
+use buzz_agent_host::{
+    decrypt_secret, legacy_secret_env_name, parse_envelope_key, runtime_command,
+    runtime_config_env_name,
+};
 use buzz_core::CommunityId;
 use buzz_db::{managed_agent_host::ManagedAgentLease, Db, DbConfig};
 use tokio::{process::Command, task::JoinSet};
@@ -167,6 +170,11 @@ async fn run_agent(
     }
 
     let mut command = Command::new("buzz-acp");
+    let agent_args = if record.agent_args.is_empty() {
+        runtime.args.join(",")
+    } else {
+        record.agent_args.join(",")
+    };
     command
         .env_clear()
         .env("PATH", &runtime_path)
@@ -174,7 +182,7 @@ async fn run_agent(
         .env("BUZZ_PRIVATE_KEY", &secret.private_key_nsec)
         .env("BUZZ_RELAY_URL", &relay_url)
         .env("BUZZ_ACP_AGENT_COMMAND", runtime.command)
-        .env("BUZZ_ACP_AGENT_ARGS", runtime.args.join(","))
+        .env("BUZZ_ACP_AGENT_ARGS", agent_args)
         .env("BUZZ_ACP_AGENT_OWNER", &record.owner_pubkey)
         .env("BUZZ_ACP_SYSTEM_PROMPT", &record.system_prompt)
         .env("BUZZ_ACP_RESPOND_TO", &record.respond_to)
@@ -183,6 +191,7 @@ async fn run_agent(
             record.respond_to_allowlist.join(","),
         )
         .env("BUZZ_ACP_RELAY_OBSERVER", "true")
+        .env("BUZZ_ACP_AGENTS", record.parallelism.to_string())
         .current_dir(&workdir)
         .kill_on_drop(true)
         .stdin(std::process::Stdio::null())
@@ -190,9 +199,36 @@ async fn run_agent(
         .stderr(std::process::Stdio::piped());
     if let Some(model) = &record.model {
         command.env("BUZZ_ACP_MODEL", model);
+        if record.runtime == "buzz-agent" {
+            command.env("BUZZ_AGENT_MODEL", model);
+        }
+    }
+    if let Some(provider) = &record.provider {
+        if record.runtime == "buzz-agent" {
+            command.env("BUZZ_AGENT_PROVIDER", provider);
+        }
+    }
+    if let Some(timeout) = record.idle_timeout_seconds {
+        command.env("BUZZ_ACP_IDLE_TIMEOUT", timeout.to_string());
+    }
+    if let Some(timeout) = record.max_turn_duration_seconds {
+        command.env("BUZZ_ACP_MAX_TURN_DURATION", timeout.to_string());
+    }
+    for (key, value) in &record.runtime_config {
+        let Some(value) = value.as_str() else {
+            continue;
+        };
+        let Some(env_name) =
+            runtime_config_env_name(&record.runtime, record.provider.as_deref(), key)
+        else {
+            continue;
+        };
+        command.env(env_name, value);
     }
     for (name, value) in &secret.env {
-        if buzz_agent_host::allowed_secret_env_name(name) {
+        if buzz_agent_host::allowed_secret_env_name(name)
+            || (record.provider.is_none() && legacy_secret_env_name(name))
+        {
             command.env(name, value);
         }
     }

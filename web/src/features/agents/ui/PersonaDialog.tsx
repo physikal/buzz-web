@@ -3,8 +3,9 @@ import { type FormEvent, useMemo, useState } from "react";
 
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
-import type { AgentRuntime, RespondToMode } from "../agent-api";
+import type { AgentProvider, AgentRuntime, RespondToMode } from "../agent-api";
 import type { AgentPersona, PersonaInput } from "../persona-api";
+import { AGENT_PROVIDERS } from "../runtime-config";
 
 export function PersonaDialog({
   persona,
@@ -24,7 +25,9 @@ export function PersonaDialog({
     persona?.runtime ?? "codex",
   );
   const [model, setModel] = useState(persona?.model ?? "");
-  const [provider, setProvider] = useState(persona?.provider ?? "anthropic");
+  const [provider, setProvider] = useState<AgentProvider>(
+    persona?.provider ?? "anthropic",
+  );
   const [namePoolText, setNamePoolText] = useState(
     persona?.namePool.join("\n") ?? "",
   );
@@ -67,7 +70,7 @@ export function PersonaDialog({
       avatarUrl: avatarUrl.trim() || null,
       runtime,
       model: model.trim() || null,
-      provider: runtime === "buzz-agent" ? provider.trim() || null : null,
+      provider: runtime === "buzz-agent" ? provider : null,
       namePool: namePoolText
         .split("\n")
         .map((name) => name.trim())
@@ -165,11 +168,16 @@ export function PersonaDialog({
                 aria-label="Provider"
                 className="h-9 w-full rounded-md border bg-background px-3 text-sm"
                 disabled={pending}
-                onChange={(event) => setProvider(event.target.value)}
+                onChange={(event) =>
+                  setProvider(event.target.value as AgentProvider)
+                }
                 value={provider}
               >
-                <option value="anthropic">Anthropic</option>
-                <option value="openai">OpenAI compatible</option>
+                {AGENT_PROVIDERS.map((entry) => (
+                  <option key={entry.value} value={entry.value}>
+                    {entry.label}
+                  </option>
+                ))}
               </select>
             </Field>
           ) : null}

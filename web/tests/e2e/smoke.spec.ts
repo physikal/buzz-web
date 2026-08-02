@@ -188,6 +188,12 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
         system_prompt: input.system_prompt,
         runtime: input.runtime,
         model: input.model,
+        provider: input.provider ?? null,
+        agent_args: input.agent_args ?? [],
+        parallelism: input.parallelism ?? 1,
+        idle_timeout_seconds: input.idle_timeout_seconds ?? null,
+        max_turn_duration_seconds: input.max_turn_duration_seconds ?? null,
+        runtime_config: input.runtime_config ?? {},
         credential_mode: input.credential_mode,
         respond_to: input.respond_to,
         respond_to_allowlist: input.respond_to_allowlist,
@@ -908,7 +914,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   ).toBeVisible();
   await page.getByLabel("Default model").fill("claude-sonnet-4-6");
   await page
-    .getByLabel("Default API key", { exact: true })
+    .getByLabel("Default Anthropic API key", { exact: true })
     .fill("encrypted-default-key");
   await page.getByRole("button", { name: "Save defaults" }).click();
   await expect
@@ -1288,8 +1294,30 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await page
     .getByLabel("Anthropic API key", { exact: true })
     .fill("test-persona-api-key");
+  await page.getByRole("button", { name: "Advanced" }).click();
+  await page.getByLabel("Agent runtime args").fill("serve, --quiet");
+  await page.getByLabel("Parallelism").fill("3");
+  await page.getByLabel("Idle timeout seconds").fill("900");
+  await page.getByLabel("Maximum turn duration seconds").fill("7200");
+  await page.getByLabel("Thinking effort").selectOption("high");
+  await page.getByLabel("Max rounds").fill("8");
+  await page.getByLabel("Max output tokens").fill("8192");
+  await page.getByLabel("Context limit").fill("200000");
   await page.getByRole("button", { name: "Create agent" }).click();
   await expect.poll(() => managedAgents.length).toBe(2);
+  expect(createdAgentInputs[1]).toMatchObject({
+    provider: "anthropic",
+    agent_args: ["serve", "--quiet"],
+    parallelism: 3,
+    idle_timeout_seconds: 900,
+    max_turn_duration_seconds: 7200,
+    runtime_config: {
+      thinking_effort: "high",
+      max_rounds: "8",
+      max_output_tokens: "8192",
+      max_context_tokens: "200000",
+    },
+  });
   await page.getByRole("button", { name: "Create team" }).click();
   await page.getByRole("textbox", { name: "Team name" }).fill("Review crew");
   await page.getByRole("checkbox", { name: /Review lead/ }).check();

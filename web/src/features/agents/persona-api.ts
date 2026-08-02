@@ -1,7 +1,7 @@
 import { queryEvents, type NostrEvent } from "@/shared/lib/nostr-client";
 import { submitEvent } from "@/shared/lib/relay-events";
 import { relayWsUrl } from "@/shared/lib/relay-url";
-import type { AgentRuntime, RespondToMode } from "./agent-api";
+import type { AgentProvider, AgentRuntime, RespondToMode } from "./agent-api";
 
 export const PERSONA_KIND = 30175;
 
@@ -14,7 +14,7 @@ export type AgentPersona = {
   avatarUrl: string | null;
   runtime: AgentRuntime | null;
   model: string | null;
-  provider: string | null;
+  provider: AgentProvider | null;
   namePool: string[];
   respondTo: RespondToMode | null;
   respondToAllowlist: string[];
@@ -123,6 +123,15 @@ function parsePersona(event: NostrEvent): AgentPersona | null {
     )
       ? (runtime as AgentRuntime)
       : null;
+    const supportedProvider = [
+      "anthropic",
+      "openai",
+      "openrouter",
+      "databricks",
+      "databricks_v2",
+    ].includes(provider ?? "")
+      ? (provider as AgentProvider)
+      : null;
     return {
       id,
       eventId: event.id,
@@ -132,7 +141,7 @@ function parsePersona(event: NostrEvent): AgentPersona | null {
       avatarUrl: safePersonaAvatarUrl(avatarUrl),
       runtime: supportedRuntime,
       model,
-      provider,
+      provider: supportedProvider,
       namePool,
       respondTo: respondTo as RespondToMode | null,
       respondToAllowlist: allowlist as string[],
