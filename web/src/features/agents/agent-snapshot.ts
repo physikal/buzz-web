@@ -102,6 +102,16 @@ function stringList(
   return value as string[];
 }
 
+function validMemorySlug(slug: string): boolean {
+  return (
+    slug === "core" ||
+    (new TextEncoder().encode(slug).length <= 255 &&
+      /^mem\/[a-z0-9][a-z0-9_-]{0,63}(\/[a-z0-9][a-z0-9_-]{0,63})*$/u.test(
+        slug,
+      ))
+  );
+}
+
 function parseSnapshot(value: unknown): AgentSnapshot {
   const root = object(value);
   const definition = object(root?.definition);
@@ -139,11 +149,13 @@ function parseSnapshot(value: unknown): AgentSnapshot {
   const entries = rawEntries.map((entry) => {
     const row = object(entry);
     const slug = boundedString(row?.slug, 255, true);
-    const body = boundedString(row?.body, 65_535, true);
-    if (!slug || !body)
+    const body = boundedString(row?.body, 65_535);
+    if (!slug || body === undefined || !validMemorySlug(slug))
       throw new Error("Snapshot contains an invalid memory entry.");
     return { slug, body };
   });
+  if (new Set(entries.map((entry) => entry.slug)).size !== entries.length)
+    throw new Error("Snapshot contains duplicate memory entries.");
   if (level === "none" && entries.length)
     throw new Error("Snapshot declares no memory but contains memory entries.");
 
@@ -411,10 +423,6 @@ export function snapshotPersonaInput(
   snapshot: AgentSnapshot,
   keepAllowlist: boolean,
 ): PersonaInput {
-  if ((snapshot.memory.entries?.length ?? 0) > 0)
-    throw new Error(
-      "This snapshot includes memory. Hosted memory restoration is not available yet.",
-    );
   const sourceMode = snapshot.definition.respondTo;
   const sourceAllowlist = snapshot.definition.respondToAllowlist ?? [];
   const respondTo =

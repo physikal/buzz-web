@@ -4,7 +4,8 @@ import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 
 import { nip19 } from "nostr-tools";
-import { finalizeEvent } from "nostr-tools/pure";
+import { v2 as nip44 } from "nostr-tools/nip44";
+import { finalizeEvent, getPublicKey } from "nostr-tools/pure";
 
 const publicBase = required("BUZZ_PUBLIC_URL").replace(/\/$/, "");
 const transportBase = required("BUZZ_TRANSPORT_URL").replace(/\/$/, "");
@@ -12,6 +13,7 @@ const ownerKeyFile = required("BUZZ_OWNER_KEY_FILE");
 const decoded = nip19.decode((await readFile(ownerKeyFile, "utf8")).trim());
 if (decoded.type !== "nsec") throw new Error("Owner key file is not an nsec.");
 const secretKey = decoded.data;
+const ownerPubkey = getPublicKey(secretKey);
 
 function required(name) {
   const value = process.env[name];
@@ -124,6 +126,7 @@ const created = await request("/api/agents", {
     respond_to: "owner-only",
     respond_to_allowlist: [],
     secrets: { OPENAI_API_KEY: "smoke-test-not-a-real-key" },
+    start_immediately: false,
   }),
 });
 const agent = created?.agent;
@@ -138,6 +141,43 @@ if (
 }
 
 try {
+  if (agent.desired_state !== "stopped" || agent.observed_state !== "stopped") {
+    throw new Error("Snapshot-style creation did not leave the agent stopped.");
+  }
+  const memoryBody = "Remember the hosted snapshot restore.";
+  await request(`/api/agents/${agent.id}/memory`, {
+    method: "POST",
+    body: JSON.stringify({ slug: "core", body: memoryBody }),
+  });
+  const engrams = await request("/query", {
+    method: "POST",
+    body: JSON.stringify([
+      {
+        kinds: [30174],
+        authors: [agent.agent_pubkey],
+        "#p": [ownerPubkey],
+        limit: 10,
+      },
+    ]),
+  });
+  const engram = engrams.find((event) => event.pubkey === agent.agent_pubkey);
+  if (!engram) throw new Error("Restored agent memory was not discoverable.");
+  const conversationKey = nip44.utils.getConversationKey(
+    secretKey,
+    agent.agent_pubkey,
+  );
+  let plaintext;
+  try {
+    plaintext = nip44.decrypt(engram.content, conversationKey);
+  } finally {
+    conversationKey.fill(0);
+  }
+  if (plaintext !== JSON.stringify({ slug: "core", profile: memoryBody })) {
+    throw new Error(
+      "Restored agent memory could not be decrypted by the owner.",
+    );
+  }
+
   const listed = await request("/api/agents");
   if (!listed.agents.some((candidate) => candidate.id === agent.id)) {
     throw new Error("Created agent was not returned by the owner list API.");
@@ -164,6 +204,11 @@ try {
   ) {
     throw new Error("Agent channel membership was not discoverable.");
   }
+
+  await request(`/api/agents/${agent.id}/start`, {
+    method: "POST",
+    body: "",
+  });
 
   let current = agent;
   for (let attempt = 0; attempt < 20; attempt += 1) {

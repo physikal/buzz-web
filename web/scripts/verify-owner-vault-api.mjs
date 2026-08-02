@@ -1,4 +1,6 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { writeFile } from "node:fs/promises";
+import { nip19 } from "nostr-tools";
 import { finalizeEvent } from "nostr-tools/pure";
 
 const transportOrigin = process.env.BUZZ_HTTP_URL;
@@ -228,6 +230,16 @@ const duplicate = await request(claimPath, {
 if (duplicate.response.status !== 409) {
   throw new Error(
     `Second claim was not rejected: ${JSON.stringify(duplicate.payload)}`,
+  );
+}
+
+if (process.env.BUZZ_OWNER_KEY_OUTPUT) {
+  await writeFile(
+    process.env.BUZZ_OWNER_KEY_OUTPUT,
+    `${nip19.nsecEncode(secretKey)}\n`,
+    {
+      mode: 0o600,
+    },
   );
 }
 

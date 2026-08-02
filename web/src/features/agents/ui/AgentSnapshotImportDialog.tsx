@@ -81,9 +81,8 @@ export function AgentSnapshotImportDialog({
             <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-400">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
               This snapshot includes {memoryCount} plaintext memory entr
-              {memoryCount === 1 ? "y" : "ies"}. Hosted memory restoration is
-              not available yet, so this file cannot be imported without
-              dropping data.
+              {memoryCount === 1 ? "y" : "ies"}. Buzz will re-encrypt each entry
+              under the new agent identity before publishing it.
             </div>
           ) : null}
           {allowlist.length ? (
@@ -119,10 +118,7 @@ export function AgentSnapshotImportDialog({
           <Button disabled={pending} onClick={onClose} variant="ghost">
             Cancel
           </Button>
-          <Button
-            disabled={pending || memoryCount > 0}
-            onClick={() => onImport(keepAllowlist)}
-          >
+          <Button disabled={pending} onClick={() => onImport(keepAllowlist)}>
             <Upload /> Import
           </Button>
         </footer>

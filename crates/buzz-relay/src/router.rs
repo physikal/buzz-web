@@ -138,6 +138,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/agents/{id}/auth/start", post(api::agents::start_auth))
         .route("/api/agents/{id}/auth/input", post(api::agents::auth_input))
         .route("/api/agents/{id}/logs", get(api::agents::agent_logs))
+        .route(
+            "/api/agents/{id}/memory",
+            post(api::agents::restore_agent_memory),
+        )
         // Moderation queue reads (NIP-98 auth + mod-authz gate, L6)
         .route("/moderation/reports", get(api::bridge::moderation_reports))
         .route("/moderation/audit", get(api::bridge::moderation_audit))

@@ -38,6 +38,7 @@ export type CreateAgentInput = {
   respond_to_allowlist: string[];
   secrets: Record<string, string>;
   credential_mode: AgentCredentialMode;
+  start_immediately?: boolean;
 };
 
 export type UpdateAgentInput = Partial<
@@ -166,5 +167,15 @@ export async function getAgentRuntimeLog(id: string): Promise<AgentRuntimeLog> {
   return signedRequest<AgentRuntimeLog>(
     `/api/agents/${encodeURIComponent(id)}/logs`,
     { cache: "no-store" },
+  );
+}
+
+export async function restoreAgentMemory(
+  id: string,
+  entry: { slug: string; body: string },
+): Promise<{ event_id: string }> {
+  return signedRequest<{ event_id: string }>(
+    `/api/agents/${encodeURIComponent(id)}/memory`,
+    { method: "POST", body: JSON.stringify(entry) },
   );
 }

@@ -8,14 +8,16 @@ use axum::{
     http::{header, HeaderMap, StatusCode},
     response::Json,
 };
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use buzz_agent_host::{
     allowed_secret_env_name, decrypt_secret, derive_control_token, encrypt_secret,
     parse_envelope_key, runtime_command, AgentSecretPayload,
 };
 use buzz_core::TenantContext;
-use nostr::{Keys, ToBech32};
+use nostr::{EventBuilder, JsonUtil, Keys, Kind, Tag, ToBech32};
 use serde::Deserialize;
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use super::{api_error, bridge};
@@ -45,6 +47,8 @@ pub struct CreateAgentRequest {
     secrets: BTreeMap<String, String>,
     #[serde(default = "default_credential_mode")]
     credential_mode: String,
+    #[serde(default = "default_start_immediately")]
+    start_immediately: bool,
 }
 
 /// Owner-supplied replacement configuration. Omitted fields retain their value;
@@ -68,6 +72,10 @@ fn default_respond_to() -> String {
 
 fn default_credential_mode() -> String {
     "api-key".into()
+}
+
+const fn default_start_immediately() -> bool {
+    true
 }
 
 pub(crate) async fn authorize_owner(
@@ -147,6 +155,7 @@ pub async fn create_agent(
         respond_to_allowlist,
         secrets,
         credential_mode,
+        start_immediately,
     } = input;
 
     let envelope_key = std::env::var("BUZZ_AGENT_SECRET_KEY")
@@ -201,7 +210,7 @@ pub async fn create_agent(
                 runtime: &runtime,
                 model: model.as_deref().map(str::trim),
                 credential_mode: &credential_mode,
-                desired_state: if credential_mode == "subscription" {
+                desired_state: if credential_mode == "subscription" || !start_immediately {
                     "stopped"
                 } else {
                     "running"
@@ -298,6 +307,7 @@ pub async fn update_agent(
             .unwrap_or_else(|| existing.record.respond_to_allowlist.clone()),
         secrets: secret.env.clone(),
         credential_mode: credential_mode.to_owned(),
+        start_immediately: true,
     };
     validate_create(&validation)?;
     let encrypted = encrypt_secret(
@@ -370,6 +380,154 @@ pub async fn agent_logs(
     let mut response_headers = HeaderMap::new();
     response_headers.insert(header::CACHE_CONTROL, "no-store".parse().unwrap());
     Ok((response_headers, payload))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+/// One plaintext snapshot memory entry to re-encrypt for an owned agent.
+pub struct RestoreAgentMemoryRequest {
+    /// Canonical NIP-AE slug (`core` or `mem/...`).
+    slug: String,
+    /// Plaintext entry value from the explicitly imported snapshot.
+    body: String,
+}
+
+/// Restore one plaintext snapshot entry under an owned, fully stopped agent.
+/// The browser never receives agent key material; the signed NIP-AE event goes
+/// through the same membership, signature, envelope, and retention pipeline as
+/// any external relay submission.
+pub async fn restore_agent_memory(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<Uuid>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    let path = format!("/api/agents/{id}/memory");
+    let (tenant, owner) =
+        authorize_owner(&state, &headers, "POST", &path, Some(&body), true).await?;
+    let input: RestoreAgentMemoryRequest = serde_json::from_slice(&body)
+        .map_err(|_| api_error(StatusCode::BAD_REQUEST, "invalid request body"))?;
+    let memory_body = snapshot_memory_body(&input)?;
+
+    let envelope_key = std::env::var("BUZZ_AGENT_SECRET_KEY")
+        .ok()
+        .and_then(|value| parse_envelope_key(&value).ok())
+        .ok_or_else(|| {
+            api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "agent hosting is not configured",
+            )
+        })?;
+    let owner_pubkey = owner.to_hex();
+    let existing = state
+        .db
+        .get_owned_managed_agent_host_with_secret(tenant.community(), &owner_pubkey, id)
+        .await
+        .map_err(|error| {
+            tracing::error!(%error, "managed-agent memory lookup failed");
+            api_error(StatusCode::INTERNAL_SERVER_ERROR, "internal server error")
+        })?
+        .ok_or_else(|| api_error(StatusCode::NOT_FOUND, "agent not found"))?;
+    if existing.record.desired_state != "stopped" || existing.record.observed_state != "stopped" {
+        return Err(api_error(
+            StatusCode::CONFLICT,
+            "stop the agent before restoring memory",
+        ));
+    }
+    let secret = decrypt_secret(
+        &envelope_key,
+        *tenant.community().as_uuid(),
+        id,
+        &existing.secret_nonce,
+        &existing.secret_ciphertext,
+    )
+    .map_err(|error| {
+        tracing::error!(%error, "managed-agent secret decrypt failed");
+        api_error(StatusCode::INTERNAL_SERVER_ERROR, "memory restore failed")
+    })?;
+    let agent_keys = Keys::parse(&secret.private_key_nsec).map_err(|error| {
+        tracing::error!(%error, "managed-agent identity parse failed");
+        api_error(StatusCode::INTERNAL_SERVER_ERROR, "memory restore failed")
+    })?;
+    let event = buzz_core::engram::build_event(
+        &agent_keys,
+        &owner,
+        &memory_body,
+        nostr::Timestamp::now().as_secs(),
+    )
+    .map_err(|_| api_error(StatusCode::BAD_REQUEST, "invalid memory entry"))?;
+    let event_json = event.as_json();
+    let expected_url = bridge::nip98_expected_url(&state.config.relay_url, &tenant, "/events");
+    let authorization =
+        nip98_header(&agent_keys, &expected_url, event_json.as_bytes()).map_err(|error| {
+            tracing::error!(%error, "managed-agent memory auth failed");
+            api_error(StatusCode::INTERNAL_SERVER_ERROR, "memory restore failed")
+        })?;
+    drop(agent_keys);
+    drop(secret);
+    let mut submit_headers = HeaderMap::new();
+    submit_headers.insert(
+        header::HOST,
+        tenant
+            .host()
+            .parse()
+            .map_err(|_| api_error(StatusCode::INTERNAL_SERVER_ERROR, "memory restore failed"))?,
+    );
+    submit_headers.insert(
+        header::AUTHORIZATION,
+        authorization
+            .parse()
+            .map_err(|_| api_error(StatusCode::INTERNAL_SERVER_ERROR, "memory restore failed"))?,
+    );
+    let Json(receipt) =
+        bridge::submit_event(State(state), submit_headers, Bytes::from(event_json)).await?;
+    if receipt.get("accepted").and_then(Value::as_bool) != Some(true) {
+        return Err(api_error(
+            StatusCode::BAD_GATEWAY,
+            "relay rejected memory entry",
+        ));
+    }
+    Ok(Json(json!({ "event_id": event.id.to_hex() })))
+}
+
+fn snapshot_memory_body(
+    input: &RestoreAgentMemoryRequest,
+) -> Result<buzz_core::engram::Body, (StatusCode, Json<Value>)> {
+    let body = if input.slug == buzz_core::engram::CORE_SLUG {
+        buzz_core::engram::Body::Core {
+            profile: input.body.clone(),
+        }
+    } else {
+        buzz_core::engram::Body::Memory {
+            slug: input.slug.clone(),
+            value: Some(input.body.clone()),
+        }
+    };
+    buzz_core::engram::validate_slug(body.slug())
+        .map_err(|_| api_error(StatusCode::BAD_REQUEST, "invalid memory entry"))?;
+    if body.to_json_bytes().len() > buzz_core::engram::NIP44_PLAINTEXT_MAX {
+        return Err(api_error(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "memory entry is too large",
+        ));
+    }
+    Ok(body)
+}
+
+fn nip98_header(keys: &Keys, url: &str, body: &[u8]) -> anyhow::Result<String> {
+    let payload_hash = hex::encode(Sha256::digest(body));
+    let event = EventBuilder::new(Kind::HttpAuth, "")
+        .tags([
+            Tag::parse(["u", url])?,
+            Tag::parse(["method", "POST"])?,
+            Tag::parse(["payload", &payload_hash])?,
+            Tag::parse(["nonce", &Uuid::new_v4().to_string()])?,
+        ])
+        .sign_with_keys(keys)?;
+    Ok(format!(
+        "Nostr {}",
+        BASE64.encode(event.as_json().as_bytes())
+    ))
 }
 
 /// Start the fixed vendor subscription-login command for one stopped agent.
@@ -715,6 +873,7 @@ mod tests {
             respond_to_allowlist: vec![],
             secrets: BTreeMap::new(),
             credential_mode: "api-key".into(),
+            start_immediately: true,
         }
     }
 
@@ -748,5 +907,44 @@ mod tests {
             .secrets
             .insert("OPENAI_API_KEY".into(), "mixed-mode".into());
         assert!(validate_create(&request).is_err());
+    }
+
+    #[test]
+    fn create_request_defaults_to_starting_immediately() {
+        let request: CreateAgentRequest = serde_json::from_value(json!({
+            "name": "Snapshot agent",
+            "runtime": "codex"
+        }))
+        .unwrap();
+        assert!(request.start_immediately);
+
+        let stopped: CreateAgentRequest = serde_json::from_value(json!({
+            "name": "Snapshot agent",
+            "runtime": "codex",
+            "start_immediately": false
+        }))
+        .unwrap();
+        assert!(!stopped.start_immediately);
+    }
+
+    #[test]
+    fn snapshot_memory_validation_is_strict_and_bounded() {
+        let valid = RestoreAgentMemoryRequest {
+            slug: "mem/review".into(),
+            body: "Check the security boundary.".into(),
+        };
+        assert!(snapshot_memory_body(&valid).is_ok());
+
+        let invalid_slug = RestoreAgentMemoryRequest {
+            slug: "../secret".into(),
+            body: "no".into(),
+        };
+        assert!(snapshot_memory_body(&invalid_slug).is_err());
+
+        let oversized = RestoreAgentMemoryRequest {
+            slug: "core".into(),
+            body: "x".repeat(buzz_core::engram::NIP44_PLAINTEXT_MAX),
+        };
+        assert!(snapshot_memory_body(&oversized).is_err());
     }
 }

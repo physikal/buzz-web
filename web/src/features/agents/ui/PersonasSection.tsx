@@ -45,7 +45,10 @@ export function PersonasSection({
   onDeploy,
 }: {
   ownerPubkey: string;
-  onDeploy: (persona: AgentPersona) => void;
+  onDeploy: (
+    persona: AgentPersona,
+    memory?: Array<{ slug: string; body: string }>,
+  ) => void;
 }) {
   const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -114,10 +117,11 @@ export function PersonasSection({
       );
     },
     onSuccess: (persona) => {
+      const memory = snapshotImport?.snapshot.memory.entries ?? [];
       setSnapshotImport(null);
       void refresh();
       toast.success("Agent snapshot imported");
-      onDeploy(persona);
+      onDeploy(persona, memory);
     },
     onError: (error) =>
       toast.error("Could not import snapshot", { description: error.message }),

@@ -55,6 +55,8 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   let catalogImageRequests = 0;
   let ownerPubkey = "";
   const managedAgents: Array<Record<string, unknown>> = [];
+  const createdAgentInputs: Array<Record<string, unknown>> = [];
+  const restoredMemory: Array<{ slug: string; body: string }> = [];
   const submittedEvents: Array<{
     id: string;
     pubkey: string;
@@ -164,6 +166,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
         string,
         unknown
       >;
+      createdAgentInputs.push(input);
       expect(event.tags).toContainEqual([
         "payload",
         createHash("sha256")
@@ -171,7 +174,12 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
           .digest("hex"),
       ]);
       const agent = {
-        id: "55555555-5555-4555-8555-555555555555",
+        id: [
+          "55555555-5555-4555-8555-555555555555",
+          "66666666-6666-4666-8666-666666666666",
+          "77777777-7777-4777-8777-777777777777",
+          "88888888-8888-4888-8888-888888888888",
+        ][managedAgents.length],
         owner_pubkey: ownerPubkey,
         agent_pubkey: agentPubkey,
         name: input.name,
@@ -181,8 +189,10 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
         credential_mode: input.credential_mode,
         respond_to: input.respond_to,
         respond_to_allowlist: input.respond_to_allowlist,
-        desired_state: "running",
-        observed_state: "pending",
+        desired_state:
+          input.start_immediately === false ? "stopped" : "running",
+        observed_state:
+          input.start_immediately === false ? "stopped" : "pending",
         last_error: null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -199,6 +209,51 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({ agents: managedAgents }),
+    });
+  });
+  await page.route("**/api/agents/*/memory", async (route) => {
+    const request = route.request();
+    const body = request.postData() ?? "";
+    const authorization = request.headers().authorization ?? "";
+    const event = JSON.parse(
+      Buffer.from(authorization.slice("Nostr ".length), "base64").toString(
+        "utf8",
+      ),
+    );
+    expect(verifyEvent(event)).toBe(true);
+    expect(event.pubkey).toBe(ownerPubkey);
+    expect(event.tags).toContainEqual([
+      "payload",
+      createHash("sha256").update(body).digest("hex"),
+    ]);
+    restoredMemory.push(JSON.parse(body) as { slug: string; body: string });
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ event_id: "ab".repeat(32) }),
+    });
+  });
+  await page.route("**/api/agents/*/start", async (route) => {
+    const request = route.request();
+    const authorization = request.headers().authorization ?? "";
+    const event = JSON.parse(
+      Buffer.from(authorization.slice("Nostr ".length), "base64").toString(
+        "utf8",
+      ),
+    );
+    expect(verifyEvent(event)).toBe(true);
+    expect(event.pubkey).toBe(ownerPubkey);
+    const id = new URL(request.url()).pathname.split("/").at(-2);
+    const agent = managedAgents.find((candidate) => candidate.id === id);
+    expect(agent).toBeTruthy();
+    if (agent) {
+      agent.desired_state = "running";
+      agent.observed_state = "pending";
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ agent }),
     });
   });
   await page.route("**/api/agents/*/logs", async (route) => {
@@ -1129,15 +1184,19 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
       definition: {
         name: "Snapshot auditor",
         systemPrompt: "Inspect imported changes.",
-        runtime: "codex",
-        model: "gpt-5.4",
+        runtime: "buzz-agent",
+        model: "claude-sonnet-4-6",
+        provider: "anthropic",
         respondTo: "allowlist",
         respondToAllowlist: ["aa".repeat(32)],
         envVars: { OPENAI_API_KEY: "snapshot-secret" },
         privateKeyNsec: "nsec1snapshot-secret",
       },
       profile: { displayName: "Snapshot auditor" },
-      memory: { level: "none" },
+      memory: {
+        level: "core",
+        entries: [{ slug: "core", body: "Remember imported reviews." }],
+      },
     }),
   );
   await page.locator('input[type="file"]').setInputFiles({
@@ -1167,10 +1226,15 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await expect(
     page.getByRole("heading", { name: "Deploy persona" }),
   ).toBeVisible();
-  await page
-    .getByRole("dialog", { name: "Create agent" })
-    .getByRole("button", { name: "Close" })
-    .click();
+  await expect(
+    page.getByLabel("Anthropic API key", { exact: true }),
+  ).toHaveValue("encrypted-default-key");
+  await page.getByRole("button", { name: "Create agent" }).click();
+  await expect.poll(() => managedAgents.length).toBe(1);
+  await expect
+    .poll(() => restoredMemory)
+    .toEqual([{ slug: "core", body: "Remember imported reviews." }]);
+  expect(createdAgentInputs[0]?.start_immediately).toBe(false);
   await page.getByRole("button", { name: "Agent catalog" }).click();
   await expect(
     page.getByRole("heading", { name: "Agent catalog" }),
@@ -1223,7 +1287,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     .getByLabel("Anthropic API key", { exact: true })
     .fill("test-persona-api-key");
   await page.getByRole("button", { name: "Create agent" }).click();
-  await expect.poll(() => managedAgents.length).toBe(1);
+  await expect.poll(() => managedAgents.length).toBe(2);
   await page.getByRole("button", { name: "Create team" }).click();
   await page.getByRole("textbox", { name: "Team name" }).fill("Review crew");
   await page.getByRole("checkbox", { name: /Review lead/ }).check();
@@ -1250,7 +1314,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     .getByLabel("Anthropic API key", { exact: true })
     .fill("team-api-key");
   await page.getByRole("button", { name: "Deploy team", exact: true }).click();
-  await expect.poll(() => managedAgents.length).toBe(2);
+  await expect.poll(() => managedAgents.length).toBe(3);
   const reviewAgentCard = page
     .locator("article")
     .filter({
@@ -1370,7 +1434,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     .getByLabel("Anthropic API key", { exact: true })
     .fill("template-api-key");
   await page.getByRole("button", { name: "Add agents" }).click();
-  await expect.poll(() => managedAgents.length).toBe(3);
+  await expect.poll(() => managedAgents.length).toBe(4);
   await expect
     .poll(() => {
       const canvas = submittedEvents.find(

@@ -23,6 +23,7 @@ import {
   createAgent,
   deleteAgent,
   listAgents,
+  restoreAgentMemory,
   setAgentRunning,
   type CreateAgentInput,
   type ManagedAgent,
@@ -171,6 +172,9 @@ function AgentsWorkspace({
   const [personaToDeploy, setPersonaToDeploy] = useState<AgentPersona | null>(
     null,
   );
+  const [snapshotMemory, setSnapshotMemory] = useState<
+    Array<{ slug: string; body: string }>
+  >([]);
   const agentsQuery = useQuery({
     queryKey: ["managed-agents", ownerPubkey],
     queryFn: () => (preview ? Promise.resolve(PREVIEW_AGENTS) : listAgents()),
@@ -184,22 +188,67 @@ function AgentsWorkspace({
     gcTime: 0,
   });
   const createMutation = useMutation({
-    mutationFn: createAgent,
-    onSuccess: (agent) => {
+    mutationFn: async ({
+      input,
+      memory,
+    }: {
+      input: CreateAgentInput;
+      memory: Array<{ slug: string; body: string }>;
+    }) => {
+      let agent = await createAgent({
+        ...input,
+        start_immediately: memory.length ? false : input.start_immediately,
+      });
+      const memoryErrors: string[] = [];
+      for (const entry of memory) {
+        try {
+          await restoreAgentMemory(agent.id, entry);
+        } catch (error) {
+          memoryErrors.push(
+            `${entry.slug}: ${error instanceof Error ? error.message : "restore failed"}`,
+          );
+        }
+      }
+      if (memory.length && input.credential_mode === "api-key") {
+        try {
+          agent = await setAgentRunning(agent.id, true);
+        } catch (error) {
+          memoryErrors.push(
+            `start: ${error instanceof Error ? error.message : "start failed"}`,
+          );
+        }
+      }
+      return {
+        agent,
+        memoryErrors,
+        memoryTotal: memory.length,
+        memoryWritten:
+          memory.length -
+          memoryErrors.filter((error) => !error.startsWith("start:")).length,
+      };
+    },
+    onSuccess: ({ agent, memoryErrors, memoryTotal, memoryWritten }) => {
       queryClient.setQueryData<ManagedAgent[]>(
         ["managed-agents", ownerPubkey],
         (current = []) => [...current, agent],
       );
       onCreateOpenChange(false);
       setPersonaToDeploy(null);
+      setSnapshotMemory([]);
       if (agent.credential_mode === "subscription") {
         setAgentToAuthenticate(agent);
         toast.success(`${agent.name} created`, {
-          description: "Connect its subscription to start the agent.",
+          description: memoryTotal
+            ? `${memoryWritten} of ${memoryTotal} memories restored. Connect its subscription to start the agent.`
+            : "Connect its subscription to start the agent.",
         });
       } else {
         toast.success(`${agent.name} is starting`);
       }
+      if (memoryErrors.length)
+        toast.error("Agent imported with restore errors", {
+          description: memoryErrors.join("\n"),
+        });
     },
     onError: (error) =>
       toast.error("Could not create agent", { description: error.message }),
@@ -357,6 +406,7 @@ function AgentsWorkspace({
                   disabled={defaultsQuery.isLoading}
                   onClick={() => {
                     setPersonaToDeploy(null);
+                    setSnapshotMemory([]);
                     onCreateOpenChange(true);
                   }}
                   type="button"
@@ -368,8 +418,9 @@ function AgentsWorkspace({
           ) : null}
           <PersonasSection
             ownerPubkey={ownerPubkey}
-            onDeploy={(persona) => {
+            onDeploy={(persona, memory = []) => {
               setPersonaToDeploy(persona);
+              setSnapshotMemory(memory);
               onCreateOpenChange(true);
             }}
           />
@@ -393,14 +444,16 @@ function AgentsWorkspace({
         onClose={() => {
           onCreateOpenChange(false);
           setPersonaToDeploy(null);
+          setSnapshotMemory([]);
         }}
         onSubmit={async (input: CreateAgentInput) => {
           if (preview) {
             onCreateOpenChange(false);
             setPersonaToDeploy(null);
+            setSnapshotMemory([]);
             return;
           }
-          await createMutation.mutateAsync(input);
+          await createMutation.mutateAsync({ input, memory: snapshotMemory });
         }}
       />
       <AddAgentToChannelDialog
