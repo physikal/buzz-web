@@ -1,7 +1,15 @@
 import { queryEvents, type NostrEvent } from "@/shared/lib/nostr-client";
 import { submitEvent } from "@/shared/lib/relay-events";
 import { relayWsUrl } from "@/shared/lib/relay-url";
-import type { AgentProvider, AgentRuntime, RespondToMode } from "./agent-api";
+import {
+  deleteAgent,
+  listAgents,
+  type AgentProvider,
+  type AgentRuntime,
+  type ManagedAgent,
+  type RespondToMode,
+  setAgentRunning,
+} from "./agent-api";
 
 export const PERSONA_KIND = 30175;
 
@@ -263,4 +271,63 @@ export async function deletePersona(
     ],
     content: "",
   });
+}
+
+const PERSONA_DELETE_TIMEOUT_MS = 30_000;
+const PERSONA_DELETE_POLL_MS = 500;
+
+export async function deletePersonaCascade(
+  ownerPubkey: string,
+  persona: AgentPersona,
+  linkedAgents: ManagedAgent[],
+) {
+  for (const agent of linkedAgents) {
+    if (
+      agent.desired_state !== "stopped" ||
+      !["stopped", "error"].includes(agent.observed_state)
+    ) {
+      await setAgentRunning(agent.id, false);
+    }
+  }
+
+  const remaining = new Set(linkedAgents.map((agent) => agent.id));
+  const deadline = Date.now() + PERSONA_DELETE_TIMEOUT_MS;
+  let lastDeleteError: Error | null = null;
+
+  while (remaining.size > 0) {
+    const current = new Map(
+      (await listAgents()).map((agent) => [agent.id, agent] as const),
+    );
+    for (const id of [...remaining]) {
+      const agent = current.get(id);
+      if (!agent) {
+        remaining.delete(id);
+        continue;
+      }
+      if (
+        agent.desired_state !== "stopped" ||
+        !["stopped", "error"].includes(agent.observed_state)
+      ) {
+        continue;
+      }
+      try {
+        await deleteAgent(id);
+        remaining.delete(id);
+        lastDeleteError = null;
+      } catch (error) {
+        lastDeleteError =
+          error instanceof Error ? error : new Error("Agent deletion failed.");
+      }
+    }
+    if (remaining.size === 0) break;
+    if (Date.now() >= deadline) {
+      throw new Error(
+        lastDeleteError?.message ??
+          "The linked agents did not stop in time. Try deleting the persona again.",
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, PERSONA_DELETE_POLL_MS));
+  }
+
+  await deletePersona(ownerPubkey, persona);
 }

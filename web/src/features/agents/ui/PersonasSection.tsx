@@ -17,6 +17,7 @@ import { toast } from "sonner";
 
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
+import { DestructiveConfirmDialog } from "@/shared/ui/destructive-confirm-dialog";
 import {
   decodeAgentSnapshot,
   type DecodedAgentSnapshot,
@@ -24,12 +25,14 @@ import {
   snapshotPersonaInput,
 } from "../agent-snapshot";
 import {
-  deletePersona,
+  deletePersonaCascade,
   type AgentPersona,
   listPersonas,
   type PersonaInput,
   savePersona,
 } from "../persona-api";
+import type { ManagedAgent } from "../agent-api";
+import { listTeams } from "../team-api";
 import { runtimeDisplayName } from "../runtime-catalog";
 import { PersonaDialog } from "./PersonaDialog";
 import {
@@ -42,9 +45,11 @@ import { AgentSnapshotExportDialog } from "./AgentSnapshotExportDialog";
 import { AgentSnapshotImportDialog } from "./AgentSnapshotImportDialog";
 
 export function PersonasSection({
+  agents,
   ownerPubkey,
   onDeploy,
 }: {
+  agents: ManagedAgent[];
   ownerPubkey: string;
   onDeploy: (
     persona: AgentPersona,
@@ -55,6 +60,9 @@ export function PersonasSection({
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<AgentPersona | null>(null);
   const [catalogOpen, setCatalogOpen] = useState(false);
+  const [personaToDelete, setPersonaToDelete] = useState<AgentPersona | null>(
+    null,
+  );
   const [exporting, setExporting] = useState<AgentPersona | null>(null);
   const [snapshotImport, setSnapshotImport] =
     useState<DecodedAgentSnapshot | null>(null);
@@ -68,6 +76,11 @@ export function PersonasSection({
     queryKey: ["persona-catalog", ownerPubkey],
     queryFn: () => listPersonaCatalog(ownerPubkey),
     enabled: catalogOpen,
+    staleTime: 30_000,
+  });
+  const teams = useQuery({
+    queryKey: ["agent-teams", ownerPubkey],
+    queryFn: () => listTeams(ownerPubkey),
     staleTime: 30_000,
   });
   const refresh = () =>
@@ -92,13 +105,38 @@ export function PersonasSection({
       toast.error("Could not save persona", { description: error.message }),
   });
   const remove = useMutation({
-    mutationFn: (persona: AgentPersona) => deletePersona(ownerPubkey, persona),
+    mutationFn: async (persona: AgentPersona) => {
+      const referencingTeam = teams.data?.find((team) =>
+        team.personaIds.includes(persona.id),
+      );
+      if (referencingTeam) {
+        throw new Error(
+          `${persona.displayName} is used by the team ${referencingTeam.name}. Remove it from that team first.`,
+        );
+      }
+      if (teams.error) {
+        throw new Error("Could not verify whether a team uses this persona.");
+      }
+      await deletePersonaCascade(
+        ownerPubkey,
+        persona,
+        agents.filter((agent) => agent.persona_id === persona.id),
+      );
+    },
     onSuccess: () => {
+      setPersonaToDelete(null);
       void refresh();
+      void queryClient.invalidateQueries({
+        queryKey: ["managed-agents", ownerPubkey],
+      });
       toast.success("Persona deleted");
     },
-    onError: (error) =>
-      toast.error("Could not delete persona", { description: error.message }),
+    onError: (error) => {
+      void queryClient.invalidateQueries({
+        queryKey: ["managed-agents", ownerPubkey],
+      });
+      toast.error("Could not delete persona", { description: error.message });
+    },
   });
   const importPersona = useMutation({
     mutationFn: (persona: CatalogPersona) =>
@@ -274,11 +312,8 @@ export function PersonasSection({
                 </Button>
                 <Button
                   aria-label={`Delete ${persona.displayName}`}
-                  disabled={remove.isPending}
-                  onClick={() => {
-                    if (window.confirm(`Delete ${persona.displayName}?`))
-                      remove.mutate(persona);
-                  }}
+                  disabled={remove.isPending || teams.isLoading}
+                  onClick={() => setPersonaToDelete(persona)}
                   size="icon"
                   title="Delete persona"
                   variant="ghost"
@@ -345,8 +380,37 @@ export function PersonasSection({
           onImport={(keepAllowlist) => importSnapshot.mutate(keepAllowlist)}
         />
       ) : null}
+      <DestructiveConfirmDialog
+        confirmLabel="Delete"
+        description={personaDeleteDescription(
+          personaToDelete,
+          agents.filter((agent) => agent.persona_id === personaToDelete?.id)
+            .length,
+        )}
+        onClose={() => setPersonaToDelete(null)}
+        onConfirm={() => {
+          if (personaToDelete) remove.mutate(personaToDelete);
+        }}
+        open={personaToDelete !== null}
+        pending={remove.isPending}
+        pendingLabel="Deleting..."
+        title="Delete agent?"
+      />
     </section>
   );
+}
+
+function personaDeleteDescription(
+  persona: AgentPersona | null,
+  instanceCount: number,
+) {
+  if (!persona) return "Delete this agent.";
+  if (instanceCount === 0) return `Delete ${persona.displayName}.`;
+  const cascade =
+    instanceCount === 1
+      ? "Also deletes 1 hosted agent instance and removes its relay membership, so it no longer appears in member lists or mention suggestions."
+      : `Also deletes ${instanceCount} hosted agent instances and removes their relay memberships, so they no longer appear in member lists or mention suggestions.`;
+  return `Delete ${persona.displayName}. ${cascade}`;
 }
 
 function runtimeLabel(runtime: AgentPersona["runtime"]) {

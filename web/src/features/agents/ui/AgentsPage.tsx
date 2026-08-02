@@ -447,6 +447,7 @@ function AgentsWorkspace({
             </section>
           ) : null}
           <PersonasSection
+            agents={agents}
             ownerPubkey={ownerPubkey}
             onDeploy={(persona, memory = []) => {
               setPersonaToDeploy(persona);

@@ -501,6 +501,36 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
       body: JSON.stringify({ agents: managedAgents }),
     });
   });
+  await page.route(/\/api\/agents\/[0-9a-f-]+$/u, async (route) => {
+    const request = route.request();
+    const authorization = request.headers().authorization ?? "";
+    const event = JSON.parse(
+      Buffer.from(authorization.slice("Nostr ".length), "base64").toString(
+        "utf8",
+      ),
+    );
+    expect(verifyEvent(event)).toBe(true);
+    expect(event.pubkey).toBe(ownerPubkey);
+    expect(request.method()).toBe("DELETE");
+    const id = new URL(request.url()).pathname.split("/").at(-1);
+    const index = managedAgents.findIndex((agent) => agent.id === id);
+    const agent = managedAgents[index];
+    if (
+      agent?.desired_state !== "stopped" ||
+      !["stopped", "error"].includes(agent?.observed_state ?? "")
+    ) {
+      await route.fulfill({
+        status: 409,
+        contentType: "application/json",
+        body: JSON.stringify({
+          error: "agent must be fully stopped before deletion",
+        }),
+      });
+      return;
+    }
+    managedAgents.splice(index, 1);
+    await route.fulfill({ status: 204 });
+  });
   await page.route("**/api/agents/*/memory", async (route) => {
     const request = route.request();
     const body = request.postData() ?? "";
@@ -2739,6 +2769,42 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     agent_args: [],
     secrets: { GEMINI_API_KEY: "gemini-test-key" },
   });
+  const personasSection = page
+    .getByRole("heading", { name: "Personas" })
+    .locator("xpath=ancestor::section[1]");
+  const snapshotPersona = personasSection.locator("article").filter({
+    hasText: "Snapshot auditor",
+  });
+  await snapshotPersona
+    .getByRole("button", { name: "Delete Snapshot auditor" })
+    .click();
+  const deletePersonaDialog = page.getByRole("dialog", {
+    name: "Delete agent?",
+  });
+  await expect(deletePersonaDialog).toContainText(
+    "Also deletes 1 hosted agent instance and removes its relay membership",
+  );
+  await deletePersonaDialog.getByRole("button", { name: "Delete" }).click();
+  await expect.poll(() => managedAgents.length).toBe(5);
+  await expect
+    .poll(() => {
+      const personaId = submittedEvents
+        .find(
+          (event) =>
+            event.kind === 30175 &&
+            event.content.includes('"display_name":"Snapshot auditor"'),
+        )
+        ?.tags.find((tag) => tag[0] === "d")?.[1];
+      return submittedEvents.some(
+        (event) =>
+          event.kind === 5 &&
+          event.tags.some(
+            (tag) =>
+              tag[0] === "a" && tag[1] === `30175:${ownerPubkey}:${personaId}`,
+          ),
+      );
+    })
+    .toBe(true);
   await page.getByRole("link", { name: "Channels" }).click();
   await expect(page.getByRole("heading", { name: "general" })).toBeVisible();
 
