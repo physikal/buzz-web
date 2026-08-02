@@ -9,6 +9,7 @@ export type Project = {
   name: string;
   description: string;
   owner: string;
+  defaultBranch: string;
   cloneUrls: string[];
   webUrl: string | null;
   createdAt: number;
@@ -51,8 +52,17 @@ export type ProjectPullRequestUpdate = {
   cloneUrls: string[];
 };
 
+export type ProjectPullRequestCommentAnchor = {
+  path: string;
+  side: "old" | "new";
+  line: number;
+};
+
 export type ProjectPullRequestComment = ProjectIssueComment & {
   commit: string | null;
+  anchor: ProjectPullRequestCommentAnchor | null;
+  isInlineComment: boolean;
+  inlineCommentStatus: "current" | "outdated" | null;
   isReviewRequest: boolean;
   isTrustedReviewRequest: boolean;
   reviewerPubkeys: string[];
@@ -91,6 +101,29 @@ export type ProjectPullRequestLifecycleStatus = Exclude<
 export const PR_REVIEW_REQUEST_LABEL = "review-request";
 export const PR_APPROVAL_LABEL = "approval";
 export const PR_CHANGES_REQUESTED_LABEL = "changes-requested";
+export const PR_INLINE_COMMENT_LABEL = "inline-comment";
+
+export function normalizeProjectPullRequestCommentAnchor(
+  anchor: Partial<ProjectPullRequestCommentAnchor> | null | undefined,
+): ProjectPullRequestCommentAnchor | null {
+  if (!anchor || typeof anchor.path !== "string") return null;
+  const path = anchor.path;
+  if (
+    path.length === 0 ||
+    path.length > 4_096 ||
+    path.startsWith("/") ||
+    path.includes("\\") ||
+    path.includes("\0") ||
+    path
+      .split("/")
+      .some((segment) => !segment || segment === "." || segment === "..")
+  ) {
+    return null;
+  }
+  if (anchor.side !== "old" && anchor.side !== "new") return null;
+  if (!Number.isSafeInteger(anchor.line) || (anchor.line ?? 0) < 1) return null;
+  return { path, side: anchor.side, line: anchor.line as number };
+}
 
 function tag(event: NostrEvent, name: string) {
   return event.tags.find((item) => item[0] === name)?.[1];
@@ -116,6 +149,7 @@ function eventProject(event: NostrEvent): Project {
     name: tag(event, "name") ?? dtag,
     description: tag(event, "description") ?? event.content,
     owner: event.pubkey,
+    defaultBranch: tag(event, "default-branch") ?? "main",
     cloneUrls,
     webUrl: tag(event, "web") ?? null,
     createdAt: event.created_at,
@@ -391,32 +425,47 @@ export async function listProjectPullRequests(
             ),
         )
         .sort((a, b) => a.created_at - b.created_at)
-        .map((comment) => ({
-          id: comment.id,
-          content: comment.content,
-          author: comment.pubkey,
-          createdAt: comment.created_at,
-          commit: tag(comment, "c") ?? null,
-          isReviewRequest: tags(comment, "t").some(
-            (label) => label.toLowerCase() === PR_REVIEW_REQUEST_LABEL,
-          ),
-          isTrustedReviewRequest: false,
-          reviewerPubkeys: tags(comment, "p").map((pubkey) =>
-            pubkey.toLowerCase(),
-          ),
-          reviewDecision: (() => {
-            const labels = tags(comment, "t").map((label) =>
-              label.toLowerCase(),
-            );
-            const approval = labels.includes(PR_APPROVAL_LABEL);
-            const changes = labels.includes(PR_CHANGES_REQUESTED_LABEL);
-            if (approval === changes) return null;
-            return approval
-              ? ("approved" as const)
-              : ("changes-requested" as const);
-          })(),
-          reviewDecisionStatus: null,
-        }));
+        .map((comment) => {
+          const labels = tags(comment, "t").map((label) => label.toLowerCase());
+          const isReviewRequest = labels.includes(PR_REVIEW_REQUEST_LABEL);
+          const isApproval = labels.includes(PR_APPROVAL_LABEL);
+          const isChangeRequest = labels.includes(PR_CHANGES_REQUESTED_LABEL);
+          const line = tag(comment, "line");
+          const anchor =
+            isReviewRequest || isApproval
+              ? null
+              : normalizeProjectPullRequestCommentAnchor({
+                  path: tag(comment, "file"),
+                  side: tag(comment, "side") as "old" | "new" | undefined,
+                  line:
+                    line && /^[1-9]\d*$/u.test(line)
+                      ? Number(line)
+                      : Number.NaN,
+                });
+          return {
+            id: comment.id,
+            content: comment.content,
+            author: comment.pubkey,
+            createdAt: comment.created_at,
+            commit: tag(comment, "c") ?? null,
+            anchor,
+            isInlineComment:
+              Boolean(anchor) || labels.includes(PR_INLINE_COMMENT_LABEL),
+            inlineCommentStatus: null,
+            isReviewRequest,
+            isTrustedReviewRequest: false,
+            reviewerPubkeys: tags(comment, "p").map((pubkey) =>
+              pubkey.toLowerCase(),
+            ),
+            reviewDecision:
+              isApproval === isChangeRequest
+                ? null
+                : isApproval
+                  ? ("approved" as const)
+                  : ("changes-requested" as const),
+            reviewDecisionStatus: null,
+          };
+        });
       const source = latestUpdate ?? event;
       const initialCommit = tag(event, "c") ?? null;
       const currentCommit = tag(source, "c") ?? null;
@@ -450,6 +499,11 @@ export async function listProjectPullRequests(
           isTrustedReviewRequest:
             comment.isReviewRequest &&
             allowedActors.has(comment.author.toLowerCase()),
+          inlineCommentStatus: comment.anchor
+            ? currentCommit && decisionCommit === currentCommit
+              ? ("current" as const)
+              : ("outdated" as const)
+            : null,
           reviewDecisionStatus: trustedDecision
             ? currentCommit && decisionCommit === currentCommit
               ? ("current" as const)
@@ -565,6 +619,62 @@ export async function createProjectPullRequestComment(
           ...pullRequest.recipients,
         ]),
       ].map((pubkey) => ["p", pubkey]),
+    ],
+  });
+}
+
+export async function createProjectPullRequestInlineComment(
+  project: Project,
+  pullRequest: ProjectPullRequest,
+  viewerPubkey: string,
+  content: string,
+  anchor: ProjectPullRequestCommentAnchor,
+  decision?: "request-changes",
+): Promise<void> {
+  const body = content.trim();
+  if (!body) throw new Error("Comment cannot be empty.");
+  const location = normalizeProjectPullRequestCommentAnchor(anchor);
+  if (!location) throw new Error("Comment location is invalid.");
+  if (!pullRequest.commit) {
+    throw new Error("Pull request commit is required for review comments.");
+  }
+  if (
+    decision &&
+    !canReviewProjectPullRequest(project, pullRequest, viewerPubkey)
+  ) {
+    throw new Error("You are not a requested reviewer for this pull request.");
+  }
+  const latestDecisionCreatedAt = [
+    ...pullRequest.approvals,
+    ...pullRequest.changeRequests,
+  ].reduce((latest, item) => Math.max(latest, item.createdAt), 0);
+  await submitEvent({
+    kind: 1,
+    content: body,
+    ...(decision
+      ? {
+          created_at: Math.max(
+            Math.floor(Date.now() / 1000),
+            latestDecisionCreatedAt + 1,
+          ),
+        }
+      : {}),
+    tags: [
+      ["e", pullRequest.id, "", "root"],
+      ["a", project.repoAddress],
+      ...[
+        ...new Set([
+          project.owner.toLowerCase(),
+          pullRequest.author.toLowerCase(),
+          ...pullRequest.recipients,
+        ]),
+      ].map((pubkey) => ["p", pubkey]),
+      ["t", PR_INLINE_COMMENT_LABEL],
+      ["c", pullRequest.commit],
+      ["file", location.path],
+      ["side", location.side],
+      ["line", String(location.line)],
+      ...(decision ? [["t", PR_CHANGES_REQUESTED_LABEL]] : []),
     ],
   });
 }

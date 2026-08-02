@@ -61,6 +61,47 @@ async function authHeaders(
   };
 }
 
+export async function gitAuthHeadersForUrl(
+  url: string,
+): Promise<Record<string, string>> {
+  try {
+    validateRelayGitUrl(url);
+  } catch {
+    return {};
+  }
+  return {
+    Authorization: await makeNip98AuthHeader(url, "GET"),
+  };
+}
+
+export function validateRelayGitUrl(value: string): string {
+  const remote = new URL(value);
+  const relay = new URL(relayHttpBaseUrl());
+  const relayPath = relay.pathname.replace(/\/$/u, "");
+  if (
+    !/^https?:$/u.test(remote.protocol) ||
+    remote.username ||
+    remote.password ||
+    remote.search ||
+    remote.hash ||
+    remote.origin !== relay.origin ||
+    (relayPath && !remote.pathname.startsWith(`${relayPath}/`))
+  ) {
+    throw new Error("Clone URL must use the active workspace relay.");
+  }
+  const segments = remote.pathname.split("/").filter(Boolean);
+  const gitIndex = segments.lastIndexOf("git");
+  if (
+    gitIndex < 0 ||
+    segments.length !== gitIndex + 3 ||
+    !/^[0-9a-f]{64}$/iu.test(segments[gitIndex + 1] ?? "") ||
+    !segments[gitIndex + 2]
+  ) {
+    throw new Error("Clone URL must point at a Buzz Git repository.");
+  }
+  return remote.toString();
+}
+
 /**
  * Ensure a shallow clone exists in IndexedDB. If it already exists, fetch
  * the latest for the given ref.
@@ -70,10 +111,38 @@ export async function ensureClone(
   repoName: string,
   ref: string,
 ): Promise<{ fs: LightningFS; dir: string }> {
+  try {
+    return await ensureCloneFromUrl(
+      owner,
+      repoName,
+      repoGitUrl(owner, repoName),
+      ref,
+    );
+  } catch (error) {
+    const fs = getFs(owner, repoName);
+    const dir = getDir(owner, repoName);
+    try {
+      await fs.promises.stat(`${dir}/.git`);
+      return { fs, dir };
+    } catch {
+      throw error;
+    }
+  }
+}
+
+export async function ensureCloneFromUrl(
+  owner: string,
+  repoName: string,
+  url: string,
+  ref: string,
+  depth = 1,
+): Promise<{ fs: LightningFS; dir: string; oid: string }> {
   const fs = getFs(owner, repoName);
   const dir = getDir(owner, repoName);
-  const url = repoGitUrl(owner, repoName);
-  const headers = await authHeaders(owner, repoName);
+  const headers =
+    url === repoGitUrl(owner, repoName)
+      ? await authHeaders(owner, repoName)
+      : await gitAuthHeadersForUrl(url);
 
   let exists = false;
   try {
@@ -84,20 +153,18 @@ export async function ensureClone(
   }
 
   if (exists) {
-    try {
-      await fetch({
-        fs,
-        http,
-        dir,
-        url,
-        ref,
-        depth: 1,
-        singleBranch: true,
-        headers,
-      });
-    } catch {
-      // fetch may fail if ref hasn't changed — that's fine
-    }
+    const result = await fetch({
+      fs,
+      http,
+      dir,
+      url,
+      ref,
+      depth,
+      singleBranch: true,
+      headers,
+    });
+    if (!result.fetchHead) throw new Error(`Git ref ${ref} has no commit.`);
+    return { fs, dir, oid: result.fetchHead };
   } else {
     await clone({
       fs,
@@ -105,14 +172,35 @@ export async function ensureClone(
       dir,
       url,
       ref,
-      depth: 1,
+      depth,
       singleBranch: true,
       noTags: true,
       headers,
     });
   }
 
-  return { fs, dir };
+  return { fs, dir, oid: await resolveRef({ fs, dir, ref }) };
+}
+
+export async function fetchCloneRef(
+  fs: LightningFS,
+  dir: string,
+  url: string,
+  ref: string,
+  depth = 100,
+): Promise<string> {
+  const result = await fetch({
+    fs,
+    http,
+    dir,
+    url,
+    ref,
+    depth,
+    singleBranch: true,
+    headers: await gitAuthHeadersForUrl(url),
+  });
+  if (!result.fetchHead) throw new Error(`Git ref ${ref} has no commit.`);
+  return result.fetchHead;
 }
 
 export interface TreeEntry {

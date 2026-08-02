@@ -75,6 +75,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     catalogSecret,
   );
   let catalogImageRequests = 0;
+  let externalGitRequests = 0;
   let ownerPubkey = "";
   const managedAgents: Array<Record<string, unknown>> = [];
   const createdAgentInputs: Array<Record<string, unknown>> = [];
@@ -102,6 +103,13 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     catalogImageRequests += 1;
     await route.abort();
   });
+  await page.route(
+    "https://example.com/relay-project.git/**",
+    async (route) => {
+      externalGitRequests += 1;
+      await route.abort();
+    },
+  );
   await page.route("**/info", async (route) => {
     await route.fulfill({
       status: 200,
@@ -1084,6 +1092,45 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
                 ),
               ]),
             );
+            for (const inlineComment of [
+              finalizeEvent(
+                {
+                  kind: 1,
+                  created_at: projectPullRequestCreatedAt + 21,
+                  content: "Use the shared browser helper here.",
+                  tags: [
+                    ["e", pullRequest.id, "", "root"],
+                    ["a", `30617:${catalogPubkey}:relay-project`],
+                    ["t", "inline-comment"],
+                    ["c", "ab".repeat(20)],
+                    ["file", "src/browser.ts"],
+                    ["side", "new"],
+                    ["line", "12"],
+                  ],
+                },
+                signer,
+              ),
+              finalizeEvent(
+                {
+                  kind: 1,
+                  created_at: projectPullRequestCreatedAt + 22,
+                  content: "Malicious inline location",
+                  tags: [
+                    ["e", pullRequest.id, "", "root"],
+                    ["a", `30617:${catalogPubkey}:relay-project`],
+                    ["t", "inline-comment"],
+                    ["c", "ab".repeat(20)],
+                    ["file", "../secrets.txt"],
+                    ["side", "new"],
+                    ["line", "1"],
+                  ],
+                },
+                agentSecret,
+              ),
+            ])
+              socket.send(
+                JSON.stringify(["EVENT", subscriptionId, inlineComment]),
+              );
             for (const unauthorizedEvent of [
               finalizeEvent(
                 {
@@ -2369,6 +2416,18 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     page.getByText("Review requested - no approvals yet."),
   ).toBeVisible();
   await expect(page.getByText("Forged approval claim")).toBeVisible();
+  await expect(
+    page.getByText("Use the shared browser helper here."),
+  ).toBeVisible();
+  await expect(page.getByText("Commented on src/browser.ts +12")).toBeVisible();
+  await expect(page.getByText("Malicious inline location")).toBeVisible();
+  await expect(page.getByText("Commented on ../secrets.txt")).toHaveCount(0);
+  await page.getByText("Commented on src/browser.ts +12").click();
+  await expect(
+    page.getByText("Clone URL must use the active workspace relay."),
+  ).toBeVisible();
+  expect(externalGitRequests).toBe(0);
+  await page.getByRole("button", { name: "Conversation" }).click();
   await expect(page.getByText("1 approval.")).toHaveCount(0);
   await page.getByRole("button", { name: "Approve", exact: true }).click();
   const approvePullRequestDialog = page.getByRole("dialog", {
@@ -2462,7 +2521,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     page
       .getByRole("button", { name: "Browser parity pull request" })
       .locator("xpath=ancestor::article[1]"),
-  ).toContainText("4");
+  ).toContainText("6");
   await page.getByRole("button", { name: "Open pull request" }).click();
   const createPullRequestDialog = page.getByRole("dialog", {
     name: "Open a pull request",

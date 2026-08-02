@@ -18,14 +18,17 @@ import {
   listProjectPullRequests,
   type Project,
   type ProjectPullRequest,
+  type ProjectPullRequestCommentAnchor,
   type ProjectPullRequestLifecycleStatus,
   setProjectPullRequestStatus,
   updateProjectPullRequest,
 } from "../project-api";
+import { loadProjectPullRequestDiff } from "../project-diff";
 import {
   CreatePullRequestDialog,
   type CreatePullRequestInput,
 } from "./CreatePullRequestDialog";
+import { ProjectPullRequestFilesChangedPanel } from "./ProjectPullRequestFilesChangedPanel";
 import { PullRequestReviewControls } from "./PullRequestReviewControls";
 
 export function ProjectPullRequestsPanel({
@@ -168,9 +171,22 @@ function PullRequestDetail({
   onUpdated: () => Promise<unknown>;
 }) {
   const [comment, setComment] = useState("");
-  const [mode, setMode] = useState<"conversation" | "commits" | "checks">(
-    "conversation",
-  );
+  const [mode, setMode] = useState<
+    "conversation" | "commits" | "checks" | "files"
+  >("conversation");
+  const [focusedAnchor, setFocusedAnchor] =
+    useState<ProjectPullRequestCommentAnchor | null>(null);
+  const diffQuery = useQuery({
+    queryKey: [
+      "project-pull-request-diff",
+      project.repoAddress,
+      pullRequest.id,
+      pullRequest.commit,
+    ],
+    queryFn: () => loadProjectPullRequestDiff(project, pullRequest),
+    enabled: mode === "files",
+    retry: false,
+  });
   const commentMutation = useMutation({
     mutationFn: () =>
       createProjectPullRequestComment(project, pullRequest, comment),
@@ -280,21 +296,26 @@ function PullRequestDetail({
           </p>
         ) : null}
       </header>
-      <div className="flex gap-1 border-b py-2">
-        {(["conversation", "commits", "checks"] as const).map((value) => (
-          <Button
-            key={value}
-            onClick={() => setMode(value)}
-            size="sm"
-            variant={mode === value ? "secondary" : "ghost"}
-          >
-            {value === "conversation"
-              ? "Conversation"
-              : value === "commits"
-                ? `Commits ${pullRequest.updates.length + 1}`
-                : "Checks"}
-          </Button>
-        ))}
+      <div className="flex gap-1 overflow-x-auto border-b py-2">
+        {(["conversation", "commits", "checks", "files"] as const).map(
+          (value) => (
+            <Button
+              className="shrink-0"
+              key={value}
+              onClick={() => setMode(value)}
+              size="sm"
+              variant={mode === value ? "secondary" : "ghost"}
+            >
+              {value === "conversation"
+                ? `Conversation ${pullRequest.comments.length}`
+                : value === "commits"
+                  ? `Commits ${pullRequest.updates.length + 1}`
+                  : value === "checks"
+                    ? "Checks 0"
+                    : `Files changed ${diffQuery.data?.files.length ?? 0}`}
+            </Button>
+          ),
+        )}
       </div>
       {mode === "conversation" ? (
         <>
@@ -310,14 +331,29 @@ function PullRequestDetail({
             pullRequest={pullRequest}
             onCommentChange={setComment}
             onCommentSubmit={() => commentMutation.mutate()}
+            onOpenFiles={(anchor) => {
+              setFocusedAnchor(anchor);
+              setMode("files");
+            }}
           />
         </>
       ) : mode === "commits" ? (
         <PullRequestCommits pullRequest={pullRequest} />
-      ) : (
+      ) : mode === "checks" ? (
         <p className="py-8 text-sm text-muted-foreground">
           No checks have been reported for this pull request yet.
         </p>
+      ) : (
+        <ProjectPullRequestFilesChangedPanel
+          diff={diffQuery.data}
+          error={diffQuery.error}
+          focusedAnchor={focusedAnchor}
+          isLoading={diffQuery.isLoading}
+          onUpdated={onUpdated}
+          ownerPubkey={ownerPubkey}
+          project={project}
+          pullRequest={pullRequest}
+        />
       )}
     </section>
   );
@@ -329,12 +365,14 @@ function PullRequestConversation({
   pullRequest,
   onCommentChange,
   onCommentSubmit,
+  onOpenFiles,
 }: {
   comment: string;
   commentPending: boolean;
   pullRequest: ProjectPullRequest;
   onCommentChange: (value: string) => void;
   onCommentSubmit: () => void;
+  onOpenFiles: (anchor: ProjectPullRequestCommentAnchor) => void;
 }) {
   return (
     <div className="py-6">
@@ -362,6 +400,19 @@ function PullRequestConversation({
                 </p>
               ) : item.isTrustedReviewRequest ? (
                 <p className="mt-2 text-xs font-medium">Requested a review</p>
+              ) : null}
+              {item.anchor ? (
+                <button
+                  className="mt-2 text-xs font-medium text-muted-foreground hover:text-foreground hover:underline"
+                  onClick={() =>
+                    onOpenFiles(item.anchor as ProjectPullRequestCommentAnchor)
+                  }
+                  type="button"
+                >
+                  Commented on {item.anchor.path}{" "}
+                  {item.anchor.side === "new" ? "+" : "-"}
+                  {item.anchor.line}
+                </button>
               ) : null}
               <p className="mt-2 whitespace-pre-wrap text-sm leading-6">
                 {item.content}
