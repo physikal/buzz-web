@@ -16,6 +16,7 @@ import {
 import type { AgentPersona } from "../persona-api";
 import type { AgentTeam } from "../team-api";
 import { buildCredentialSecrets } from "../runtime-config";
+import { useEscapeSurface } from "@/shared/hooks/use-escape-surface";
 import {
   runtimeCatalogEntry,
   runtimeDisplayName,
@@ -117,6 +118,7 @@ export function TeamDeployDialog({
     return [...entries.values()];
   }, [members, runtimeCatalog.runtimes]);
   const [pending, setPending] = useState(false);
+  useEscapeSurface(true, onClose, pending);
   const canDeploy =
     members.length > 0 &&
     (!needsAnthropic || anthropicKey.length > 0) &&

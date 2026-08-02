@@ -15,6 +15,7 @@ import type { ManagedAgent } from "@/features/agents/agent-api";
 import type { UserProfile } from "@/features/channels/channel-api";
 import type { CustomEmoji } from "@/features/settings/custom-emoji-api";
 import { truncatePubkey } from "@/shared/lib/pubkey";
+import { useEscapeSurface } from "@/shared/hooks/use-escape-surface";
 import { Button } from "@/shared/ui/button";
 import type { useHuddle } from "./use-huddle";
 
@@ -392,6 +393,7 @@ function AddHuddleAgentDialog({
   onClose: () => void;
 }) {
   const [adding, setAdding] = useState<string | null>(null);
+  useEscapeSurface(open, onClose, adding !== null);
   if (!open) return null;
   const available = agents.filter(
     (agent) =>
@@ -481,6 +483,7 @@ export function StartHuddleDialog({
   onClose: () => void;
 }) {
   const [selected, setSelected] = useState<string[]>([]);
+  useEscapeSurface(open, onClose, huddle.pending);
   if (!open) return null;
   return (
     <div

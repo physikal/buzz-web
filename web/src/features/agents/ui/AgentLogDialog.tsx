@@ -8,6 +8,7 @@ import {
   type ManagedAgent,
 } from "../agent-api";
 import { Button } from "@/shared/ui/button";
+import { useEscapeSurface } from "@/shared/hooks/use-escape-surface";
 
 export function AgentLogDialog({
   agent,
@@ -19,6 +20,7 @@ export function AgentLogDialog({
   const [log, setLog] = useState<AgentRuntimeLog | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  useEscapeSurface(Boolean(agent), onClose);
 
   async function refresh() {
     if (!agent) return;

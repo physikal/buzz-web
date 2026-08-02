@@ -2,6 +2,7 @@ import { AlertTriangle, Bot, Upload, X } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@/shared/ui/button";
+import { useEscapeSurface } from "@/shared/hooks/use-escape-surface";
 import type { DecodedAgentSnapshot } from "../agent-snapshot";
 import { safePersonaAvatarUrl } from "../persona-api";
 
@@ -17,6 +18,7 @@ export function AgentSnapshotImportDialog({
   onImport: (keepAllowlist: boolean) => void;
 }) {
   const [keepAllowlist, setKeepAllowlist] = useState(false);
+  useEscapeSurface(true, onClose, pending);
   const { snapshot } = decoded;
   const allowlist = snapshot.definition.respondToAllowlist ?? [];
   const memoryCount = snapshot.memory.entries?.length ?? 0;

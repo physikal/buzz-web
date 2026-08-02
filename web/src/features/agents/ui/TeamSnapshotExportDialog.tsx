@@ -2,6 +2,7 @@ import { Brain, Download, FileType2, X } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@/shared/ui/button";
+import { useEscapeSurface } from "@/shared/hooks/use-escape-surface";
 import type { SnapshotMemoryLevel } from "../agent-snapshot";
 import type { AgentTeam } from "../team-api";
 
@@ -22,6 +23,7 @@ export function TeamSnapshotExportDialog({
   const [memoryLevel, setMemoryLevel] = useState<SnapshotMemoryLevel>("none");
   const [format, setFormat] = useState<"json" | "png">("png");
   const [pending, setPending] = useState(false);
+  useEscapeSurface(true, onClose, pending);
   return (
     <div
       aria-label={`Export ${team.name}`}

@@ -7,6 +7,7 @@ import {
   resolveBuzzDownloadUrlForPlatform,
 } from "@/shared/lib/buzz-download";
 import { hasNip07Provider } from "@/shared/lib/nostr-signer";
+import { useEscapeSurface } from "@/shared/hooks/use-escape-surface";
 import { relayWsUrl } from "@/shared/lib/relay-url";
 import { Button } from "@/shared/ui/button";
 import * as React from "react";
@@ -155,6 +156,8 @@ export function InvitePage({ code }: { code: string }) {
     setShowMacChoice(false);
     window.setTimeout(() => downloadTriggerRef.current?.focus());
   }, []);
+  useEscapeSurface(showMacChoice, closeMacChoice, choosingMacDownload);
+  useEscapeSurface(Boolean(document), () => setDocument(null));
   const chooseMacDownload = async (
     event: React.MouseEvent<HTMLAnchorElement>,
     platform: BuzzDownloadPlatform,

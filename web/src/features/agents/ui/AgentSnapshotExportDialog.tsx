@@ -2,6 +2,7 @@ import { Brain, Download, FileType2, ShieldCheck, X } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@/shared/ui/button";
+import { useEscapeSurface } from "@/shared/hooks/use-escape-surface";
 import type { SnapshotMemoryLevel } from "../agent-snapshot";
 
 export function AgentSnapshotExportDialog({
@@ -21,6 +22,7 @@ export function AgentSnapshotExportDialog({
   const [format, setFormat] = useState<"json" | "png">("png");
   const [memoryLevel, setMemoryLevel] = useState<SnapshotMemoryLevel>("none");
   const [pending, setPending] = useState(false);
+  useEscapeSurface(true, onClose, pending);
 
   return (
     <div

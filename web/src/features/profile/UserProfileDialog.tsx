@@ -7,6 +7,7 @@ import type {
   UserStatus,
 } from "@/features/presence/presence-api";
 import { truncatePubkey } from "@/shared/lib/pubkey";
+import { useEscapeSurface } from "@/shared/hooks/use-escape-surface";
 import { Button } from "@/shared/ui/button";
 
 export function PresenceDot({ status }: { status: PresenceStatus }) {
@@ -44,6 +45,7 @@ export function UserProfileDialog({
   onClose: () => void;
   onMessage: (pubkey: string) => void;
 }) {
+  useEscapeSurface(Boolean(pubkey), onClose);
   if (!pubkey) return null;
   const displayName =
     agentName ??

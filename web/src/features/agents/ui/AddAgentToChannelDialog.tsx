@@ -8,6 +8,7 @@ import {
   listAgentChannels,
 } from "../agent-channels";
 import type { ManagedAgent } from "../agent-api";
+import { useEscapeSurface } from "@/shared/hooks/use-escape-surface";
 import { Button } from "@/shared/ui/button";
 
 const SELECT_CLASS =
@@ -32,6 +33,7 @@ export function AddAgentToChannelDialog({
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  useEscapeSurface(open && Boolean(agent), onClose, submitting);
 
   useEffect(() => {
     if (!open || !agent) return;

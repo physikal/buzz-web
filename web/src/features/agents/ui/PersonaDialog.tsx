@@ -3,6 +3,7 @@ import { type FormEvent, useMemo, useState } from "react";
 
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
+import { useEscapeSurface } from "@/shared/hooks/use-escape-surface";
 import type { AgentProvider, AgentRuntime, RespondToMode } from "../agent-api";
 import type { AgentPersona, PersonaInput } from "../persona-api";
 import {
@@ -23,6 +24,7 @@ export function PersonaDialog({
   onClose: () => void;
   onSave: (input: PersonaInput) => Promise<unknown>;
 }) {
+  useEscapeSurface(true, onClose, pending);
   const runtimeCatalog = useAgentRuntimeCatalog();
   const [displayName, setDisplayName] = useState(persona?.displayName ?? "");
   const [systemPrompt, setSystemPrompt] = useState(persona?.systemPrompt ?? "");

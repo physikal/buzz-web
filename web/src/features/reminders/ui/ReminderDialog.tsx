@@ -6,6 +6,7 @@ import type { ReminderTarget } from "../reminder-api";
 import { createReminder, REMINDER_PRESETS } from "../reminder-api";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
+import { useEscapeSurface } from "@/shared/hooks/use-escape-surface";
 
 export function ReminderDialog({
   open,
@@ -22,6 +23,7 @@ export function ReminderDialog({
   const [date, setDate] = useState(() => dateValue(Date.now() + 86_400_000));
   const [time, setTime] = useState("09:00");
   const [pending, setPending] = useState(false);
+  useEscapeSurface(open, onClose, pending);
   if (!open) return null;
   const save = async (notBefore: number) => {
     setPending(true);

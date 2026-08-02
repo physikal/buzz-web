@@ -3,6 +3,7 @@ import { type FormEvent, useMemo, useState } from "react";
 
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
+import { useEscapeSurface } from "@/shared/hooks/use-escape-surface";
 import type {
   AgentCredentialMode,
   AgentProvider,
@@ -61,6 +62,7 @@ function AgentEditForm({
   onClose: () => void;
   onSubmit: (input: UpdateAgentInput) => Promise<void>;
 }) {
+  useEscapeSurface(true, onClose, pending);
   const runtimeCatalog = useAgentRuntimeCatalog();
   const [name, setName] = useState(agent.name);
   const [instructions, setInstructions] = useState(agent.system_prompt);

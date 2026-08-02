@@ -135,6 +135,14 @@ export const KEYBOARD_SHORTCUTS: KeyboardShortcut[] = [
     category: "Navigation",
   },
   {
+    id: "close-dialog",
+    label: "Close dialog or settings",
+    description: "Close the current dialog or settings",
+    keys: "Escape",
+    keysWindows: "Escape",
+    category: "Navigation",
+  },
+  {
     id: "format-bold",
     label: "Bold",
     description: "Toggle bold formatting",

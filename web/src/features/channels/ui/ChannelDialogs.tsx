@@ -13,6 +13,7 @@ import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { parsePubkey, truncatePubkey } from "@/shared/lib/pubkey";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
+import { useEscapeSurface } from "@/shared/hooks/use-escape-surface";
 import type { Channel } from "../channel-api";
 import type { DmCandidate } from "../dm-candidates";
 import { ChannelCanvas } from "./ChannelCanvas";
@@ -31,6 +32,7 @@ function DialogFrame({
   onClose: () => void;
   children: React.ReactNode;
 }) {
+  useEscapeSurface(open, onClose);
   if (!open) return null;
   return (
     <div

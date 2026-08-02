@@ -3,6 +3,7 @@ import { type FormEvent, useState } from "react";
 
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
+import { useEscapeSurface } from "@/shared/hooks/use-escape-surface";
 import type { AgentPersona } from "../persona-api";
 import { runtimeDisplayName } from "../runtime-catalog";
 import type { AgentTeam, TeamInput } from "../team-api";
@@ -26,6 +27,7 @@ export function TeamDialog({
   const [personaIds, setPersonaIds] = useState<string[]>(
     team?.personaIds ?? [],
   );
+  useEscapeSurface(true, onClose, pending);
 
   async function submit(event: FormEvent) {
     event.preventDefault();

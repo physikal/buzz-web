@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { hasActiveEscapeSurface } from "@/shared/hooks/use-escape-surface";
 
 export function useChannelReadShortcuts({
   channelIds,
@@ -19,7 +20,7 @@ export function useChannelReadShortcuts({
         event.altKey
       )
         return;
-      if (document.querySelector('[role="dialog"]')) return;
+      if (hasActiveEscapeSurface()) return;
       event.preventDefault();
       if (event.shiftKey) {
         for (const channelId of channelIds) markChannelRead(channelId);

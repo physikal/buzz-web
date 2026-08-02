@@ -26,6 +26,7 @@ import { OwnerConnection } from "@/features/agents/ui/OwnerConnection";
 import { listChannels } from "@/features/channels/channel-api";
 import { lockOwnerVault } from "@/features/owner-vault/lib/vault-worker-client";
 import { truncatePubkey } from "@/shared/lib/pubkey";
+import { useEscapeSurface } from "@/shared/hooks/use-escape-surface";
 import { relayHttpBaseUrl } from "@/shared/lib/relay-url";
 import { Button } from "@/shared/ui/button";
 import {
@@ -517,6 +518,7 @@ function Modal({
   onClose: () => void;
   children: React.ReactNode;
 }) {
+  useEscapeSurface(true, onClose);
   return (
     <div
       aria-label={title}

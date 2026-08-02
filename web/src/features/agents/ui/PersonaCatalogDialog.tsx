@@ -4,6 +4,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { truncatePubkey } from "@/shared/lib/pubkey";
+import { useEscapeSurface } from "@/shared/hooks/use-escape-surface";
 import { Button } from "@/shared/ui/button";
 import type { AgentPersona } from "../persona-api";
 import type { CatalogPersona } from "../persona-catalog-api";
@@ -26,6 +27,7 @@ export function PersonaCatalogDialog({
   onClose: () => void;
   onImport: (persona: CatalogPersona) => void;
 }) {
+  useEscapeSurface(true, onClose, importing);
   const [selectedId, setSelectedId] = useState(catalog[0]?.id ?? null);
   const selected =
     catalog.find((persona) => persona.id === selectedId) ?? catalog[0] ?? null;

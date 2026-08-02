@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { hasPrimaryShortcutModifier } from "@/shared/lib/keyboard-shortcuts";
+import { hasActiveEscapeSurface } from "@/shared/hooks/use-escape-surface";
 import { searchMessages, type ChannelMessage } from "./channel-api";
 
 export type ChannelFindMatch = { id: string; rootId: string | null };
@@ -84,7 +85,7 @@ export function useChannelFind({
         event.shiftKey ||
         event.key.toLowerCase() !== "f" ||
         !hasPrimaryShortcutModifier(event) ||
-        document.querySelector('[role="dialog"]')
+        hasActiveEscapeSurface()
       )
         return;
       event.preventDefault();

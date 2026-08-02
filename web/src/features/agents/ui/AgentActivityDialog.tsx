@@ -13,6 +13,7 @@ import {
 } from "@/shared/lib/nostr-signer";
 import { submitEvent } from "@/shared/lib/relay-events";
 import { relayWsUrl } from "@/shared/lib/relay-url";
+import { useEscapeSurface } from "@/shared/hooks/use-escape-surface";
 import { Button } from "@/shared/ui/button";
 import { getAgentActivity, type ManagedAgent } from "../agent-api";
 import { AgentSessionTranscriptView } from "../session/AgentSessionTranscriptView";
@@ -41,6 +42,7 @@ export function AgentActivityDialog({
   const [frames, setFrames] = useState<ObserverFrame[]>([]);
   const [status, setStatus] = useState<ConnectionState>("connecting");
   const [cancelling, setCancelling] = useState(false);
+  useEscapeSurface(Boolean(agent), onClose);
   const seen = useRef(new Set<string>());
   // generation intentionally restarts the ephemeral subscription on demand.
   // biome-ignore lint/correctness/useExhaustiveDependencies: explicit reconnect trigger

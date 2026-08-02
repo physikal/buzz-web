@@ -16,6 +16,7 @@ import { listPersonas } from "@/features/agents/persona-api";
 import { listTeams } from "@/features/agents/team-api";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
+import { useEscapeSurface } from "@/shared/hooks/use-escape-surface";
 import {
   deleteChannelTemplate,
   listChannelTemplates,
@@ -186,6 +187,7 @@ function TemplateDialog({
   onClose: () => void;
   onSubmit: (input: ChannelTemplateInput) => void;
 }) {
+  useEscapeSurface(true, onClose, pending);
   const personas = useQuery({
     queryKey: ["agent-personas", ownerPubkey],
     queryFn: () => listPersonas(ownerPubkey),

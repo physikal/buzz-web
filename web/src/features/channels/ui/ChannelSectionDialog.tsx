@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { ChannelSection } from "../use-channel-sections";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
+import { useEscapeSurface } from "@/shared/hooks/use-escape-surface";
 
 export function ChannelSectionDialog({
   open,
@@ -18,6 +19,7 @@ export function ChannelSectionDialog({
 }) {
   const [name, setName] = useState("");
   const [icon, setIcon] = useState("");
+  useEscapeSurface(open, onClose);
   useEffect(() => {
     if (!open) return;
     setName(section?.name ?? "");

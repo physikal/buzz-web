@@ -25,6 +25,7 @@ import {
 } from "../runtime-catalog";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
+import { useEscapeSurface } from "@/shared/hooks/use-escape-surface";
 import { AdvancedRuntimeFields } from "./AdvancedRuntimeFields";
 import { RuntimeCredentialFields } from "./RuntimeCredentialFields";
 
@@ -157,6 +158,7 @@ export function AgentCreateDialog({
         ? (globalDefaults?.runtimeConfig?.databricks_host ?? "")
         : ""),
   });
+  useEscapeSurface(open, onClose, pending);
 
   const allowlist = useMemo(
     () =>

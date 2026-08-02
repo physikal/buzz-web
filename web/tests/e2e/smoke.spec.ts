@@ -1693,24 +1693,32 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     name: "Search messages",
   });
   await expect(shortcutSearch).toBeVisible();
-  await shortcutSearch.getByRole("button", { name: "Close" }).click();
+  await page.keyboard.press("Escape");
+  await expect(shortcutSearch).toBeHidden();
   await page.keyboard.press(`${shortcutModifier}+Shift+K`);
   const shortcutDm = page.getByRole("dialog", { name: "New message" });
   await expect(shortcutDm).toBeVisible();
-  await shortcutDm.getByRole("button", { name: "Close" }).click();
+  await page.keyboard.press("Escape");
+  await expect(shortcutDm).toBeHidden();
   await page.keyboard.press(`${shortcutModifier}+Shift+O`);
   const shortcutBrowser = page.getByRole("dialog", {
     name: "Browse channels",
   });
   await expect(shortcutBrowser).toBeVisible();
-  await shortcutBrowser.getByRole("button", { name: "Close" }).click();
+  await page.keyboard.press("Escape");
+  await expect(shortcutBrowser).toBeHidden();
   await page.keyboard.press(`${shortcutModifier}+Shift+N`);
   const shortcutCreate = page.getByRole("dialog", { name: "Create channel" });
   await expect(shortcutCreate).toBeVisible();
-  await shortcutCreate.getByRole("button", { name: "Close" }).click();
+  await page.keyboard.press("Escape");
+  await expect(shortcutCreate).toBeHidden();
   await page.keyboard.press(`${shortcutModifier}+,`);
   await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Profile" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page).toHaveURL(/\/channels/u);
+  await page.keyboard.press(`${shortcutModifier}+,`);
+  await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
   await page.keyboard.press(`${shortcutModifier}+Shift+A`);
   await expect(page.getByRole("heading", { name: "Inbox" })).toBeVisible();
   await page.keyboard.press(`${shortcutModifier}+,`);

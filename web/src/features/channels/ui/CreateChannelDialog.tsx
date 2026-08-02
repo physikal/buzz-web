@@ -3,6 +3,7 @@ import { type FormEvent, useState } from "react";
 
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
+import { useEscapeSurface } from "@/shared/hooks/use-escape-surface";
 import type { ChannelTemplate } from "@/features/channel-templates/channel-template-api";
 
 export function CreateChannelDialog({
@@ -29,6 +30,7 @@ export function CreateChannelDialog({
   const [channelType, setChannelType] = useState<"stream" | "forum">("stream");
   const [visibility, setVisibility] = useState<"open" | "private">("open");
   const [templateId, setTemplateId] = useState("");
+  useEscapeSurface(open, onClose, pending);
   if (!open) return null;
 
   async function submit(event: FormEvent) {

@@ -3,6 +3,7 @@ import { Copy, RefreshCw, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/shared/ui/button";
+import { useEscapeSurface } from "@/shared/hooks/use-escape-surface";
 import type { ManagedAgent } from "../agent-api";
 import { listAgentMemory } from "../agent-memory-api";
 
@@ -21,6 +22,7 @@ export function AgentMemoryDialog({
     enabled: agent !== null,
     staleTime: 30_000,
   });
+  useEscapeSurface(Boolean(agent), onClose);
   if (!agent) return null;
   return (
     <div

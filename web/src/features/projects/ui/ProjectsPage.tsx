@@ -21,6 +21,7 @@ import buzzAppIcon from "@/assets/app-icon@3x.png";
 import { OwnerConnection } from "@/features/agents/ui/OwnerConnection";
 import { lockOwnerVault } from "@/features/owner-vault/lib/vault-worker-client";
 import { truncatePubkey } from "@/shared/lib/pubkey";
+import { useEscapeSurface } from "@/shared/hooks/use-escape-surface";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import {
@@ -398,7 +399,7 @@ function CreateProjectDialog({
   const [cloneUrl, setCloneUrl] = useState("");
   if (!open) return null;
   return (
-    <Modal title="New project" onClose={onClose}>
+    <Modal disabled={pending} title="New project" onClose={onClose}>
       <form
         className="space-y-4"
         onSubmit={(event) => {
@@ -464,7 +465,7 @@ function CreateIssueDialog({
   const [labels, setLabels] = useState("");
   if (!open) return null;
   return (
-    <Modal title="New issue" onClose={onClose}>
+    <Modal disabled={pending} title="New issue" onClose={onClose}>
       <form
         className="space-y-4"
         onSubmit={(event) => {
@@ -519,11 +520,14 @@ function Modal({
   title,
   onClose,
   children,
+  disabled = false,
 }: {
   title: string;
   onClose: () => void;
   children: React.ReactNode;
+  disabled?: boolean;
 }) {
+  useEscapeSurface(true, onClose, disabled);
   return (
     <div
       aria-label={title}

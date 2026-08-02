@@ -4,6 +4,7 @@ import { type FormEvent, useState } from "react";
 import type { ReportType } from "@/features/settings/moderation-api";
 import { truncatePubkey } from "@/shared/lib/pubkey";
 import { Button } from "@/shared/ui/button";
+import { useEscapeSurface } from "@/shared/hooks/use-escape-surface";
 import type { ChannelMessage } from "../channel-api";
 
 export function ReportMessageDialog({
@@ -19,6 +20,7 @@ export function ReportMessageDialog({
 }) {
   const [reportType, setReportType] = useState<ReportType>("spam");
   const [note, setNote] = useState("");
+  useEscapeSurface(Boolean(message), onClose, pending);
   if (!message) return null;
   async function submit(event: FormEvent) {
     event.preventDefault();

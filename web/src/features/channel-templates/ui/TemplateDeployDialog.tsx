@@ -20,6 +20,7 @@ import {
 import { RuntimeCredentialFields } from "@/features/agents/ui/RuntimeCredentialFields";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
+import { useEscapeSurface } from "@/shared/hooks/use-escape-surface";
 import type { ChannelTemplate } from "../channel-template-api";
 
 type TemplateMember = { persona: AgentPersona; teamInstructions: string[] };
@@ -87,6 +88,7 @@ export function TemplateDeployDialog({
     return [...entries.values()];
   }, [members, runtimeCatalog.runtimes]);
   const [pending, setPending] = useState(false);
+  useEscapeSurface(true, onClose, pending);
   const canDeploy =
     members.length > 0 &&
     (!needsAnthropic || anthropicKey.length > 0) &&

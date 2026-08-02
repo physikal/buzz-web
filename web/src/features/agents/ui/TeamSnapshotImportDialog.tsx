@@ -2,6 +2,7 @@ import { AlertTriangle, Upload, X } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@/shared/ui/button";
+import { useEscapeSurface } from "@/shared/hooks/use-escape-surface";
 import type { DecodedTeamSnapshot } from "../team-snapshot";
 
 export function TeamSnapshotImportDialog({
@@ -16,6 +17,7 @@ export function TeamSnapshotImportDialog({
   onImport: (keepAllowlist: boolean) => void;
 }) {
   const [keepAllowlist, setKeepAllowlist] = useState(false);
+  useEscapeSurface(true, onClose, pending);
   const { snapshot } = decoded;
   return (
     <div

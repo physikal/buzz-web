@@ -11,6 +11,7 @@ import {
 } from "../agent-api";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
+import { useEscapeSurface } from "@/shared/hooks/use-escape-surface";
 
 export function AgentAuthDialog({
   agent,
@@ -53,13 +54,14 @@ export function AgentAuthDialog({
     () => status?.output.match(/\b[A-Z0-9]{4}-[A-Z0-9]{4,8}\b/)?.[0] ?? null,
     [status?.output],
   );
-
-  if (!agent) return null;
-  const provider = agent.runtime === "codex" ? "OpenAI Codex" : "Claude";
   const pending =
     startMutation.isPending ||
     inputMutation.isPending ||
     cancelMutation.isPending;
+  useEscapeSurface(Boolean(agent), onClose, pending);
+
+  if (!agent) return null;
+  const provider = agent.runtime === "codex" ? "OpenAI Codex" : "Claude";
   const error =
     startMutation.error?.message ??
     inputMutation.error?.message ??

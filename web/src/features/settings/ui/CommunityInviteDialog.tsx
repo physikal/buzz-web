@@ -4,6 +4,7 @@ import { toast } from "sonner";
 
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
+import { useEscapeSurface } from "@/shared/hooks/use-escape-surface";
 import {
   addCommunityMember,
   type CommunityRole,
@@ -44,6 +45,7 @@ export function CommunityInviteDialog({
   const [maxUses, setMaxUses] = useState("");
   const [pending, setPending] = useState<"member" | "link" | null>(null);
   const [copied, setCopied] = useState(false);
+  useEscapeSurface(open, onClose, pending !== null);
   if (!open) return null;
 
   async function addMember(event: FormEvent) {

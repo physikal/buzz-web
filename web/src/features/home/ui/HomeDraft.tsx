@@ -7,6 +7,7 @@ import remarkGfm from "remark-gfm";
 import type { Channel } from "@/features/channels/channel-api";
 import type { WebDraft } from "@/features/channels/draft-store";
 import { relativeTime } from "@/shared/lib/relative-time";
+import { useEscapeSurface } from "@/shared/hooks/use-escape-surface";
 import { Button } from "@/shared/ui/button";
 
 export function HomeDraftRow({
@@ -73,6 +74,7 @@ export function HomeDraftDetail({
   onSend: (draft: WebDraft) => Promise<void>;
 }) {
   const [confirming, setConfirming] = useState(false);
+  useEscapeSurface(confirming, () => setConfirming(false), pending);
   if (!draft)
     return (
       <section className="hidden min-w-0 flex-1 items-center justify-center sm:flex">

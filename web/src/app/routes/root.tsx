@@ -16,6 +16,7 @@ import {
   hasPrimaryShortcutModifier,
   isMacPlatform,
 } from "@/shared/lib/keyboard-shortcuts";
+import { hasActiveEscapeSurface } from "@/shared/hooks/use-escape-surface";
 
 export const Route = createRootRoute({
   component: RootLayout,
@@ -58,6 +59,20 @@ function RootLayout() {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (!hasUnlockedOwnerVault()) return;
       if (event.defaultPrevented || event.repeat) return;
+      if (
+        event.key === "Escape" &&
+        !event.shiftKey &&
+        !event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey
+      ) {
+        if (hasActiveEscapeSurface()) return;
+        if (pathname === "/settings") {
+          event.preventDefault();
+          void navigate({ to: "/channels" });
+        }
+        return;
+      }
       const mac = isMacPlatform();
       const primary = hasPrimaryShortcutModifier(event);
       if (
