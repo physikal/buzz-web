@@ -20,6 +20,7 @@ import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
 
 import buzzAppIcon from "@/assets/app-icon@3x.png";
+import { listAgents } from "@/features/agents/agent-api";
 import { OwnerConnection } from "@/features/agents/ui/OwnerConnection";
 import {
   ensureStarterChannels,
@@ -53,7 +54,14 @@ import {
 import { HomeReminderDetail, HomeReminderRow, isDue } from "./HomeReminder";
 import { HomeDraftDetail, HomeDraftRow } from "./HomeDraft";
 
-type InboxFilter = "all" | InboxCategory | "reminders" | "drafts";
+type InboxFilter =
+  | "all"
+  | "project"
+  | "thread"
+  | "agent_activity"
+  | InboxCategory
+  | "reminders"
+  | "drafts";
 
 export function HomePage() {
   const [ownerPubkey, setOwnerPubkey] = useState<string | null>(null);
@@ -87,9 +95,21 @@ function HomeWorkspace({
   const [drafts, setDrafts] = useState(() => listDrafts(ownerPubkey));
   const [readMarkers, setReadMarkers] = useState<Record<string, number>>({});
   const readManagerRef = useRef<ReadStateManager | null>(null);
+  const agentsQuery = useQuery({
+    queryKey: ["managed-agents", ownerPubkey],
+    queryFn: listAgents,
+    staleTime: 10_000,
+    retry: false,
+  });
+  const agentPubkeys = useMemo(
+    () => (agentsQuery.data ?? []).map((agent) => agent.agent_pubkey),
+    [agentsQuery.data],
+  );
+  const agentKey = [...agentPubkeys].sort().join(",");
   const inboxQuery = useQuery({
-    queryKey: ["home-inbox", ownerPubkey],
-    queryFn: () => listInboxItems(ownerPubkey),
+    queryKey: ["home-inbox", ownerPubkey, agentKey],
+    queryFn: () => listInboxItems(ownerPubkey, agentPubkeys),
+    enabled: !agentsQuery.isLoading,
     refetchInterval: 30_000,
     retry: false,
   });
@@ -141,23 +161,27 @@ function HomeWorkspace({
     drafts.find((draft) => draft.key === selectedDraftId) ?? null;
   const selectedDraft = explicitlySelectedDraft ?? drafts[0] ?? null;
   const isDrafts = filter === "drafts";
+  const ownedAgentPubkeys = new Set(agentPubkeys);
   const isUnread = (item: InboxItem) =>
     (readMarkers[`msg:${item.id}`] ?? 0) < item.createdAt;
   const visibleItems = items.filter(
     (item) =>
-      (filter === "all" || item.category === filter) &&
+      (filter === "all" ||
+        (filter === "project" && Boolean(item.projectAddress)) ||
+        (filter === "thread" && item.isThread) ||
+        (filter === "agent_activity" && ownedAgentPubkeys.has(item.pubkey)) ||
+        item.category === filter) &&
       (!unreadOnly || isUnread(item)),
   );
   const explicitlySelected =
     visibleItems.find((item) => item.id === selectedId) ?? null;
   const selected = explicitlySelected ?? visibleItems[0] ?? null;
-  const unreadCount = items.filter(isUnread).length;
   const dueReminderCount = reminders.filter(isDue).length;
   const displayedCount = isDrafts
     ? drafts.length
     : isReminders
       ? dueReminderCount
-      : unreadCount;
+      : visibleItems.filter(isUnread).length;
   const mobileDetailVisible = isDrafts
     ? Boolean(explicitlySelectedDraft)
     : isReminders
@@ -211,16 +235,16 @@ function HomeWorkspace({
 
   useEffect(
     () =>
-      subscribeInbox(ownerPubkey, (item) => {
+      subscribeInbox(ownerPubkey, agentPubkeys, (item) => {
         queryClient.setQueryData<InboxItem[]>(
-          ["home-inbox", ownerPubkey],
+          ["home-inbox", ownerPubkey, agentKey],
           (current = []) =>
             [item, ...current.filter((candidate) => candidate.id !== item.id)]
               .sort((left, right) => right.createdAt - left.createdAt)
               .slice(0, 120),
         );
       }),
-    [ownerPubkey, queryClient],
+    [agentKey, agentPubkeys, ownerPubkey, queryClient],
   );
 
   const markRead = (item: InboxItem) => {
@@ -284,16 +308,21 @@ function HomeWorkspace({
                 value={filter}
               >
                 <option value="all">All</option>
+                <option value="project">Projects</option>
                 <option value="mention">Mentions</option>
+                <option value="thread">Threads</option>
                 <option value="needs_action">Needs action</option>
+                <option value="agent_activity">Agents</option>
                 <option value="reminders">Reminders</option>
                 <option value="drafts">Drafts</option>
               </select>
               <Button
                 aria-label="Mark all read"
-                disabled={!unreadCount || isReminders || isDrafts}
+                disabled={
+                  !visibleItems.some(isUnread) || isReminders || isDrafts
+                }
                 onClick={() => {
-                  for (const item of items) markRead(item);
+                  for (const item of visibleItems) markRead(item);
                 }}
                 size="icon"
                 variant="ghost"
@@ -339,6 +368,7 @@ function HomeWorkspace({
                         (channel) => channel.id === item.channelId,
                       )}
                       item={item}
+                      kindLabel={inboxKindLabel(item, ownedAgentPubkeys)}
                       key={item.id}
                       onSelect={() => {
                         setSelectedId(item.id);
@@ -365,12 +395,12 @@ function HomeWorkspace({
                   {unreadOnly
                     ? isReminders
                       ? "No reminders due"
-                      : "No unread activity"
+                      : emptyInboxLabel(filter, true)
                     : isDrafts
                       ? "No drafts"
                       : isReminders
                         ? "No reminders"
-                        : "No activity yet"}
+                        : emptyInboxLabel(filter, false)}
                 </p>
               </div>
             ) : null}
@@ -417,6 +447,11 @@ function HomeWorkspace({
               (channel) => channel.id === selected?.channelId,
             )}
             item={selected}
+            kindLabel={
+              selected
+                ? inboxKindLabel(selected, ownedAgentPubkeys)
+                : "Activity"
+            }
             mobileVisible={Boolean(explicitlySelected)}
             onBack={() => setSelectedId(null)}
             profile={selected ? profiles.get(selected.pubkey) : undefined}
@@ -433,6 +468,7 @@ function InboxRow({
   channel,
   selected,
   unread,
+  kindLabel,
   onSelect,
 }: {
   item: InboxItem;
@@ -440,6 +476,7 @@ function InboxRow({
   channel?: Channel;
   selected: boolean;
   unread: boolean;
+  kindLabel: string;
   onSelect: () => void;
 }) {
   return (
@@ -460,7 +497,7 @@ function InboxRow({
           </time>
         </span>
         <span className="mt-0.5 block text-xs font-medium text-muted-foreground">
-          {item.category === "needs_action" ? "Needs Action" : "Mention"}
+          {kindLabel}
           {channel?.channelType !== "dm" && channel?.name
             ? ` in #${channel.name}`
             : ""}
@@ -488,12 +525,14 @@ function InboxDetail({
   channel,
   onBack,
   mobileVisible,
+  kindLabel,
 }: {
   item: InboxItem | null;
   profile?: UserProfile;
   channel?: Channel;
   onBack: () => void;
   mobileVisible: boolean;
+  kindLabel: string;
 }) {
   if (!item)
     return (
@@ -513,9 +552,7 @@ function InboxDetail({
           Back
         </Button>
         <div className="min-w-0 flex-1">
-          <h2 className="truncate font-semibold">
-            {item.category === "needs_action" ? "Needs Action" : "Mention"}
-          </h2>
+          <h2 className="truncate font-semibold">{kindLabel}</h2>
           <p className="truncate text-xs text-muted-foreground">
             {channel?.channelType !== "dm" && channel?.name
               ? `#${channel.name}`
@@ -529,6 +566,15 @@ function InboxDetail({
               to="/channels"
             >
               <MessageSquare /> Open in channel
+            </Link>
+          </Button>
+        ) : item.projectAddress ? (
+          <Button asChild variant="outline">
+            <Link
+              params={{ projectId: projectIdFromAddress(item.projectAddress) }}
+              to="/projects/$projectId"
+            >
+              <FolderKanban /> Open project
             </Link>
           </Button>
         ) : null}
@@ -558,6 +604,32 @@ function InboxDetail({
       </div>
     </section>
   );
+}
+
+function inboxKindLabel(item: InboxItem, ownedAgentPubkeys: Set<string>) {
+  if (item.projectAddress) return "Project";
+  if (item.isThread) return "Thread";
+  if (ownedAgentPubkeys.has(item.pubkey)) return "Agent";
+  return item.category === "needs_action" ? "Needs Action" : "Mention";
+}
+
+function projectIdFromAddress(address: string) {
+  const [, pubkey, ...dtag] = address.split(":");
+  return `${pubkey}:${dtag.join(":")}`;
+}
+
+function emptyInboxLabel(filter: InboxFilter, unread: boolean) {
+  const labels: Record<InboxFilter, [string, string]> = {
+    all: ["No activity yet", "No unread activity"],
+    project: ["No project work found", "No unread project work"],
+    mention: ["No mentions found", "No unread mentions"],
+    thread: ["No threads found", "No unread threads"],
+    needs_action: ["Nothing needs action", "No unread items needing action"],
+    agent_activity: ["No agent updates found", "No unread agent updates"],
+    reminders: ["No reminders", "No unread reminders"],
+    drafts: ["No drafts", "No unread drafts"],
+  };
+  return labels[filter][unread ? 1 : 0];
 }
 
 function Avatar({

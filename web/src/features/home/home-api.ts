@@ -22,9 +22,16 @@ export type InboxItem = {
   category: InboxCategory;
   channelId: string | null;
   rootId: string | null;
+  projectAddress: string | null;
+  isThread: boolean;
 };
 
 function inboxItem(event: NostrEvent): InboxItem {
+  const projectAddress =
+    event.tags.find(
+      (tag) => tag[0] === "a" && /^30617:[0-9a-f]{64}:.+$/i.test(tag[1] ?? ""),
+    )?.[1] ?? null;
+  const threadTags = event.tags.filter((tag) => tag[0] === "e");
   return {
     id: event.id,
     pubkey: event.pubkey,
@@ -39,10 +46,17 @@ function inboxItem(event: NostrEvent): InboxItem {
     rootId:
       event.tags.find((tag) => tag[0] === "e" && tag[3] === "root")?.[1] ??
       null,
+    projectAddress,
+    isThread: threadTags.some(
+      (tag) => tag[3] === "root" || tag[3] === "reply" || tag[3] === "parent",
+    ),
   };
 }
 
-export async function listInboxItems(ownerPubkey: string) {
+export async function listInboxItems(
+  ownerPubkey: string,
+  agentPubkeys: string[] = [],
+) {
   const events = await queryEventsHttp([
     {
       kinds: INBOX_MENTION_KINDS,
@@ -54,6 +68,9 @@ export async function listInboxItems(ownerPubkey: string) {
       "#p": [ownerPubkey],
       limit: 20,
     },
+    ...(agentPubkeys.length
+      ? [{ kinds: INBOX_MENTION_KINDS, authors: agentPubkeys, limit: 100 }]
+      : []),
   ]);
   return [
     ...new Map(events.map((event) => [event.id, inboxItem(event)])).values(),
@@ -62,6 +79,7 @@ export async function listInboxItems(ownerPubkey: string) {
 
 export function subscribeInbox(
   ownerPubkey: string,
+  agentPubkeys: string[],
   onItem: (item: InboxItem) => void,
 ) {
   const subscription = subscribeEvents(
@@ -69,6 +87,9 @@ export function subscribeInbox(
     [
       { kinds: INBOX_MENTION_KINDS, "#p": [ownerPubkey] },
       { kinds: INBOX_ACTION_KINDS, "#p": [ownerPubkey] },
+      ...(agentPubkeys.length
+        ? [{ kinds: INBOX_MENTION_KINDS, authors: agentPubkeys }]
+        : []),
     ],
     (event) => onItem(inboxItem(event)),
     { requireNip07: true },

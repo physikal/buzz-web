@@ -211,6 +211,27 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
             tags: [
               ["h", "44444444-4444-4444-8444-444444444444"],
               ["p", ownerPubkey],
+              ["e", "12".repeat(32), "", "root"],
+            ],
+          },
+          catalogSecret,
+        ),
+      );
+    if (
+      filters.some(
+        (filter) => filter.kinds?.includes(1621) && Array.isArray(filter["#p"]),
+      )
+    )
+      events.push(
+        finalizeEvent(
+          {
+            kind: 1621,
+            created_at: Math.floor(Date.now() / 1000) - 1,
+            content: "Review the signed project issue",
+            tags: [
+              ["a", `30617:${catalogPubkey}:buzz-web`],
+              ["p", ownerPubkey],
+              ["subject", "Project inbox parity"],
             ],
           },
           catalogSecret,
@@ -1399,6 +1420,17 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
 
   await page.getByRole("link", { name: "Inbox" }).click();
   await expect(page.getByRole("heading", { name: "Inbox" })).toBeVisible();
+  await page.getByLabel("Inbox filter").selectOption("project");
+  await expect(
+    page.getByText("Review the signed project issue").first(),
+  ).toBeVisible();
+  await expect(page.getByRole("link", { name: "Open project" })).toBeVisible();
+  await page.getByLabel("Inbox filter").selectOption("thread");
+  await expect(
+    page.getByText("Owner mention from inbox").first(),
+  ).toBeVisible();
+  await page.getByLabel("Inbox filter").selectOption("agent_activity");
+  await expect(page.getByText("No agent updates found")).toBeVisible();
   await page.getByLabel("Inbox filter").selectOption("drafts");
   await expect(page.getByText(/@Relay agent/u).first()).toBeVisible();
   await page.getByRole("button", { name: "Delete draft" }).click();
