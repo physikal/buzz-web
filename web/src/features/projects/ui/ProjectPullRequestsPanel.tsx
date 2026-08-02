@@ -19,6 +19,7 @@ import {
   CreatePullRequestDialog,
   type CreatePullRequestInput,
 } from "./CreatePullRequestDialog";
+import { PullRequestReviewControls } from "./PullRequestReviewControls";
 
 export function ProjectPullRequestsPanel({
   ownerPubkey,
@@ -218,6 +219,12 @@ function PullRequestDetail({
           </p>
         ) : null}
       </header>
+      <PullRequestReviewControls
+        onUpdated={onUpdated}
+        ownerPubkey={ownerPubkey}
+        project={project}
+        pullRequest={pullRequest}
+      />
       <div className="py-6">
         <h3 className="text-lg font-semibold">
           {pullRequest.comments.length}{" "}
@@ -231,6 +238,19 @@ function PullRequestDetail({
                   {truncatePubkey(item.author)} ·{" "}
                   {new Date(item.createdAt * 1000).toLocaleString()}
                 </p>
+                {item.reviewDecisionStatus ? (
+                  <p className="mt-2 text-xs font-medium">
+                    {item.reviewDecision === "approved"
+                      ? item.reviewDecisionStatus === "current"
+                        ? "Approved these changes"
+                        : "Approved an earlier commit"
+                      : item.reviewDecisionStatus === "current"
+                        ? "Requested changes"
+                        : "Requested changes on an earlier commit"}
+                  </p>
+                ) : item.isTrustedReviewRequest ? (
+                  <p className="mt-2 text-xs font-medium">Requested a review</p>
+                ) : null}
                 <p className="mt-2 whitespace-pre-wrap text-sm leading-6">
                   {item.content}
                 </p>

@@ -1,4 +1,5 @@
 import { queryEvents, type NostrEvent } from "@/shared/lib/nostr-client";
+import { truncatePubkey } from "@/shared/lib/pubkey";
 import { submitEvent } from "@/shared/lib/relay-events";
 import { relayHttpBaseUrl, relayWsUrl } from "@/shared/lib/relay-url";
 
@@ -33,12 +34,32 @@ export type ProjectIssueComment = {
   createdAt: number;
 };
 
+export type ProjectPullRequestReviewDecision = {
+  id: string;
+  author: string;
+  createdAt: number;
+  commit: string;
+  decision: "approved" | "changes-requested";
+};
+
+export type ProjectPullRequestComment = ProjectIssueComment & {
+  commit: string | null;
+  isReviewRequest: boolean;
+  isTrustedReviewRequest: boolean;
+  reviewerPubkeys: string[];
+  reviewDecision: "approved" | "changes-requested" | null;
+  reviewDecisionStatus: "current" | "historical" | null;
+};
+
 export type ProjectPullRequest = {
   id: string;
   title: string;
   content: string;
   author: string;
   recipients: string[];
+  reviewers: string[];
+  approvals: ProjectPullRequestReviewDecision[];
+  changeRequests: ProjectPullRequestReviewDecision[];
   labels: string[];
   status: "open" | "draft" | "merged" | "closed";
   branchName: string | null;
@@ -48,13 +69,17 @@ export type ProjectPullRequest = {
   createdAt: number;
   updatedAt: number;
   statusCreatedAt: number | null;
-  comments: ProjectIssueComment[];
+  comments: ProjectPullRequestComment[];
 };
 
 export type ProjectPullRequestLifecycleStatus = Exclude<
   ProjectPullRequest["status"],
   "merged"
 >;
+
+export const PR_REVIEW_REQUEST_LABEL = "review-request";
+export const PR_APPROVAL_LABEL = "approval";
+export const PR_CHANGES_REQUESTED_LABEL = "changes-requested";
 
 function tag(event: NostrEvent, name: string) {
   return event.tags.find((item) => item[0] === name)?.[1];
@@ -342,7 +367,7 @@ export async function listProjectPullRequests(
             ),
         )
         .sort((a, b) => b.created_at - a.created_at)[0];
-      const comments = events
+      const parsedComments = events
         .filter(
           (candidate) =>
             candidate.kind === 1 &&
@@ -357,8 +382,98 @@ export async function listProjectPullRequests(
           content: comment.content,
           author: comment.pubkey,
           createdAt: comment.created_at,
+          commit: tag(comment, "c") ?? null,
+          isReviewRequest: tags(comment, "t").some(
+            (label) => label.toLowerCase() === PR_REVIEW_REQUEST_LABEL,
+          ),
+          isTrustedReviewRequest: false,
+          reviewerPubkeys: tags(comment, "p").map((pubkey) =>
+            pubkey.toLowerCase(),
+          ),
+          reviewDecision: (() => {
+            const labels = tags(comment, "t").map((label) =>
+              label.toLowerCase(),
+            );
+            const approval = labels.includes(PR_APPROVAL_LABEL);
+            const changes = labels.includes(PR_CHANGES_REQUESTED_LABEL);
+            if (approval === changes) return null;
+            return approval
+              ? ("approved" as const)
+              : ("changes-requested" as const);
+          })(),
+          reviewDecisionStatus: null,
         }));
       const source = latestUpdate ?? event;
+      const initialCommit = tag(event, "c") ?? null;
+      const currentCommit = tag(source, "c") ?? null;
+      const reviewers = new Set(
+        tags(event, "p").map((pubkey) => pubkey.toLowerCase()),
+      );
+      for (const comment of parsedComments) {
+        if (
+          comment.isReviewRequest &&
+          allowedActors.has(comment.author.toLowerCase())
+        ) {
+          for (const reviewer of comment.reviewerPubkeys) {
+            reviewers.add(reviewer);
+          }
+        }
+      }
+      reviewers.delete(event.pubkey.toLowerCase());
+      const trustedReviewActors = new Set(reviewers);
+      for (const actor of allowedActors) {
+        if (actor !== event.pubkey.toLowerCase())
+          trustedReviewActors.add(actor);
+      }
+      const comments = parsedComments.map((comment) => {
+        const trustedDecision = Boolean(
+          comment.reviewDecision &&
+            trustedReviewActors.has(comment.author.toLowerCase()),
+        );
+        const decisionCommit = comment.commit ?? initialCommit;
+        return {
+          ...comment,
+          isTrustedReviewRequest:
+            comment.isReviewRequest &&
+            allowedActors.has(comment.author.toLowerCase()),
+          reviewDecisionStatus: trustedDecision
+            ? currentCommit && decisionCommit === currentCommit
+              ? ("current" as const)
+              : ("historical" as const)
+            : null,
+        };
+      });
+      const effectiveDecisions = new Map<
+        string,
+        ProjectPullRequestReviewDecision
+      >();
+      for (const comment of comments) {
+        const decisionCommit = comment.commit ?? initialCommit;
+        if (
+          !comment.reviewDecision ||
+          comment.reviewDecisionStatus !== "current" ||
+          !decisionCommit
+        )
+          continue;
+        const key = comment.author.toLowerCase();
+        const existing = effectiveDecisions.get(key);
+        if (
+          !existing ||
+          comment.createdAt > existing.createdAt ||
+          (comment.createdAt === existing.createdAt && comment.id > existing.id)
+        ) {
+          effectiveDecisions.set(key, {
+            id: comment.id,
+            author: comment.author,
+            createdAt: comment.createdAt,
+            commit: decisionCommit,
+            decision: comment.reviewDecision,
+          });
+        }
+      }
+      const decisions = [...effectiveDecisions.values()].sort(
+        (a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id),
+      );
       const status =
         (
           {
@@ -380,11 +495,18 @@ export async function listProjectPullRequests(
         content: event.content,
         author: event.pubkey,
         recipients: tags(event, "p").map((pubkey) => pubkey.toLowerCase()),
+        reviewers: [...reviewers],
+        approvals: decisions.filter(
+          (decision) => decision.decision === "approved",
+        ),
+        changeRequests: decisions.filter(
+          (decision) => decision.decision === "changes-requested",
+        ),
         labels: tags(event, "t"),
         status,
         branchName: tag(event, "branch-name") ?? null,
         targetBranch: tag(event, "target-branch") ?? null,
-        commit: tag(source, "c") ?? null,
+        commit: currentCommit,
         cloneUrls: tags(source, "clone"),
         createdAt: event.created_at,
         updatedAt: Math.max(
@@ -420,6 +542,105 @@ export async function createProjectPullRequestComment(
           ...pullRequest.recipients,
         ]),
       ].map((pubkey) => ["p", pubkey]),
+    ],
+  });
+}
+
+export function canReviewProjectPullRequest(
+  project: Project,
+  pullRequest: ProjectPullRequest,
+  viewerPubkey: string,
+): boolean {
+  const viewer = viewerPubkey.toLowerCase();
+  if (
+    !pullRequest.commit ||
+    (pullRequest.status !== "open" && pullRequest.status !== "draft") ||
+    viewer === pullRequest.author.toLowerCase()
+  ) {
+    return false;
+  }
+  return (
+    viewer === project.owner.toLowerCase() ||
+    pullRequest.reviewers.includes(viewer)
+  );
+}
+
+export async function requestProjectPullRequestReview(
+  project: Project,
+  pullRequest: ProjectPullRequest,
+  viewerPubkey: string,
+  reviewerPubkey: string,
+  reviewerLabel: string,
+): Promise<void> {
+  const viewer = viewerPubkey.toLowerCase();
+  if (
+    viewer !== project.owner.toLowerCase() &&
+    viewer !== pullRequest.author.toLowerCase()
+  ) {
+    throw new Error("Only the author or repository owner can request reviews.");
+  }
+  const reviewer = reviewerPubkey.toLowerCase();
+  if (!/^[0-9a-f]{64}$/u.test(reviewer)) {
+    throw new Error("Reviewer public key is invalid.");
+  }
+  if (reviewer === pullRequest.author.toLowerCase()) {
+    throw new Error("The pull request author cannot review their own change.");
+  }
+  await submitEvent({
+    kind: 1,
+    content: `Requested a review from ${reviewerLabel.trim() || truncatePubkey(reviewer)}`,
+    tags: [
+      ["e", pullRequest.id, "", "root"],
+      ["a", project.repoAddress],
+      ["p", reviewer],
+      ["t", PR_REVIEW_REQUEST_LABEL],
+    ],
+  });
+}
+
+export async function submitProjectPullRequestReview(
+  project: Project,
+  pullRequest: ProjectPullRequest,
+  viewerPubkey: string,
+  decision: "approve" | "request-changes",
+  content?: string,
+): Promise<void> {
+  if (!canReviewProjectPullRequest(project, pullRequest, viewerPubkey)) {
+    throw new Error(
+      "You are not an authorized reviewer for this pull request.",
+    );
+  }
+  if (!pullRequest.commit) {
+    throw new Error("The pull request has no commit to review.");
+  }
+  const body =
+    content?.trim() ||
+    (decision === "approve" ? "Approved these changes" : "Requested changes");
+  const latestDecisionCreatedAt = [
+    ...pullRequest.approvals,
+    ...pullRequest.changeRequests,
+  ].reduce((latest, item) => Math.max(latest, item.createdAt), 0);
+  await submitEvent({
+    kind: 1,
+    content: body,
+    created_at: Math.max(
+      Math.floor(Date.now() / 1000),
+      latestDecisionCreatedAt + 1,
+    ),
+    tags: [
+      ["e", pullRequest.id, "", "root"],
+      ["a", project.repoAddress],
+      ...[
+        ...new Set([
+          project.owner.toLowerCase(),
+          pullRequest.author.toLowerCase(),
+        ]),
+      ].map((pubkey) => ["p", pubkey]),
+      [
+        "t",
+        decision === "approve" ? PR_APPROVAL_LABEL : PR_CHANGES_REQUESTED_LABEL,
+      ],
+      ["c", pullRequest.commit],
     ],
   });
 }

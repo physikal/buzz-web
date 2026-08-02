@@ -4,6 +4,7 @@ import {
 } from "@/features/channels/channel-api";
 import { makeNip98AuthHeader } from "@/shared/lib/nip98";
 import { queryEvents } from "@/shared/lib/nostr-client";
+import { fetchRelaySelf } from "@/shared/lib/relay-info";
 import { submitEvent } from "@/shared/lib/relay-events";
 import { relayHttpBaseUrl, relayWsUrl } from "@/shared/lib/relay-url";
 import { parsePubkey } from "@/shared/lib/pubkey";
@@ -33,12 +34,18 @@ export function parseMemberPubkey(value: string): string | null {
 export async function getCommunityMembership(
   currentPubkey: string,
 ): Promise<CommunityMembership> {
+  const relaySelf = await fetchRelaySelf();
   const events = await queryEvents(
     relayWsUrl(),
-    { kinds: [13534], limit: 1 },
+    { kinds: [13534], authors: [relaySelf], limit: 1 },
     { requireNip07: true },
   );
-  const snapshot = events.sort((a, b) => b.created_at - a.created_at)[0];
+  const snapshot = events
+    .filter(
+      (event) =>
+        event.kind === 13534 && event.pubkey.toLowerCase() === relaySelf,
+    )
+    .sort((a, b) => b.created_at - a.created_at)[0];
   if (!snapshot) return { members: [], currentRole: null };
 
   const seen = new Set<string>();

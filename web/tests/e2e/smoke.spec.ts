@@ -64,6 +64,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   const catalogSecret = new Uint8Array(32);
   catalogSecret[31] = 1;
   const catalogPubkey = getPublicKey(catalogSecret);
+  const projectPullRequestCreatedAt = Math.floor(Date.now() / 1000) - 120;
   const welcomeMessageEvent = finalizeEvent(
     {
       kind: 9,
@@ -905,7 +906,10 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
                     kind: 13534,
                     created_at: createdAt,
                     content: "",
-                    tags: [["member", ownerPubkey, "owner"]],
+                    tags: [
+                      ["member", ownerPubkey, "owner"],
+                      ["member", agentPubkey, "member"],
+                    ],
                   },
                   signer,
                 ),
@@ -1033,11 +1037,12 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
             const pullRequest = finalizeEvent(
               {
                 kind: 1618,
-                created_at: createdAt,
+                created_at: projectPullRequestCreatedAt,
                 content: "Bring the browser project view to parity.",
                 tags: [
                   ["a", `30617:${catalogPubkey}:relay-project`],
                   ["p", catalogPubkey],
+                  ["p", ownerPubkey],
                   ["subject", "Browser parity pull request"],
                   ["c", "ab".repeat(20)],
                   ["clone", "https://example.com/relay-project.git"],
@@ -1048,6 +1053,26 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
               signer,
             );
             socket.send(JSON.stringify(["EVENT", subscriptionId, pullRequest]));
+            socket.send(
+              JSON.stringify([
+                "EVENT",
+                subscriptionId,
+                finalizeEvent(
+                  {
+                    kind: 1,
+                    created_at: projectPullRequestCreatedAt + 20,
+                    content: "Forged approval claim",
+                    tags: [
+                      ["e", pullRequest.id, "", "root"],
+                      ["a", `30617:${catalogPubkey}:relay-project`],
+                      ["t", "approval"],
+                      ["c", "ab".repeat(20)],
+                    ],
+                  },
+                  agentSecret,
+                ),
+              ]),
+            );
             for (const unauthorizedEvent of [
               finalizeEvent(
                 {
@@ -2329,6 +2354,50 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await expect(page.getByText("feature/web-parity → main")).toBeVisible();
   await expect(page.getByText("abababa", { exact: false })).toBeVisible();
   await expect(page.getByText("cdcdcdc", { exact: false })).toHaveCount(0);
+  await expect(
+    page.getByText("Review requested - no approvals yet."),
+  ).toBeVisible();
+  await expect(page.getByText("Forged approval claim")).toBeVisible();
+  await expect(page.getByText("1 approval.")).toHaveCount(0);
+  await page.getByRole("button", { name: "Approve", exact: true }).click();
+  const approvePullRequestDialog = page.getByRole("dialog", {
+    name: "Approve pull request",
+  });
+  await approvePullRequestDialog
+    .getByLabel("Approval summary")
+    .fill("Looks good from the web reviewer");
+  await approvePullRequestDialog
+    .getByRole("button", { name: "Approve", exact: true })
+    .click();
+  await expect(page.getByText("1 approval.")).toBeVisible();
+  const trustedApproval = submittedEvents.find(
+    (event) =>
+      event.kind === 1 && event.content === "Looks good from the web reviewer",
+  );
+  expect(trustedApproval?.tags).toContainEqual(["t", "approval"]);
+  expect(trustedApproval?.tags).toContainEqual(["c", "ab".repeat(20)]);
+  await page
+    .getByRole("button", { name: "Request changes", exact: true })
+    .click();
+  const requestChangesDialog = page.getByRole("dialog", {
+    name: "Request changes",
+  });
+  await requestChangesDialog
+    .getByLabel("Change request summary")
+    .fill("Please add the missing browser coverage");
+  await requestChangesDialog
+    .getByRole("button", { name: "Request changes", exact: true })
+    .click();
+  await expect(page.getByText("1 reviewer requested changes.")).toBeVisible();
+  const trustedChangeRequest = submittedEvents.find(
+    (event) =>
+      event.kind === 1 &&
+      event.content === "Please add the missing browser coverage",
+  );
+  expect(trustedChangeRequest?.tags).toContainEqual(["t", "changes-requested"]);
+  expect(trustedChangeRequest?.created_at).toBeGreaterThan(
+    trustedApproval?.created_at ?? 0,
+  );
   await page
     .getByLabel("Add pull request comment")
     .fill("Reviewed the pull request from web");
@@ -2366,7 +2435,11 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await page.screenshot({ path: "/tmp/buzz-web-project-pr-mobile.png" });
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.getByRole("button", { name: "Back to pull requests" }).click();
-  await expect(page.getByText("1", { exact: true })).toBeVisible();
+  await expect(
+    page
+      .getByRole("button", { name: "Browser parity pull request" })
+      .locator("xpath=ancestor::article[1]"),
+  ).toContainText("4");
   await page.getByRole("button", { name: "Open pull request" }).click();
   const createPullRequestDialog = page.getByRole("dialog", {
     name: "Open a pull request",
@@ -2477,6 +2550,32 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
       );
     })
     .toBe(true);
+  await page.getByRole("button", { name: "Add reviewer" }).click();
+  const addReviewerDialog = page.getByRole("dialog", { name: "Add reviewer" });
+  const agentReviewerLabel = `${agentPubkey.slice(0, 8)}…${agentPubkey.slice(-4)}`;
+  await addReviewerDialog
+    .getByText(agentReviewerLabel, { exact: true })
+    .first()
+    .locator("xpath=ancestor::button[1]")
+    .click();
+  await expect
+    .poll(() =>
+      submittedEvents.some(
+        (event) =>
+          event.kind === 1 &&
+          event.tags.some(
+            (tag) => tag[0] === "e" && tag[1] === createdPullRequest?.id,
+          ) &&
+          event.tags.some((tag) => tag[0] === "p" && tag[1] === agentPubkey) &&
+          event.tags.some(
+            (tag) => tag[0] === "t" && tag[1] === "review-request",
+          ),
+      ),
+    )
+    .toBe(true);
+  await expect(
+    page.getByText(agentReviewerLabel, { exact: true }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Back to pull requests" }).click();
   await page.getByRole("link", { name: "Workflows" }).click();
   await expect(page.getByRole("heading", { name: "Workflows" })).toBeVisible();
