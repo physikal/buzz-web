@@ -1,7 +1,18 @@
 import { createHash, createHmac } from "node:crypto";
-import { expect, test } from "@playwright/test";
+import {
+  expect,
+  test,
+  type Download as PlaywrightDownload,
+} from "@playwright/test";
 import { v2 as nip44 } from "nostr-tools/nip44";
 import { finalizeEvent, getPublicKey, verifyEvent } from "nostr-tools/pure";
+
+async function downloadedBytes(download: PlaywrightDownload): Promise<Buffer> {
+  const stream = await download.createReadStream();
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) chunks.push(Buffer.from(chunk));
+  return Buffer.concat(chunks);
+}
 
 test("home page loads with Buzz branding", async ({ page }) => {
   await page.goto("/");
@@ -1079,6 +1090,87 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     })
     .toBe(true);
   await expect(page.getByText("Review lead")).toBeVisible();
+  await page.getByRole("button", { name: "Export Review lead" }).click();
+  const snapshotDownload = page.waitForEvent("download");
+  await page
+    .getByRole("dialog", { name: "Export Review lead" })
+    .getByRole("button", { name: "Export" })
+    .click();
+  const downloadedSnapshot = await snapshotDownload;
+  const snapshotBytes = await downloadedBytes(downloadedSnapshot);
+  expect(snapshotBytes.subarray(0, 8)).toEqual(
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+  );
+  expect(snapshotBytes.includes(Buffer.from("test-persona-api-key"))).toBe(
+    false,
+  );
+  await page.locator('input[type="file"]').setInputFiles({
+    name: "review-lead.agent.png",
+    mimeType: "image/png",
+    buffer: snapshotBytes,
+  });
+  await expect(
+    page.getByRole("dialog", { name: "Import agent snapshot" }),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByRole("dialog", { name: "Import agent snapshot" })
+      .getByText("Review lead"),
+  ).toBeVisible();
+  await page
+    .getByRole("dialog", { name: "Import agent snapshot" })
+    .getByRole("button", { name: "Close" })
+    .click();
+
+  const craftedSnapshot = Buffer.from(
+    JSON.stringify({
+      format: "buzz-agent-snapshot",
+      version: 1,
+      definition: {
+        name: "Snapshot auditor",
+        systemPrompt: "Inspect imported changes.",
+        runtime: "codex",
+        model: "gpt-5.4",
+        respondTo: "allowlist",
+        respondToAllowlist: ["aa".repeat(32)],
+        envVars: { OPENAI_API_KEY: "snapshot-secret" },
+        privateKeyNsec: "nsec1snapshot-secret",
+      },
+      profile: { displayName: "Snapshot auditor" },
+      memory: { level: "none" },
+    }),
+  );
+  await page.locator('input[type="file"]').setInputFiles({
+    name: "snapshot-auditor.agent.json",
+    mimeType: "application/json",
+    buffer: craftedSnapshot,
+  });
+  await page
+    .getByRole("dialog", { name: "Import agent snapshot" })
+    .getByRole("button", { name: "Import" })
+    .click();
+  await expect
+    .poll(() => {
+      const imported = submittedEvents.find(
+        (event) =>
+          event.kind === 30175 &&
+          event.content.includes('"display_name":"Snapshot auditor"'),
+      );
+      return (
+        imported?.content.includes('"respond_to":"owner-only"') === true &&
+        !imported.content.includes("respond_to_allowlist") &&
+        !imported.content.includes("snapshot-secret") &&
+        !imported.content.includes("privateKeyNsec")
+      );
+    })
+    .toBe(true);
+  await expect(
+    page.getByRole("heading", { name: "Deploy persona" }),
+  ).toBeVisible();
+  await page
+    .getByRole("dialog", { name: "Create agent" })
+    .getByRole("button", { name: "Close" })
+    .click();
   await page.getByRole("button", { name: "Agent catalog" }).click();
   await expect(
     page.getByRole("heading", { name: "Agent catalog" }),

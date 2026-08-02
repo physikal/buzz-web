@@ -15,7 +15,7 @@ export function PersonaDialog({
   persona: AgentPersona | null;
   pending: boolean;
   onClose: () => void;
-  onSave: (input: PersonaInput) => Promise<void>;
+  onSave: (input: PersonaInput) => Promise<unknown>;
 }) {
   const [displayName, setDisplayName] = useState(persona?.displayName ?? "");
   const [systemPrompt, setSystemPrompt] = useState(persona?.systemPrompt ?? "");

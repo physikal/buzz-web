@@ -2,19 +2,27 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Bot,
   Copy,
+  Download,
   Globe2,
+  Library,
   LockKeyhole,
   Pencil,
   Play,
   Plus,
   Trash2,
-  Library,
+  Upload,
 } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
+import {
+  decodeAgentSnapshot,
+  type DecodedAgentSnapshot,
+  exportAgentSnapshot,
+  snapshotPersonaInput,
+} from "../agent-snapshot";
 import {
   deletePersona,
   type AgentPersona,
@@ -29,6 +37,8 @@ import {
   listPersonaCatalog,
 } from "../persona-catalog-api";
 import { PersonaCatalogDialog } from "./PersonaCatalogDialog";
+import { AgentSnapshotExportDialog } from "./AgentSnapshotExportDialog";
+import { AgentSnapshotImportDialog } from "./AgentSnapshotImportDialog";
 
 export function PersonasSection({
   ownerPubkey,
@@ -41,6 +51,10 @@ export function PersonasSection({
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<AgentPersona | null>(null);
   const [catalogOpen, setCatalogOpen] = useState(false);
+  const [exporting, setExporting] = useState<AgentPersona | null>(null);
+  const [snapshotImport, setSnapshotImport] =
+    useState<DecodedAgentSnapshot | null>(null);
+  const snapshotInput = useRef<HTMLInputElement>(null);
   const query = useQuery({
     queryKey: ["agent-personas", ownerPubkey],
     queryFn: () => listPersonas(ownerPubkey),
@@ -92,17 +106,59 @@ export function PersonasSection({
     onError: (error) =>
       toast.error("Could not add persona", { description: error.message }),
   });
+  const importSnapshot = useMutation({
+    mutationFn: (keepAllowlist: boolean) => {
+      if (!snapshotImport) throw new Error("Choose an agent snapshot.");
+      return savePersona(
+        snapshotPersonaInput(snapshotImport.snapshot, keepAllowlist),
+      );
+    },
+    onSuccess: (persona) => {
+      setSnapshotImport(null);
+      void refresh();
+      toast.success("Agent snapshot imported");
+      onDeploy(persona);
+    },
+    onError: (error) =>
+      toast.error("Could not import snapshot", { description: error.message }),
+  });
 
   return (
     <section className="space-y-3">
-      <header className="flex items-center justify-between gap-4">
+      <header className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
         <div>
           <h2 className="text-lg font-semibold">Personas</h2>
           <p className="text-sm text-muted-foreground">
             Reusable agent definitions synced through your relay.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <input
+            accept=".agent.json,.agent.png,application/json,image/png"
+            className="hidden"
+            onChange={async (event) => {
+              const file = event.target.files?.[0];
+              event.target.value = "";
+              if (!file) return;
+              try {
+                setSnapshotImport(await decodeAgentSnapshot(file));
+              } catch (error) {
+                toast.error("Could not read snapshot", {
+                  description:
+                    error instanceof Error ? error.message : "Invalid file.",
+                });
+              }
+            }}
+            ref={snapshotInput}
+            type="file"
+          />
+          <Button
+            onClick={() => snapshotInput.current?.click()}
+            size="sm"
+            variant="outline"
+          >
+            <Upload /> Import snapshot
+          </Button>
           <Button
             onClick={() => setCatalogOpen(true)}
             size="sm"
@@ -184,6 +240,15 @@ export function PersonasSection({
                   <Pencil />
                 </Button>
                 <Button
+                  aria-label={`Export ${persona.displayName}`}
+                  onClick={() => setExporting(persona)}
+                  size="icon"
+                  title="Export snapshot"
+                  variant="ghost"
+                >
+                  <Download />
+                </Button>
+                <Button
                   aria-label={`Duplicate ${persona.displayName}`}
                   disabled={save.isPending}
                   onClick={() =>
@@ -246,6 +311,32 @@ export function PersonasSection({
           localPersonas={query.data ?? []}
           onClose={() => setCatalogOpen(false)}
           onImport={(persona) => importPersona.mutate(persona)}
+        />
+      ) : null}
+      {exporting ? (
+        <AgentSnapshotExportDialog
+          persona={exporting}
+          onClose={() => setExporting(null)}
+          onExport={async (format) => {
+            try {
+              await exportAgentSnapshot(exporting, format);
+              toast.success("Agent snapshot exported");
+            } catch (error) {
+              toast.error("Could not export snapshot", {
+                description:
+                  error instanceof Error ? error.message : "Export failed.",
+              });
+              throw error;
+            }
+          }}
+        />
+      ) : null}
+      {snapshotImport ? (
+        <AgentSnapshotImportDialog
+          decoded={snapshotImport}
+          pending={importSnapshot.isPending}
+          onClose={() => setSnapshotImport(null)}
+          onImport={(keepAllowlist) => importSnapshot.mutate(keepAllowlist)}
         />
       ) : null}
     </section>

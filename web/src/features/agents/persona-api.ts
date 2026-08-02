@@ -51,7 +51,7 @@ function optionalString(value: unknown, maxLength: number) {
       : undefined;
 }
 
-function safeAvatarUrl(value: string | null): string | null {
+export function safePersonaAvatarUrl(value: string | null): string | null {
   if (!value) return null;
   if (value.startsWith("data:image/svg+xml,") && value.length <= 8_192)
     return value;
@@ -82,7 +82,7 @@ function parsePersona(event: NostrEvent): AgentPersona | null {
       return null;
     const displayName = optionalString(content.display_name, 120);
     const systemPrompt = optionalString(content.system_prompt, 128 * 1024);
-    const avatarUrl = optionalString(content.avatar_url, 2048);
+    const avatarUrl = optionalString(content.avatar_url, 256 * 1024);
     const runtime = optionalString(content.runtime, 64);
     const model = optionalString(content.model, 255);
     const provider = optionalString(content.provider, 64);
@@ -129,7 +129,7 @@ function parsePersona(event: NostrEvent): AgentPersona | null {
       createdAt: event.created_at,
       displayName: displayName.trim(),
       systemPrompt: systemPrompt ?? "",
-      avatarUrl: safeAvatarUrl(avatarUrl),
+      avatarUrl: safePersonaAvatarUrl(avatarUrl),
       runtime: supportedRuntime,
       model,
       provider,
@@ -218,7 +218,7 @@ export async function savePersona(
   const content = JSON.stringify(personaContent(input));
   if (new TextEncoder().encode(content).length > 65_535)
     throw new Error("Persona configuration is too large.");
-  await submitEvent({
+  const { event } = await submitEvent({
     kind: PERSONA_KIND,
     created_at: existing
       ? Math.max(Math.floor(Date.now() / 1000), existing.createdAt + 1)
@@ -238,6 +238,9 @@ export async function savePersona(
     ],
     content,
   });
+  const persona = parsePersona(event);
+  if (!persona) throw new Error("The saved persona could not be read back.");
+  return persona;
 }
 
 export async function deletePersona(
