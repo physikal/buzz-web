@@ -219,6 +219,72 @@ function ViewerBody({
   }
 }
 
+export function RepoBlobPreview({
+  allowHtmlRun = false,
+  filepath,
+  owner,
+  refName,
+  repoName,
+  view,
+}: {
+  allowHtmlRun?: boolean;
+  filepath: string;
+  owner: string;
+  refName: string;
+  repoName: string;
+  view: BlobView;
+}) {
+  const [running, setRunning] = useState(false);
+  const isHtml = view.kind === "html";
+  const canRunHtml = allowHtmlRun && isHtml;
+  const { data: htmlDoc, isFetching: htmlFetching } = useGitHtmlDoc(
+    owner,
+    repoName,
+    refName,
+    filepath,
+    isHtml ? view.content : "",
+    running && canRunHtml,
+  );
+  const filename = basename(filepath);
+  return (
+    <>
+      <div className="mb-4 flex justify-end gap-2">
+        {(view.kind === "text" ||
+          view.kind === "markdown" ||
+          view.kind === "html") && <CopyTextButton content={view.content} />}
+        {canRunHtml ? (
+          <Button
+            onClick={() => setRunning((current) => !current)}
+            size="sm"
+            variant={running ? "secondary" : "default"}
+          >
+            <Play className="h-4 w-4" />
+            {running ? "Show source" : "Run"}
+          </Button>
+        ) : null}
+        {view.kind !== "text" &&
+        view.kind !== "markdown" &&
+        view.kind !== "html" ? (
+          <DownloadButton
+            bytes={view.bytes}
+            contentType={
+              view.kind === "image"
+                ? view.contentType
+                : "application/octet-stream"
+            }
+            filename={filename}
+          />
+        ) : null}
+      </div>
+      <ViewerBody
+        filename={filename}
+        htmlDoc={running && !htmlFetching ? (htmlDoc ?? null) : null}
+        view={view}
+      />
+    </>
+  );
+}
+
 export function RepoBlobPage() {
   const { repoId, _splat } = useParams({ from: "/repos/$repoId/blob/$" });
   const filepath = _splat ?? "";

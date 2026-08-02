@@ -3,16 +3,11 @@ import { GitBranch, Tag, Users } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
-import {
-  useGitLog,
-  useGitReadme,
-  useGitTree,
-} from "@/features/repos/use-git-browse";
+import { useGitLog, useGitReadme } from "@/features/repos/use-git-browse";
 import { useRepoRefs } from "@/features/repos/use-repo-refs";
 import { RepoCommitsSection } from "@/features/repos/ui/RepoCommitsSection";
 import { RepoReadmeSection } from "@/features/repos/ui/RepoReadmeSection";
 import { RepoRefsSection } from "@/features/repos/ui/RepoRefsSection";
-import { RepoTreeSection } from "@/features/repos/ui/RepoTreeSection";
 import { truncatePubkey } from "@/shared/lib/pubkey";
 import { DestructiveConfirmDialog } from "@/shared/ui/destructive-confirm-dialog";
 import {
@@ -25,6 +20,7 @@ import {
   ProjectRepositoryRefControls,
   type RepositoryRefControlsProps,
 } from "./ProjectRepositoryRefControls";
+import { ProjectFilesBrowser } from "./ProjectFilesBrowser";
 
 export type ProjectRepositoryView =
   | "overview"
@@ -261,21 +257,11 @@ function ProjectFiles({
   refName: string;
   refsQuery: RefsQuery;
 }) {
-  const tree = useGitTree(project.owner, project.dtag, refName);
   return (
     <>
       <ProjectRepositoryRefControls {...refControls} />
-      <RepositoryError error={refsQuery.error ?? tree.error} />
-      <RepoTreeSection
-        entries={tree.data}
-        isLoading={tree.isLoading}
-        repoId={project.dtag}
-      />
-      {!tree.isLoading && !tree.error && !tree.data?.length ? (
-        <p className="mt-8 text-sm text-muted-foreground">
-          No files are available on {refName}.
-        </p>
-      ) : null}
+      <RepositoryError error={refsQuery.error} />
+      <ProjectFilesBrowser key={refName} project={project} refName={refName} />
     </>
   );
 }

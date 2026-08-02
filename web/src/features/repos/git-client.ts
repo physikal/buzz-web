@@ -222,6 +222,23 @@ export interface TreeEntry {
   oid: string;
 }
 
+function isSafeTreeEntryName(name: string) {
+  if (
+    name.length === 0 ||
+    name.length > 255 ||
+    name === "." ||
+    name === ".." ||
+    name.includes("/") ||
+    name.includes("\\")
+  ) {
+    return false;
+  }
+  return ![...name].some((character) => {
+    const code = character.charCodeAt(0);
+    return code <= 0x1f || code === 0x7f;
+  });
+}
+
 /** Read tree entries at a given path (or root if no filepath). */
 export async function readTreeEntries(
   fs: LightningFS,
@@ -230,12 +247,14 @@ export async function readTreeEntries(
   filepath?: string,
 ): Promise<TreeEntry[]> {
   const result = await readTree({ fs, dir, oid, filepath });
-  return result.tree.map((entry) => ({
-    name: entry.path,
-    type: entry.type as "blob" | "tree",
-    mode: entry.mode,
-    oid: entry.oid,
-  }));
+  return result.tree
+    .filter((entry) => isSafeTreeEntryName(entry.path))
+    .map((entry) => ({
+      name: entry.path,
+      type: entry.type as "blob" | "tree",
+      mode: entry.mode,
+      oid: entry.oid,
+    }));
 }
 
 export interface FileContent {
