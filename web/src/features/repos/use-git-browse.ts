@@ -20,10 +20,15 @@ import {
  * Ensure the repo is cloned (or fetched) into IndexedDB.
  * Other hooks depend on this to get `fs` and `dir`.
  */
-export function useGitClone(owner: string, repoName: string, ref: string) {
+export function useGitClone(
+  owner: string,
+  repoName: string,
+  ref: string,
+  depth: number | null = 1,
+) {
   return useQuery({
-    queryKey: ["git-clone", owner, repoName, ref],
-    queryFn: () => ensureClone(owner, repoName, ref),
+    queryKey: ["git-clone", owner, repoName, ref, depth],
+    queryFn: () => ensureClone(owner, repoName, ref, depth),
     staleTime: 5 * 60_000,
     enabled: !!owner && !!repoName && !!ref,
     retry: false,
@@ -61,7 +66,7 @@ export function useGitTree(
 
 /** Get recent commits for the given ref. */
 export function useGitLog(owner: string, repoName: string, ref: string) {
-  const cloneQuery = useGitClone(owner, repoName, ref);
+  const cloneQuery = useGitClone(owner, repoName, ref, 100);
 
   return useQuery({
     queryKey: ["git-log", owner, repoName, ref],

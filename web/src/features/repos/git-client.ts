@@ -122,6 +122,7 @@ export async function ensureClone(
   owner: string,
   repoName: string,
   ref: string,
+  depth: number | null = 1,
 ): Promise<{ fs: LightningFS; dir: string }> {
   try {
     return await ensureCloneFromUrl(
@@ -129,6 +130,7 @@ export async function ensureClone(
       repoName,
       repoGitUrl(owner, repoName),
       ref,
+      depth,
     );
   } catch (error) {
     const fs = getFs(owner, repoName);

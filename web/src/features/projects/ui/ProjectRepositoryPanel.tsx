@@ -3,6 +3,7 @@ import { GitBranch, Tag, Users } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
+import type { CommitInfo } from "@/features/repos/git-client";
 import { useGitLog, useGitReadme } from "@/features/repos/use-git-browse";
 import { useRepoRefs } from "@/features/repos/use-repo-refs";
 import { RepoCommitsSection } from "@/features/repos/ui/RepoCommitsSection";
@@ -21,6 +22,7 @@ import {
   type RepositoryRefControlsProps,
 } from "./ProjectRepositoryRefControls";
 import { ProjectFilesBrowser } from "./ProjectFilesBrowser";
+import { ProjectCommitDetail } from "./ProjectCommitDetail";
 
 export type ProjectRepositoryView =
   | "overview"
@@ -277,8 +279,19 @@ function ProjectCommits({
   refType: "branch" | "tag";
   refsQuery: RefsQuery;
 }) {
+  const [selectedCommit, setSelectedCommit] = useState<CommitInfo | null>(null);
   const commits = useGitLog(project.owner, project.dtag, refName);
   const RefIcon = refType === "tag" ? Tag : GitBranch;
+  if (selectedCommit) {
+    return (
+      <ProjectCommitDetail
+        commit={selectedCommit}
+        onBack={() => setSelectedCommit(null)}
+        project={project}
+        refName={refName}
+      />
+    );
+  }
   return (
     <>
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -289,6 +302,7 @@ function ProjectCommits({
       <RepoCommitsSection
         commits={commits.data}
         isLoading={commits.isLoading}
+        onSelect={setSelectedCommit}
       />
       {!commits.isLoading && !commits.error && !commits.data?.length ? (
         <p className="mt-8 text-sm text-muted-foreground">

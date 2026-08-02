@@ -4,10 +4,12 @@ import {
   readCommit,
   TREE,
   walk,
+  writeTree,
   type WalkerEntry,
 } from "isomorphic-git";
 
 import {
+  ensureClone,
   ensureCloneFromUrl,
   fetchCloneRef,
   validateRelayGitUrl,
@@ -143,6 +145,62 @@ async function changedFile(
   };
 }
 
+async function diffTrees(
+  fs: Awaited<ReturnType<typeof ensureCloneFromUrl>>["fs"],
+  dir: string,
+  baseOid: string,
+  targetOid: string,
+): Promise<ProjectDiff> {
+  let changedCount = 0;
+  const files = (await walk({
+    fs,
+    dir,
+    trees: [TREE({ ref: baseOid }), TREE({ ref: targetOid })],
+    map: async (path, entries) => {
+      if (path === "." || changedCount >= MAX_CHANGED_FILES) return null;
+      const file = await changedFile(path, entries[0], entries[1]);
+      if (file) changedCount += 1;
+      return file;
+    },
+    iterate: async (visit, children) => {
+      const results = [];
+      for (const child of children) {
+        if (changedCount >= MAX_CHANGED_FILES) break;
+        results.push(await visit(child));
+      }
+      return results;
+    },
+  })) as ProjectDiffFile[];
+  const safeFiles = files.filter(Boolean).slice(0, MAX_CHANGED_FILES);
+  return {
+    files: safeFiles,
+    additions: safeFiles.reduce((sum, file) => sum + file.additions, 0),
+    deletions: safeFiles.reduce((sum, file) => sum + file.deletions, 0),
+  };
+}
+
+export async function loadProjectCommitDiff(
+  project: Project,
+  refName: string,
+  commitOid: string,
+): Promise<ProjectDiff> {
+  if (!cleanBranch(refName)) throw new Error("Repository ref is invalid.");
+  if (!validCommit(commitOid)) throw new Error("Commit is invalid.");
+  const { fs, dir } = await ensureClone(
+    project.owner,
+    project.dtag,
+    refName,
+    100,
+  );
+  if (!(await hasCommit(fs, dir, commitOid))) {
+    throw new Error("The selected commit is not available in this repository.");
+  }
+  const { commit } = await readCommit({ fs, dir, oid: commitOid });
+  const parentOid =
+    commit.parent[0] ?? (await writeTree({ fs, dir, tree: [] }));
+  return diffTrees(fs, dir, parentOid, commitOid);
+}
+
 export async function loadProjectPullRequestDiff(
   project: Project,
   pullRequest: ProjectPullRequest,
@@ -205,30 +263,5 @@ export async function loadProjectPullRequestDiff(
     // A shallow or unrelated fork can still be compared against the base tip.
   }
 
-  let changedCount = 0;
-  const files = (await walk({
-    fs,
-    dir,
-    trees: [TREE({ ref: comparisonBase }), TREE({ ref: pullRequest.commit })],
-    map: async (path, entries) => {
-      if (path === "." || changedCount >= MAX_CHANGED_FILES) return null;
-      const file = await changedFile(path, entries[0], entries[1]);
-      if (file) changedCount += 1;
-      return file;
-    },
-    iterate: async (visit, children) => {
-      const results = [];
-      for (const child of children) {
-        if (changedCount >= MAX_CHANGED_FILES) break;
-        results.push(await visit(child));
-      }
-      return results;
-    },
-  })) as ProjectDiffFile[];
-  const safeFiles = files.filter(Boolean).slice(0, MAX_CHANGED_FILES);
-  return {
-    files: safeFiles,
-    additions: safeFiles.reduce((sum, file) => sum + file.additions, 0),
-    deletions: safeFiles.reduce((sum, file) => sum + file.deletions, 0),
-  };
+  return diffTrees(fs, dir, comparisonBase, pullRequest.commit);
 }

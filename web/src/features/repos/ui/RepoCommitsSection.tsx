@@ -1,11 +1,21 @@
-import { GitCommit } from "lucide-react";
+import { Check, Copy, GitCommit } from "lucide-react";
+import { useState } from "react";
+import { toast } from "sonner";
 import { relativeTime } from "@/shared/lib/relative-time";
+import { Button } from "@/shared/ui/button";
 import type { CommitInfo } from "../git-client";
 
-function CommitRow({ commit }: { commit: CommitInfo }) {
+function CommitRow({
+  commit,
+  onSelect,
+}: {
+  commit: CommitInfo;
+  onSelect?: (commit: CommitInfo) => void;
+}) {
   const firstLine = commit.message.split("\n")[0];
-  return (
-    <div className="flex items-start gap-3 border-b border-black/10 px-3 py-2.5 text-sm text-black last:border-b-0 dark:border-white/10 dark:text-white">
+  const [copied, setCopied] = useState(false);
+  const content = (
+    <>
       <GitCommit className="mt-0.5 h-4 w-4 shrink-0 text-black/50 dark:text-white/50" />
       <div className="min-w-0 flex-1">
         <p className="truncate font-medium">{firstLine}</p>
@@ -13,19 +23,56 @@ function CommitRow({ commit }: { commit: CommitInfo }) {
           {commit.author.name} committed {relativeTime(commit.author.timestamp)}
         </p>
       </div>
+    </>
+  );
+  return (
+    <article className="flex items-center border-b border-black/10 text-sm text-black last:border-b-0 dark:border-white/10 dark:text-white">
+      {onSelect ? (
+        <button
+          className="flex min-w-0 flex-1 items-start gap-3 px-3 py-2.5 text-left hover:bg-black/5 dark:hover:bg-white/5"
+          onClick={() => onSelect(commit)}
+          type="button"
+        >
+          {content}
+        </button>
+      ) : (
+        <div className="flex min-w-0 flex-1 items-start gap-3 px-3 py-2.5">
+          {content}
+        </div>
+      )}
       <code className="shrink-0 self-center rounded bg-black/5 px-1.5 py-0.5 font-mono text-xs text-black/50 dark:bg-white/10 dark:text-white/50">
         {commit.oid.slice(0, 7)}
       </code>
-    </div>
+      <Button
+        aria-label={`Copy commit ${commit.oid.slice(0, 7)}`}
+        className="mx-1 shrink-0"
+        onClick={() => {
+          void navigator.clipboard
+            .writeText(commit.oid)
+            .then(() => {
+              setCopied(true);
+              setTimeout(() => setCopied(false), 2_000);
+            })
+            .catch(() => toast.error("Could not copy commit hash"));
+        }}
+        size="icon"
+        title="Copy commit hash"
+        variant="ghost"
+      >
+        {copied ? <Check /> : <Copy />}
+      </Button>
+    </article>
   );
 }
 
 export function RepoCommitsSection({
   commits,
   isLoading,
+  onSelect,
 }: {
   commits: CommitInfo[] | undefined;
   isLoading: boolean;
+  onSelect?: (commit: CommitInfo) => void;
 }) {
   if (isLoading) {
     return (
@@ -62,7 +109,7 @@ export function RepoCommitsSection({
       </h2>
       <div className="overflow-hidden rounded-lg border border-black/10 bg-white/50 dark:border-white/10 dark:bg-white/5">
         {commits.map((commit) => (
-          <CommitRow key={commit.oid} commit={commit} />
+          <CommitRow key={commit.oid} commit={commit} onSelect={onSelect} />
         ))}
       </div>
     </div>
