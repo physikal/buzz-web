@@ -45,6 +45,11 @@ recovery code**. Buzz decrypts the existing owner key locally using the
 256-bit code; it does not send that code or the plaintext key to the relay.
 Every browser still controls the same centralized channels and agents.
 
+After unlocking, the owner can open **Settings → Profile → Encrypted owner
+backup** to download a standard password-protected NIP-49 file. Encryption runs
+inside the signing worker; Buzz does not upload the backup password, the file,
+or the plaintext owner key. Store the file separately from its password.
+
 ## Channels and subscription agents
 
 The first owner visit creates the same `general` and `welcome-everyone`

@@ -24,7 +24,11 @@ runtime and does not give an agent process access to Docker.
 - Plaintext owner-key operations live in a dedicated browser worker. React code
   receives only the public key, encrypted wrappers, and signed events. The
   worker zeroes and drops the key on explicit lock and automatically locks after
-  15 minutes without signing. Closing the page destroys the worker.
+  15 minutes without signing. Closing the page destroys the worker. An owner may
+  explicitly create a standard NIP-49 backup; scrypt and XChaCha20-Poly1305 run
+  inside the same worker, and only the password-encrypted `ncryptsec` artifact
+  crosses back to the page for download. The web UI does not expose a raw
+  private-key reveal path.
 - The relay verifies that the signer is the tenant's current relay owner before
   listing, creating, starting, stopping, or deleting hosted agents.
 - The relay creates agent identities server-side. Agent private keys and
@@ -112,10 +116,13 @@ runtime and does not give an agent process access to Docker.
    to decrypt the vault and may be stored in a separate password manager for
    cross-device access. Do not store it in Dokploy, the Buzz database, or the
    same backup set as the encrypted vault.
-4. Keep `respond_to` set to `owner-only` unless broader access is intentional.
+4. Store an exported NIP-49 file separately from its backup password. A weak or
+   reused password reduces the protection of the downloaded file even though
+   the server never receives either value.
+5. Keep `respond_to` set to `owner-only` unless broader access is intentional.
    A permitted author can ask an agent to exercise whatever repository,
    network, and provider access that particular harness has.
-5. Review and rebuild pinned harness dependencies regularly. Do not install
+6. Review and rebuild pinned harness dependencies regularly. Do not install
    extra runtimes in the relay image.
 
 ## Residual risk
