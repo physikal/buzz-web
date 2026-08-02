@@ -10,6 +10,7 @@ import {
   FolderKanban,
   GitFork,
   Inbox,
+  Keyboard,
   LogOut,
   MessageSquare,
   MonitorCog,
@@ -35,6 +36,7 @@ import { Input } from "@/shared/ui/input";
 import { CommunityMembersPanel } from "./CommunityMembersPanel";
 import { AgentDefaultsPanel } from "./AgentDefaultsPanel";
 import { CustomEmojiPanel } from "./CustomEmojiPanel";
+import { KeyboardShortcutsPanel } from "./KeyboardShortcutsPanel";
 import { ModerationPanel } from "./ModerationPanel";
 import {
   getOwnerProfile,
@@ -51,6 +53,7 @@ type Section =
   | "profile"
   | "notifications"
   | "appearance"
+  | "shortcuts"
   | "agents"
   | "channel-templates"
   | "reminders"
@@ -121,6 +124,7 @@ function SettingsWorkspace({
           ) : null}
           {section === "notifications" ? <NotificationsPanel /> : null}
           {section === "appearance" ? <AppearancePanel /> : null}
+          {section === "shortcuts" ? <KeyboardShortcutsPanel /> : null}
           {section === "agents" ? (
             <AgentDefaultsPanel ownerPubkey={ownerPubkey} />
           ) : null}
@@ -156,6 +160,7 @@ function SettingsNav({
     ["profile", "Profile", <UserRound key="profile" />],
     ["notifications", "Notifications", <Bell key="notifications" />],
     ["appearance", "Appearance", <MonitorCog key="appearance" />],
+    ["shortcuts", "Shortcuts", <Keyboard key="shortcuts" />],
     ["agents", "Agents", <Bot key="agents" />],
     ["channel-templates", "Templates", <FileStack key="templates" />],
     ["reminders", "Reminders", <CalendarClock key="reminders" />],

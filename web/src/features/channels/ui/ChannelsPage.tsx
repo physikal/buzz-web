@@ -42,6 +42,11 @@ import { truncatePubkey } from "@/shared/lib/pubkey";
 import { relayWsUrl } from "@/shared/lib/relay-url";
 import { Button } from "@/shared/ui/button";
 import {
+  CHANNEL_ACTION_EVENT,
+  type ChannelAction,
+  isChannelAction,
+} from "../channel-actions";
+import {
   addReaction,
   archiveChannel,
   createChannel,
@@ -90,9 +95,11 @@ import {
 import { ReportMessageDialog } from "./ReportMessageDialog";
 
 export function ChannelsPage({
+  initialAction,
   initialChannelId,
   initialMessageId,
 }: {
+  initialAction?: ChannelAction;
   initialChannelId?: string;
   initialMessageId?: string;
 } = {}) {
@@ -100,6 +107,7 @@ export function ChannelsPage({
   if (!ownerPubkey) return <OwnerConnection onConnected={setOwnerPubkey} />;
   return (
     <ChannelsWorkspace
+      initialAction={initialAction}
       initialChannelId={initialChannelId}
       initialMessageId={initialMessageId}
       ownerPubkey={ownerPubkey}
@@ -116,11 +124,13 @@ function ChannelsWorkspace({
   onDisconnect,
   initialChannelId,
   initialMessageId,
+  initialAction,
 }: {
   ownerPubkey: string;
   onDisconnect: () => void;
   initialChannelId?: string;
   initialMessageId?: string;
+  initialAction?: ChannelAction;
 }) {
   const queryClient = useQueryClient();
   const [selectedId, setSelectedId] = useState<string | null>(
@@ -145,6 +155,22 @@ function ChannelsWorkspace({
     channelId: string;
     templateId: string;
   } | null>(null);
+
+  useEffect(() => {
+    const open = (action: ChannelAction) => {
+      if (action === "browse") setBrowserOpen(true);
+      if (action === "create") setCreateOpen(true);
+      if (action === "dm") setDmOpen(true);
+      if (action === "search") setSearchOpen(true);
+    };
+    if (initialAction) open(initialAction);
+    const handleAction = (event: Event) => {
+      const action = (event as CustomEvent<unknown>).detail;
+      if (isChannelAction(action)) open(action);
+    };
+    window.addEventListener(CHANNEL_ACTION_EVENT, handleAction);
+    return () => window.removeEventListener(CHANNEL_ACTION_EVENT, handleAction);
+  }, [initialAction]);
 
   const channelsQuery = useQuery({
     queryKey: ["channels", ownerPubkey],

@@ -1636,6 +1636,41 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await page.getByRole("button", { name: "Add passkey" }).click();
   await expect(page.getByText("Passkey added")).toBeVisible();
   expect(addedCredentialCount).toBe(1);
+  await page.getByRole("button", { name: "Shortcuts" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Keyboard shortcuts" }),
+  ).toBeVisible();
+  await expect(page.getByText("Quick search", { exact: true })).toBeVisible();
+  const shortcutModifier = await page.evaluate(() =>
+    /Mac|iPhone|iPad|iPod/u.test(navigator.platform) ? "Meta" : "Control",
+  );
+  await page.keyboard.press(`${shortcutModifier}+K`);
+  const shortcutSearch = page.getByRole("dialog", {
+    name: "Search messages",
+  });
+  await expect(shortcutSearch).toBeVisible();
+  await shortcutSearch.getByRole("button", { name: "Close" }).click();
+  await page.keyboard.press(`${shortcutModifier}+Shift+K`);
+  const shortcutDm = page.getByRole("dialog", { name: "New message" });
+  await expect(shortcutDm).toBeVisible();
+  await shortcutDm.getByRole("button", { name: "Close" }).click();
+  await page.keyboard.press(`${shortcutModifier}+Shift+O`);
+  const shortcutBrowser = page.getByRole("dialog", {
+    name: "Browse channels",
+  });
+  await expect(shortcutBrowser).toBeVisible();
+  await shortcutBrowser.getByRole("button", { name: "Close" }).click();
+  await page.keyboard.press(`${shortcutModifier}+Shift+N`);
+  const shortcutCreate = page.getByRole("dialog", { name: "Create channel" });
+  await expect(shortcutCreate).toBeVisible();
+  await shortcutCreate.getByRole("button", { name: "Close" }).click();
+  await page.keyboard.press(`${shortcutModifier}+,`);
+  await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Profile" })).toBeVisible();
+  await page.keyboard.press(`${shortcutModifier}+Shift+A`);
+  await expect(page.getByRole("heading", { name: "Inbox" })).toBeVisible();
+  await page.keyboard.press(`${shortcutModifier}+,`);
+  await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
   await page.getByLabel("Status emoji").fill("focus");
   await page.getByLabel("Status text").fill("Reviewing the web client");
   await page.getByRole("button", { name: "Set status" }).click();

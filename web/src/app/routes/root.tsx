@@ -1,6 +1,16 @@
-import { Outlet, createRootRoute } from "@tanstack/react-router";
+import {
+  Outlet,
+  createRootRoute,
+  useNavigate,
+  useRouterState,
+} from "@tanstack/react-router";
 import { Suspense, useEffect, useState } from "react";
 
+import {
+  CHANNEL_ACTION_EVENT,
+  type ChannelAction,
+} from "@/features/channels/channel-actions";
+import { hasUnlockedOwnerVault } from "@/features/owner-vault/lib/vault-worker-client";
 import { ReminderNotifier } from "@/features/reminders/ui/ReminderNotifier";
 
 export const Route = createRootRoute({
@@ -9,6 +19,10 @@ export const Route = createRootRoute({
 
 function RootLayout() {
   const [ownerPubkey, setOwnerPubkey] = useState<string | null>(null);
+  const navigate = useNavigate();
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  });
 
   useEffect(() => {
     const connected = (event: Event) => {
@@ -25,6 +39,64 @@ function RootLayout() {
       window.removeEventListener("buzz-web:owner-disconnected", disconnected);
     };
   }, []);
+
+  useEffect(() => {
+    const openChannelAction = (action: ChannelAction) => {
+      if (pathname === "/channels") {
+        window.dispatchEvent(
+          new CustomEvent(CHANNEL_ACTION_EVENT, { detail: action }),
+        );
+        return;
+      }
+      void navigate({ to: "/channels", search: { action } });
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!hasUnlockedOwnerVault()) return;
+      if (event.defaultPrevented || event.repeat) return;
+      const mac = /Mac|iPhone|iPad|iPod/u.test(navigator.platform);
+      const primary = mac ? event.metaKey : event.ctrlKey;
+      if (
+        !mac &&
+        event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        (event.key === "ArrowLeft" || event.key === "ArrowRight")
+      ) {
+        event.preventDefault();
+        if (event.key === "ArrowLeft") window.history.back();
+        else window.history.forward();
+        return;
+      }
+      if (!primary || event.altKey) return;
+      const key = event.key.toLowerCase();
+      if (key === "[" && !event.shiftKey) {
+        event.preventDefault();
+        window.history.back();
+      } else if (key === "]" && !event.shiftKey) {
+        event.preventDefault();
+        window.history.forward();
+      } else if (key === "," && !event.shiftKey) {
+        event.preventDefault();
+        void navigate({ to: "/settings" });
+      } else if (key === "a" && event.shiftKey) {
+        event.preventDefault();
+        void navigate({ to: "/" });
+      } else if (key === "k") {
+        event.preventDefault();
+        openChannelAction(event.shiftKey ? "dm" : "search");
+      } else if (key === "n" && event.shiftKey) {
+        event.preventDefault();
+        openChannelAction("create");
+      } else if (key === "o" && event.shiftKey) {
+        event.preventDefault();
+        openChannelAction("browse");
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [navigate, pathname]);
 
   return (
     <div className="flex min-h-dvh flex-col">
