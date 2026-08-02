@@ -972,6 +972,12 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
             ))
               socket.send(JSON.stringify(["EVENT", subscriptionId, workflow]));
           }
+          if (filters.includes("1621")) {
+            for (const event of submittedEvents.filter((candidate) =>
+              [1621, 1630, 1631, 1632, 1633].includes(candidate.kind),
+            ))
+              socket.send(JSON.stringify(["EVENT", subscriptionId, event]));
+          }
           if (filters.includes('"kinds":[1]')) {
             const pulseNote = finalizeEvent(
               {
@@ -994,6 +1000,10 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
                 },
               ]),
             );
+            for (const event of submittedEvents.filter(
+              (candidate) => candidate.kind === 1,
+            ))
+              socket.send(JSON.stringify(["EVENT", subscriptionId, event]));
           }
           if (filters.includes("10100")) {
             socket.send(
@@ -2160,6 +2170,41 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
       ),
     )
     .toBe(true);
+  await expect(
+    page.getByRole("button", { name: "Browser issue" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Browser issue" }).click();
+  await expect(
+    page.getByRole("button", { name: "Back to issues" }),
+  ).toBeVisible();
+  await expect(page.getByText("Track this from Buzz Web")).toBeVisible();
+  await page
+    .getByLabel("Add your comment")
+    .fill("Reviewed from the web issue view");
+  await page.getByRole("button", { name: "Comment", exact: true }).click();
+  await expect
+    .poll(() =>
+      submittedEvents.some(
+        (event) =>
+          event.kind === 1 &&
+          event.content === "Reviewed from the web issue view" &&
+          event.tags.some((tag) => tag[0] === "e" && tag[3] === "root") &&
+          event.tags.some(
+            (tag) =>
+              tag[0] === "a" &&
+              tag[1] === `30617:${catalogPubkey}:relay-project`,
+          ),
+      ),
+    )
+    .toBe(true);
+  await expect(
+    page
+      .locator("article")
+      .filter({ hasText: "Reviewed from the web issue view" }),
+  ).toBeVisible();
+  await page.screenshot({ path: "/tmp/buzz-web-project-issue.png" });
+  await page.getByRole("button", { name: "Back to issues" }).click();
+  await expect(page.getByText("1 comment", { exact: false })).toBeVisible();
   await page.getByRole("link", { name: "Workflows" }).click();
   await expect(page.getByRole("heading", { name: "Workflows" })).toBeVisible();
   await page.getByRole("button", { name: "Create workflow" }).click();
@@ -2228,9 +2273,9 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
       ),
     )
     .toBe(true);
-  const pulseNote = page.locator("article").filter({
-    hasText: "Relay-native Pulse update",
-  });
+  const pulseNote = page
+    .getByText("Relay-native Pulse update", { exact: true })
+    .locator("xpath=ancestor::article[1]");
   await pulseNote.getByRole("button", { name: "Like" }).click();
   await expect
     .poll(() =>

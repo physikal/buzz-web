@@ -22,6 +22,15 @@ export type ProjectIssue = {
   labels: string[];
   status: "open" | "draft" | "merged" | "closed";
   createdAt: number;
+  updatedAt: number;
+  comments: ProjectIssueComment[];
+};
+
+export type ProjectIssueComment = {
+  id: string;
+  content: string;
+  author: string;
+  createdAt: number;
 };
 
 function tag(event: NostrEvent, name: string) {
@@ -146,6 +155,7 @@ export async function listProjectIssues(
         "#a": [project.repoAddress],
         limit: 1000,
       },
+      { kinds: [1], "#a": [project.repoAddress], limit: 1000 },
     ],
     { requireNip07: true },
   );
@@ -167,6 +177,22 @@ export async function listProjectIssues(
         ({ 1631: "merged", 1632: "closed", 1633: "draft" } as const)[
           status?.kind as 1631 | 1632 | 1633
         ] ?? "open";
+      const comments = events
+        .filter(
+          (candidate) =>
+            candidate.kind === 1 &&
+            candidate.tags.some(
+              (value) =>
+                (value[0] === "e" || value[0] === "E") && value[1] === event.id,
+            ),
+        )
+        .sort((a, b) => a.created_at - b.created_at)
+        .map((comment) => ({
+          id: comment.id,
+          content: comment.content,
+          author: comment.pubkey,
+          createdAt: comment.created_at,
+        }));
       return {
         id: event.id,
         title:
@@ -178,9 +204,15 @@ export async function listProjectIssues(
         labels: tags(event, "t"),
         status: state,
         createdAt: event.created_at,
+        updatedAt: Math.max(
+          event.created_at,
+          status?.created_at ?? 0,
+          ...comments.map((comment) => comment.createdAt),
+        ),
+        comments,
       };
     })
-    .sort((a, b) => b.createdAt - a.createdAt);
+    .sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
 export async function createProjectIssue(
@@ -215,6 +247,27 @@ export async function setProjectIssueStatus(
       ["e", issueId, "", "root"],
       ["a", project.repoAddress],
       ["p", project.owner],
+    ],
+  });
+}
+
+export async function createProjectIssueComment(
+  project: Project,
+  issue: ProjectIssue,
+  content: string,
+): Promise<void> {
+  const body = content.trim();
+  if (!body) throw new Error("Comment cannot be empty.");
+  await submitEvent({
+    kind: 1,
+    content: body,
+    tags: [
+      ["e", issue.id, "", "root"],
+      ["a", project.repoAddress],
+      ...[...new Set([project.owner, issue.author])].map((pubkey) => [
+        "p",
+        pubkey.toLowerCase(),
+      ]),
     ],
   });
 }

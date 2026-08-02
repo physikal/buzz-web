@@ -30,10 +30,12 @@ import { SidebarToggleButton } from "@/shared/ui/sidebar-toggle-button";
 import {
   createProject,
   createProjectIssue,
+  createProjectIssueComment,
   deleteProject,
   listProjectIssues,
   listProjects,
   type Project,
+  type ProjectIssue,
   setProjectIssueStatus,
 } from "../project-api";
 
@@ -215,6 +217,7 @@ function ProjectDetail({
 }) {
   const queryClient = useQueryClient();
   const [issueOpen, setIssueOpen] = useState(false);
+  const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
   const issuesQuery = useQuery({
     queryKey: ["project-issues", project.repoAddress],
     queryFn: () => listProjectIssues(project),
@@ -246,6 +249,24 @@ function ProjectDetail({
     onError: (error) =>
       toast.error("Could not update issue", { description: error.message }),
   });
+  const selectedIssue = (issuesQuery.data ?? []).find(
+    (issue) => issue.id === selectedIssueId,
+  );
+  if (selectedIssue) {
+    return (
+      <ProjectIssueDetail
+        issue={selectedIssue}
+        ownerPubkey={ownerPubkey}
+        project={project}
+        statusPending={statusMutation.isPending}
+        onBack={() => setSelectedIssueId(null)}
+        onStatusChange={(status) =>
+          statusMutation.mutate({ id: selectedIssue.id, status })
+        }
+        onUpdated={refresh}
+      />
+    );
+  }
   return (
     <>
       <Link
@@ -285,12 +306,23 @@ function ProjectDetail({
             issuesQuery.data?.map((issue) => (
               <article className="flex items-start gap-3 p-4" key={issue.id}>
                 <div className="min-w-0 flex-1">
-                  <h3 className="font-medium">{issue.title}</h3>
+                  <h3 className="font-medium">
+                    <button
+                      className="text-left hover:underline"
+                      onClick={() => setSelectedIssueId(issue.id)}
+                      type="button"
+                    >
+                      {issue.title}
+                    </button>
+                  </h3>
                   <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
                     {issue.content}
                   </p>
                   <p className="mt-2 text-xs text-muted-foreground">
                     {issue.status} · {truncatePubkey(issue.author)}
+                    {issue.comments.length
+                      ? ` · ${issue.comments.length} ${issue.comments.length === 1 ? "comment" : "comments"}`
+                      : ""}
                   </p>
                 </div>
                 {project.owner === ownerPubkey ? (
@@ -327,6 +359,143 @@ function ProjectDetail({
         onClose={() => setIssueOpen(false)}
         onSubmit={(input) => createIssue.mutateAsync(input)}
       />
+    </>
+  );
+}
+
+function ProjectIssueDetail({
+  issue,
+  ownerPubkey,
+  project,
+  statusPending,
+  onBack,
+  onStatusChange,
+  onUpdated,
+}: {
+  issue: ProjectIssue;
+  ownerPubkey: string;
+  project: Project;
+  statusPending: boolean;
+  onBack: () => void;
+  onStatusChange: (status: ProjectIssue["status"]) => void;
+  onUpdated: () => Promise<unknown>;
+}) {
+  const [comment, setComment] = useState("");
+  const createComment = useMutation({
+    mutationFn: () => createProjectIssueComment(project, issue, comment),
+    onSuccess: async () => {
+      setComment("");
+      await onUpdated();
+      toast.success("Comment posted");
+    },
+    onError: (error) =>
+      toast.error("Could not post comment", { description: error.message }),
+  });
+  return (
+    <>
+      <button
+        className="text-sm text-muted-foreground hover:text-foreground"
+        onClick={onBack}
+        type="button"
+      >
+        ← Back to issues
+      </button>
+      <header className="mt-5 border-b pb-5">
+        <p className="text-xs text-muted-foreground">
+          {project.name} · #{issue.id.slice(0, 8)}
+        </p>
+        <div className="mt-1 flex flex-wrap items-start justify-between gap-3">
+          <h1 className="text-2xl font-semibold">{issue.title}</h1>
+          {project.owner === ownerPubkey ? (
+            <select
+              aria-label={`Status for ${issue.title}`}
+              className="h-9 rounded-md border bg-background px-3 text-sm"
+              disabled={statusPending}
+              value={issue.status}
+              onChange={(event) =>
+                onStatusChange(event.target.value as ProjectIssue["status"])
+              }
+            >
+              <option value="open">Open</option>
+              <option value="draft">Triage</option>
+              <option value="merged">Done</option>
+              <option value="closed">Closed</option>
+            </select>
+          ) : null}
+        </div>
+        <p className="mt-2 text-xs text-muted-foreground">
+          Opened by {truncatePubkey(issue.author)}
+        </p>
+        {issue.content ? (
+          <p className="mt-5 whitespace-pre-wrap text-sm leading-6">
+            {issue.content}
+          </p>
+        ) : null}
+        {issue.labels.length ? (
+          <div className="mt-4 flex flex-wrap gap-1.5">
+            {issue.labels.map((label) => (
+              <span
+                className="rounded-full border px-2 py-0.5 text-xs text-muted-foreground"
+                key={label}
+              >
+                {label}
+              </span>
+            ))}
+          </div>
+        ) : null}
+      </header>
+      <section className="py-6">
+        <h2 className="text-lg font-semibold">
+          {issue.comments.length}{" "}
+          {issue.comments.length === 1 ? "comment" : "comments"}
+        </h2>
+        <div className="mt-4 divide-y rounded-md border">
+          {issue.comments.length ? (
+            issue.comments.map((item) => (
+              <article className="p-4" key={item.id}>
+                <p className="text-xs text-muted-foreground">
+                  {truncatePubkey(item.author)} ·{" "}
+                  {new Date(item.createdAt * 1000).toLocaleString()}
+                </p>
+                <p className="mt-2 whitespace-pre-wrap text-sm leading-6">
+                  {item.content}
+                </p>
+              </article>
+            ))
+          ) : (
+            <p className="p-4 text-sm text-muted-foreground">
+              No comments yet.
+            </p>
+          )}
+        </div>
+        <form
+          className="mt-5"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (comment.trim()) createComment.mutate();
+          }}
+        >
+          <label className="text-sm font-medium" htmlFor="issue-comment">
+            Add your comment
+          </label>
+          <textarea
+            className="mt-2 min-h-28 w-full rounded-md border bg-background p-3 text-sm"
+            disabled={createComment.isPending}
+            id="issue-comment"
+            placeholder="Add a comment..."
+            value={comment}
+            onChange={(event) => setComment(event.target.value)}
+          />
+          <div className="mt-2 flex justify-end">
+            <Button
+              disabled={!comment.trim() || createComment.isPending}
+              type="submit"
+            >
+              {createComment.isPending ? "Posting..." : "Comment"}
+            </Button>
+          </div>
+        </form>
+      </section>
     </>
   );
 }
