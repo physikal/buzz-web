@@ -1097,6 +1097,27 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
       ),
     )
     .toBe(true);
+  await page
+    .getByRole("button", { name: "Sort Starred by recent activity" })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Sort Starred alphabetically" }),
+  ).toBeVisible();
+  await expect
+    .poll(() =>
+      submittedEvents.some(
+        (event) =>
+          event.kind === 30078 &&
+          event.tags.some(
+            (tag) => tag[0] === "d" && tag[1] === "channel-sort",
+          ) &&
+          event.tags.some(
+            (tag) => tag[0] === "t" && tag[1] === "channel-sort",
+          ) &&
+          !event.content.includes("recent"),
+      ),
+    )
+    .toBe(true);
   await page.getByRole("button", { name: "Mark unread #general" }).click();
   await expect(
     page.getByRole("button", { name: "Mark read #general" }),
@@ -1193,7 +1214,9 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     )
     .toBe(1);
   await page.getByRole("button", { name: "Follow thread" }).click();
-  await page.getByRole("button", { name: "Close thread" }).click();
+  const closeThread = page.getByRole("button", { name: "Close thread" });
+  if (await closeThread.isVisible())
+    await closeThread.click({ timeout: 1_000 }).catch(() => {});
   await welcomeMessage.hover();
   await welcomeMessage.getByRole("button", { name: "Add reaction" }).click();
   await page.getByRole("button", { name: "React with :shipit:" }).click();

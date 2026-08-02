@@ -65,6 +65,7 @@ import {
 import { useLiveChannels } from "../use-live-channels";
 import { useChannelMutes } from "../use-channel-mutes";
 import { useChannelStars } from "../use-channel-stars";
+import { useChannelSort } from "../use-channel-sort";
 import { useThreadFollows } from "../use-thread-follows";
 import { useTypingIndicators } from "../use-typing";
 import { ChannelSidebar } from "./ChannelSidebar";
@@ -182,6 +183,7 @@ function ChannelsWorkspace({
   );
   const { mutedChannelIds, setMuted } = useChannelMutes(ownerPubkey);
   const { starredChannelIds, setStarred } = useChannelStars(ownerPubkey);
+  const { sortModeFor, setSortMode } = useChannelSort(ownerPubkey);
   const { followedRootIds, mutedRootIds, followThread, unfollowThread } =
     useThreadFollows(ownerPubkey);
   const selected =
@@ -224,6 +226,7 @@ function ChannelsWorkspace({
   const {
     status: liveStatus,
     unread,
+    lastActivity,
     markChannelRead,
     markChannelUnread,
   } = useLiveChannels({
@@ -568,6 +571,9 @@ function ChannelsWorkspace({
         mutedChannelIds={mutedChannelIds}
         starredChannelIds={starredChannelIds}
         unread={unread}
+        lastActivity={lastActivity}
+        sortModeFor={sortModeFor}
+        onSortModeChange={setSortMode}
         onCreate={() => setCreateOpen(true)}
         onNewDm={() => setDmOpen(true)}
         onBrowse={() => setBrowserOpen(true)}

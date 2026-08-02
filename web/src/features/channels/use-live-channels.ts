@@ -253,6 +253,21 @@ export function useLiveChannels({
     }
     return result;
   }, [activity, channelIds, forcedUnread, ownerPubkey, readMarkers]);
+  const lastActivity = useMemo(
+    () =>
+      Object.fromEntries(
+        channelIds.map((channelId) => [
+          channelId,
+          Math.max(
+            0,
+            ...Object.values(activity[channelId] ?? {}).map(
+              (event) => event.createdAt,
+            ),
+          ),
+        ]),
+      ),
+    [activity, channelIds],
+  );
 
   const markContextRead = useCallback(
     (contextId: string, timestamp: number) => {
@@ -297,6 +312,7 @@ export function useLiveChannels({
   return {
     status,
     unread,
+    lastActivity,
     markContextRead,
     markChannelRead,
     markChannelUnread,

@@ -1,6 +1,8 @@
 import {
   Archive,
+  ArrowDownAZ,
   BellOff,
+  Clock3,
   Hash,
   LayoutList,
   Mail,
@@ -12,6 +14,7 @@ import {
 
 import { Button } from "@/shared/ui/button";
 import type { Channel } from "../channel-api";
+import type { ChannelSortGroup, ChannelSortMode } from "../use-channel-sort";
 
 export function ChannelSidebar({
   channels,
@@ -19,6 +22,8 @@ export function ChannelSidebar({
   unread,
   mutedChannelIds,
   starredChannelIds,
+  lastActivity,
+  sortModeFor,
   onSelect,
   onCreate,
   onNewDm,
@@ -26,12 +31,15 @@ export function ChannelSidebar({
   onStarredChange,
   onMarkRead,
   onMarkUnread,
+  onSortModeChange,
 }: {
   channels: Channel[];
   selectedId: string | null;
   unread: Record<string, number>;
   mutedChannelIds: ReadonlySet<string>;
   starredChannelIds: ReadonlySet<string>;
+  lastActivity: Record<string, number>;
+  sortModeFor: (group: ChannelSortGroup) => ChannelSortMode;
   onSelect: (id: string) => void;
   onCreate: () => void;
   onNewDm: () => void;
@@ -39,6 +47,7 @@ export function ChannelSidebar({
   onStarredChange: (id: string, starred: boolean) => void;
   onMarkRead: (id: string) => void;
   onMarkUnread: (id: string) => void;
+  onSortModeChange: (group: ChannelSortGroup, mode: ChannelSortMode) => void;
 }) {
   const streams = channels.filter(
     (channel) => channel.channelType === "stream",
@@ -51,6 +60,12 @@ export function ChannelSidebar({
   );
   const forums = channels.filter((channel) => channel.channelType === "forum");
   const dms = channels.filter((channel) => channel.channelType === "dm");
+  const sorted = (items: Channel[], group: ChannelSortGroup) =>
+    sortChannels(items, sortModeFor(group), lastActivity);
+  const starredChannels = sorted(starred, "starred");
+  const sharedChannels = sorted(shared, "channels");
+  const forumChannels = sorted(forums, "forums");
+  const directMessages = sorted(dms, "dms");
   return (
     <aside className="hidden w-60 shrink-0 border-r bg-background sm:flex sm:flex-col">
       <div className="flex h-16 items-center justify-between border-b px-4">
@@ -65,10 +80,15 @@ export function ChannelSidebar({
         </Button>
       </div>
       <nav className="min-h-0 flex-1 overflow-y-auto p-2 text-sm">
-        {starred.length ? (
+        {starredChannels.length ? (
           <>
-            <SectionHeader label="Starred" />
-            {starred.map((channel) => (
+            <SectionHeader
+              group="starred"
+              label="Starred"
+              onSortModeChange={onSortModeChange}
+              sortMode={sortModeFor("starred")}
+            />
+            {starredChannels.map((channel) => (
               <ChannelButton
                 channel={channel}
                 key={channel.id}
@@ -88,8 +108,15 @@ export function ChannelSidebar({
             <div className="mt-5" />
           </>
         ) : null}
-        <SectionHeader label="Channels" onAdd={onCreate} onBrowse={onBrowse} />
-        {shared.map((channel) => (
+        <SectionHeader
+          group="channels"
+          label="Channels"
+          onAdd={onCreate}
+          onBrowse={onBrowse}
+          onSortModeChange={onSortModeChange}
+          sortMode={sortModeFor("channels")}
+        />
+        {sharedChannels.map((channel) => (
           <ChannelButton
             channel={channel}
             key={channel.id}
@@ -105,12 +132,18 @@ export function ChannelSidebar({
             }
           />
         ))}
-        {forums.length ? (
+        {forumChannels.length ? (
           <div className="mt-5">
-            <SectionHeader label="Forums" onAdd={onCreate} />
+            <SectionHeader
+              group="forums"
+              label="Forums"
+              onAdd={onCreate}
+              onSortModeChange={onSortModeChange}
+              sortMode={sortModeFor("forums")}
+            />
           </div>
         ) : null}
-        {forums.map((channel) => (
+        {forumChannels.map((channel) => (
           <ChannelButton
             channel={channel}
             key={channel.id}
@@ -126,9 +159,15 @@ export function ChannelSidebar({
           />
         ))}
         <div className="mt-5">
-          <SectionHeader label="Direct messages" onAdd={onNewDm} />
+          <SectionHeader
+            group="dms"
+            label="Direct messages"
+            onAdd={onNewDm}
+            onSortModeChange={onSortModeChange}
+            sortMode={sortModeFor("dms")}
+          />
         </div>
-        {dms.map((channel) => (
+        {directMessages.map((channel) => (
           <ChannelButton
             channel={channel}
             key={channel.id}
@@ -162,15 +201,40 @@ function SectionHeader({
   label,
   onAdd,
   onBrowse,
+  group,
+  sortMode,
+  onSortModeChange,
 }: {
   label: string;
   onAdd?: () => void;
   onBrowse?: () => void;
+  group: ChannelSortGroup;
+  sortMode: ChannelSortMode;
+  onSortModeChange: (group: ChannelSortGroup, mode: ChannelSortMode) => void;
 }) {
   return (
     <div className="mb-1 flex items-center justify-between px-2 text-xs font-semibold uppercase text-muted-foreground">
       <span>{label}</span>
       <span className="flex items-center gap-0.5">
+        <button
+          aria-label={`Sort ${label} ${sortMode === "alpha" ? "by recent activity" : "alphabetically"}`}
+          className="rounded p-1 hover:bg-accent"
+          onClick={() =>
+            onSortModeChange(group, sortMode === "alpha" ? "recent" : "alpha")
+          }
+          title={
+            sortMode === "alpha"
+              ? "Sort by recent activity"
+              : "Sort alphabetically"
+          }
+          type="button"
+        >
+          {sortMode === "alpha" ? (
+            <Clock3 className="h-3.5 w-3.5" />
+          ) : (
+            <ArrowDownAZ className="h-3.5 w-3.5" />
+          )}
+        </button>
         {onBrowse ? (
           <button
             aria-label="Browse channels"
@@ -195,6 +259,23 @@ function SectionHeader({
       </span>
     </div>
   );
+}
+
+function sortChannels(
+  channels: Channel[],
+  mode: ChannelSortMode,
+  lastActivity: Record<string, number>,
+) {
+  return [...channels].sort((left, right) => {
+    if (mode === "recent") {
+      const activityDelta =
+        (lastActivity[right.id] ?? 0) - (lastActivity[left.id] ?? 0);
+      if (activityDelta) return activityDelta;
+    }
+    return (
+      left.name.localeCompare(right.name) || left.id.localeCompare(right.id)
+    );
+  });
 }
 
 function ChannelButton({
