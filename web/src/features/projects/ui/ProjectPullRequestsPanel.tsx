@@ -1,5 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { GitPullRequest, MessageSquare, Plus } from "lucide-react";
+import {
+  GitCommitHorizontal,
+  GitPullRequest,
+  MessageSquare,
+  Plus,
+  RefreshCw,
+} from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -14,6 +20,7 @@ import {
   type ProjectPullRequest,
   type ProjectPullRequestLifecycleStatus,
   setProjectPullRequestStatus,
+  updateProjectPullRequest,
 } from "../project-api";
 import {
   CreatePullRequestDialog,
@@ -42,7 +49,12 @@ export function ProjectPullRequestsPanel({
     mutationFn: (input: CreatePullRequestInput) =>
       createProjectPullRequest(project, input),
     onSuccess: async (pullRequestId) => {
-      await refresh();
+      await Promise.all([
+        refresh(),
+        queryClient.invalidateQueries({
+          queryKey: ["repo-refs", project.dtag],
+        }),
+      ]);
       setCreateOpen(false);
       setSelectedId(pullRequestId);
       toast.success("Pull request created");
@@ -59,6 +71,11 @@ export function ProjectPullRequestsPanel({
         ownerPubkey={ownerPubkey}
         project={project}
         pullRequest={selected}
+        sourceCommit={
+          selected.branchName
+            ? (refsQuery.data?.branchCommits[selected.branchName] ?? null)
+            : null
+        }
         onBack={() => setSelectedId(null)}
         onUpdated={refresh}
       />
@@ -139,16 +156,21 @@ function PullRequestDetail({
   ownerPubkey,
   project,
   pullRequest,
+  sourceCommit,
   onBack,
   onUpdated,
 }: {
   ownerPubkey: string;
   project: Project;
   pullRequest: ProjectPullRequest;
+  sourceCommit: string | null;
   onBack: () => void;
   onUpdated: () => Promise<unknown>;
 }) {
   const [comment, setComment] = useState("");
+  const [mode, setMode] = useState<"conversation" | "commits" | "checks">(
+    "conversation",
+  );
   const commentMutation = useMutation({
     mutationFn: () =>
       createProjectPullRequestComment(project, pullRequest, comment),
@@ -169,10 +191,36 @@ function PullRequestDetail({
         description: error.message,
       }),
   });
+  const updateMutation = useMutation({
+    mutationFn: () => {
+      if (!sourceCommit) throw new Error("The source branch has no commit.");
+      return updateProjectPullRequest(
+        project,
+        pullRequest,
+        ownerPubkey,
+        sourceCommit,
+      );
+    },
+    onSuccess: async () => {
+      await onUpdated();
+      toast.success("Pull request updated");
+    },
+    onError: (error) =>
+      toast.error("Could not update pull request", {
+        description: error.message,
+      }),
+  });
   const canManage =
     pullRequest.status !== "merged" &&
     (ownerPubkey.toLowerCase() === project.owner.toLowerCase() ||
       ownerPubkey.toLowerCase() === pullRequest.author.toLowerCase());
+  const canUpdate =
+    canManage &&
+    (pullRequest.status === "open" || pullRequest.status === "draft") &&
+    Boolean(
+      sourceCommit &&
+        sourceCommit.toLowerCase() !== pullRequest.commit?.toLowerCase(),
+    );
   return (
     <section className="mt-8">
       <button
@@ -190,23 +238,36 @@ function PullRequestDetail({
             </p>
             <h2 className="mt-1 text-2xl font-semibold">{pullRequest.title}</h2>
           </div>
-          {canManage ? (
-            <select
-              aria-label={`Status for ${pullRequest.title}`}
-              className="h-9 rounded-md border bg-background px-3 text-sm"
-              disabled={statusMutation.isPending}
-              value={pullRequest.status}
-              onChange={(event) =>
-                statusMutation.mutate(
-                  event.target.value as ProjectPullRequestLifecycleStatus,
-                )
-              }
-            >
-              <option value="open">Open</option>
-              <option value="draft">Draft</option>
-              <option value="closed">Closed</option>
-            </select>
-          ) : null}
+          <div className="flex flex-wrap gap-2">
+            {canUpdate ? (
+              <Button
+                disabled={updateMutation.isPending}
+                onClick={() => updateMutation.mutate()}
+                size="sm"
+                variant="outline"
+              >
+                <RefreshCw />
+                {updateMutation.isPending ? "Updating..." : "Update PR"}
+              </Button>
+            ) : null}
+            {canManage ? (
+              <select
+                aria-label={`Status for ${pullRequest.title}`}
+                className="h-9 rounded-md border bg-background px-3 text-sm"
+                disabled={statusMutation.isPending}
+                value={pullRequest.status}
+                onChange={(event) =>
+                  statusMutation.mutate(
+                    event.target.value as ProjectPullRequestLifecycleStatus,
+                  )
+                }
+              >
+                <option value="open">Open</option>
+                <option value="draft">Draft</option>
+                <option value="closed">Closed</option>
+              </select>
+            ) : null}
+          </div>
         </div>
         <p className="mt-3 text-sm text-muted-foreground">
           {pullRequest.branchName ?? "unknown"} →{" "}
@@ -219,77 +280,162 @@ function PullRequestDetail({
           </p>
         ) : null}
       </header>
-      <PullRequestReviewControls
-        onUpdated={onUpdated}
-        ownerPubkey={ownerPubkey}
-        project={project}
-        pullRequest={pullRequest}
-      />
-      <div className="py-6">
-        <h3 className="text-lg font-semibold">
-          {pullRequest.comments.length}{" "}
-          {pullRequest.comments.length === 1 ? "comment" : "comments"}
-        </h3>
-        <div className="mt-4 divide-y rounded-md border">
-          {pullRequest.comments.length ? (
-            pullRequest.comments.map((item) => (
-              <article className="p-4" key={item.id}>
-                <p className="text-xs text-muted-foreground">
-                  {truncatePubkey(item.author)} ·{" "}
-                  {new Date(item.createdAt * 1000).toLocaleString()}
-                </p>
-                {item.reviewDecisionStatus ? (
-                  <p className="mt-2 text-xs font-medium">
-                    {item.reviewDecision === "approved"
-                      ? item.reviewDecisionStatus === "current"
-                        ? "Approved these changes"
-                        : "Approved an earlier commit"
-                      : item.reviewDecisionStatus === "current"
-                        ? "Requested changes"
-                        : "Requested changes on an earlier commit"}
-                  </p>
-                ) : item.isTrustedReviewRequest ? (
-                  <p className="mt-2 text-xs font-medium">Requested a review</p>
-                ) : null}
-                <p className="mt-2 whitespace-pre-wrap text-sm leading-6">
-                  {item.content}
-                </p>
-              </article>
-            ))
-          ) : (
-            <p className="p-4 text-sm text-muted-foreground">
-              No comments yet.
-            </p>
-          )}
-        </div>
-        <form
-          className="mt-5"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (comment.trim()) commentMutation.mutate();
-          }}
-        >
-          <label className="text-sm font-medium" htmlFor="pull-request-comment">
-            Add pull request comment
-          </label>
-          <textarea
-            className="mt-2 min-h-28 w-full rounded-md border bg-background p-3 text-sm"
-            disabled={commentMutation.isPending}
-            id="pull-request-comment"
-            placeholder="Add a comment..."
-            value={comment}
-            onChange={(event) => setComment(event.target.value)}
-          />
-          <div className="mt-2 flex justify-end">
-            <Button
-              disabled={!comment.trim() || commentMutation.isPending}
-              type="submit"
-            >
-              {commentMutation.isPending ? "Posting..." : "Comment"}
-            </Button>
-          </div>
-        </form>
+      <div className="flex gap-1 border-b py-2">
+        {(["conversation", "commits", "checks"] as const).map((value) => (
+          <Button
+            key={value}
+            onClick={() => setMode(value)}
+            size="sm"
+            variant={mode === value ? "secondary" : "ghost"}
+          >
+            {value === "conversation"
+              ? "Conversation"
+              : value === "commits"
+                ? `Commits ${pullRequest.updates.length + 1}`
+                : "Checks"}
+          </Button>
+        ))}
       </div>
+      {mode === "conversation" ? (
+        <>
+          <PullRequestReviewControls
+            onUpdated={onUpdated}
+            ownerPubkey={ownerPubkey}
+            project={project}
+            pullRequest={pullRequest}
+          />
+          <PullRequestConversation
+            comment={comment}
+            commentPending={commentMutation.isPending}
+            pullRequest={pullRequest}
+            onCommentChange={setComment}
+            onCommentSubmit={() => commentMutation.mutate()}
+          />
+        </>
+      ) : mode === "commits" ? (
+        <PullRequestCommits pullRequest={pullRequest} />
+      ) : (
+        <p className="py-8 text-sm text-muted-foreground">
+          No checks have been reported for this pull request yet.
+        </p>
+      )}
     </section>
+  );
+}
+
+function PullRequestConversation({
+  comment,
+  commentPending,
+  pullRequest,
+  onCommentChange,
+  onCommentSubmit,
+}: {
+  comment: string;
+  commentPending: boolean;
+  pullRequest: ProjectPullRequest;
+  onCommentChange: (value: string) => void;
+  onCommentSubmit: () => void;
+}) {
+  return (
+    <div className="py-6">
+      <h3 className="text-lg font-semibold">
+        {pullRequest.comments.length}{" "}
+        {pullRequest.comments.length === 1 ? "comment" : "comments"}
+      </h3>
+      <div className="mt-4 divide-y rounded-md border">
+        {pullRequest.comments.length ? (
+          pullRequest.comments.map((item) => (
+            <article className="p-4" key={item.id}>
+              <p className="text-xs text-muted-foreground">
+                {truncatePubkey(item.author)} ·{" "}
+                {new Date(item.createdAt * 1000).toLocaleString()}
+              </p>
+              {item.reviewDecisionStatus ? (
+                <p className="mt-2 text-xs font-medium">
+                  {item.reviewDecision === "approved"
+                    ? item.reviewDecisionStatus === "current"
+                      ? "Approved these changes"
+                      : "Approved an earlier commit"
+                    : item.reviewDecisionStatus === "current"
+                      ? "Requested changes"
+                      : "Requested changes on an earlier commit"}
+                </p>
+              ) : item.isTrustedReviewRequest ? (
+                <p className="mt-2 text-xs font-medium">Requested a review</p>
+              ) : null}
+              <p className="mt-2 whitespace-pre-wrap text-sm leading-6">
+                {item.content}
+              </p>
+            </article>
+          ))
+        ) : (
+          <p className="p-4 text-sm text-muted-foreground">No comments yet.</p>
+        )}
+      </div>
+      <form
+        className="mt-5"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (comment.trim()) onCommentSubmit();
+        }}
+      >
+        <label className="text-sm font-medium" htmlFor="pull-request-comment">
+          Add pull request comment
+        </label>
+        <textarea
+          className="mt-2 min-h-28 w-full rounded-md border bg-background p-3 text-sm"
+          disabled={commentPending}
+          id="pull-request-comment"
+          placeholder="Add a comment..."
+          value={comment}
+          onChange={(event) => onCommentChange(event.target.value)}
+        />
+        <div className="mt-2 flex justify-end">
+          <Button disabled={!comment.trim() || commentPending} type="submit">
+            {commentPending ? "Posting..." : "Comment"}
+          </Button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function PullRequestCommits({
+  pullRequest,
+}: {
+  pullRequest: ProjectPullRequest;
+}) {
+  const commits = [
+    {
+      id: pullRequest.id,
+      author: pullRequest.author,
+      createdAt: pullRequest.createdAt,
+      commit: pullRequest.initialCommit,
+      content: pullRequest.title,
+    },
+    ...pullRequest.updates,
+  ];
+  return (
+    <div className="mt-6 divide-y rounded-md border">
+      {commits.map((commit) => (
+        <article className="flex items-start gap-3 p-4" key={commit.id}>
+          <GitCommitHorizontal className="mt-0.5 h-4 w-4 text-muted-foreground" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium">
+              {commit.content.trim() || "Updated pull request branch"}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {truncatePubkey(commit.author)} ·{" "}
+              {new Date(commit.createdAt * 1000).toLocaleString()}
+            </p>
+          </div>
+          {commit.commit ? (
+            <code className="text-xs text-muted-foreground">
+              {commit.commit.slice(0, 7)}
+            </code>
+          ) : null}
+        </article>
+      ))}
+    </div>
   );
 }

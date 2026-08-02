@@ -979,6 +979,14 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
               socket.send(JSON.stringify(["EVENT", subscriptionId, project]));
           }
           if (filters.includes("30618")) {
+            const createdPullRequestExists = submittedEvents.some(
+              (event) =>
+                event.kind === 1618 &&
+                event.tags.some(
+                  (tag) =>
+                    tag[0] === "subject" && tag[1] === "Create PR from web",
+                ),
+            );
             socket.send(
               JSON.stringify([
                 "EVENT",
@@ -991,7 +999,10 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
                     tags: [
                       ["d", "relay-project"],
                       ["refs/heads/main", "aa".repeat(20)],
-                      ["refs/heads/feature/create-pr", "bc".repeat(20)],
+                      [
+                        "refs/heads/feature/create-pr",
+                        (createdPullRequestExists ? "bd" : "bc").repeat(20),
+                      ],
                       ["refs/heads/feature/web-parity", "ab".repeat(20)],
                       ["HEAD", "ref: refs/heads/main"],
                       ["p", catalogPubkey],
@@ -2422,6 +2433,18 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
       .locator("article")
       .filter({ hasText: "Reviewed the pull request from web" }),
   ).toBeVisible();
+  await page.getByRole("button", { name: "Commits 1" }).click();
+  await expect(
+    page
+      .locator("article")
+      .getByText("Browser parity pull request", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("abababa", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Checks" }).click();
+  await expect(
+    page.getByText("No checks have been reported for this pull request yet."),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Conversation" }).click();
   await page.screenshot({ path: "/tmp/buzz-web-project-pr.png" });
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(
@@ -2511,6 +2534,32 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
       ),
   );
   expect(createdPullRequest).toBeDefined();
+  await expect(page.getByRole("button", { name: "Update PR" })).toBeVisible();
+  await page.getByRole("button", { name: "Update PR" }).click();
+  await expect
+    .poll(() => {
+      const update = submittedEvents.find(
+        (event) =>
+          event.kind === 1619 &&
+          event.tags.some(
+            (tag) => tag[0] === "E" && tag[1] === createdPullRequest?.id,
+          ),
+      );
+      return Boolean(
+        update?.tags.some((tag) => tag[0] === "P" && tag[1] === ownerPubkey) &&
+          update.tags.some(
+            (tag) => tag[0] === "c" && tag[1] === "bd".repeat(20),
+          ) &&
+          update.tags.some((tag) => tag[0] === "clone" && tag.length > 1),
+      );
+    })
+    .toBe(true);
+  await expect(page.getByText("bdbdbdb", { exact: false })).toBeVisible();
+  await page.getByRole("button", { name: "Commits 2" }).click();
+  await expect(page.getByText("bcbcbcb", { exact: true })).toBeVisible();
+  await expect(page.getByText("bdbdbdb", { exact: true })).toBeVisible();
+  await expect(page.getByText("Updated pull request branch")).toBeVisible();
+  await page.getByRole("button", { name: "Conversation" }).click();
   const createdStatus = page.getByLabel("Status for Create PR from web");
   await createdStatus.selectOption("draft");
   await expect(createdStatus).toHaveValue("draft");

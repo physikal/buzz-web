@@ -42,6 +42,15 @@ export type ProjectPullRequestReviewDecision = {
   decision: "approved" | "changes-requested";
 };
 
+export type ProjectPullRequestUpdate = {
+  id: string;
+  content: string;
+  author: string;
+  createdAt: number;
+  commit: string | null;
+  cloneUrls: string[];
+};
+
 export type ProjectPullRequestComment = ProjectIssueComment & {
   commit: string | null;
   isReviewRequest: boolean;
@@ -64,11 +73,13 @@ export type ProjectPullRequest = {
   status: "open" | "draft" | "merged" | "closed";
   branchName: string | null;
   targetBranch: string | null;
+  initialCommit: string | null;
   commit: string | null;
   cloneUrls: string[];
   createdAt: number;
   updatedAt: number;
   statusCreatedAt: number | null;
+  updates: ProjectPullRequestUpdate[];
   comments: ProjectPullRequestComment[];
 };
 
@@ -348,7 +359,7 @@ export async function listProjectPullRequests(
         event.pubkey.toLowerCase(),
         project.owner.toLowerCase(),
       ]);
-      const latestUpdate = updates
+      const trustedUpdates = updates
         .filter(
           (candidate) =>
             allowedActors.has(candidate.pubkey.toLowerCase()) &&
@@ -356,7 +367,10 @@ export async function listProjectPullRequests(
               (value) => value[0] === "E" && value[1] === event.id,
             ),
         )
-        .sort((a, b) => b.created_at - a.created_at)[0];
+        .sort(
+          (a, b) => a.created_at - b.created_at || a.id.localeCompare(b.id),
+        );
+      const latestUpdate = trustedUpdates[trustedUpdates.length - 1];
       const latestStatus = statuses
         .filter(
           (candidate) =>
@@ -506,6 +520,7 @@ export async function listProjectPullRequests(
         status,
         branchName: tag(event, "branch-name") ?? null,
         targetBranch: tag(event, "target-branch") ?? null,
+        initialCommit,
         commit: currentCommit,
         cloneUrls: tags(source, "clone"),
         createdAt: event.created_at,
@@ -516,6 +531,14 @@ export async function listProjectPullRequests(
           ...comments.map((comment) => comment.createdAt),
         ),
         statusCreatedAt: latestStatus?.created_at ?? null,
+        updates: trustedUpdates.map((update) => ({
+          id: update.id,
+          content: update.content,
+          author: update.pubkey,
+          createdAt: update.created_at,
+          commit: tag(update, "c") ?? null,
+          cloneUrls: tags(update, "clone"),
+        })),
         comments,
       } satisfies ProjectPullRequest;
     })
@@ -542,6 +565,59 @@ export async function createProjectPullRequestComment(
           ...pullRequest.recipients,
         ]),
       ].map((pubkey) => ["p", pubkey]),
+    ],
+  });
+}
+
+export async function updateProjectPullRequest(
+  project: Project,
+  pullRequest: ProjectPullRequest,
+  viewerPubkey: string,
+  commit: string,
+  mergeBase?: string | null,
+): Promise<void> {
+  const viewer = viewerPubkey.toLowerCase();
+  if (
+    viewer !== project.owner.toLowerCase() &&
+    viewer !== pullRequest.author.toLowerCase()
+  ) {
+    throw new Error(
+      "Only the pull request author or repository owner can publish its update.",
+    );
+  }
+  if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu.test(commit)) {
+    throw new Error("The branch commit is invalid.");
+  }
+  if (pullRequest.commit?.toLowerCase() === commit.toLowerCase()) return;
+  const latestUpdateCreatedAt = pullRequest.updates.reduce(
+    (latest, update) => Math.max(latest, update.createdAt),
+    pullRequest.createdAt,
+  );
+  await submitEvent({
+    kind: 1619,
+    content: "",
+    created_at: Math.max(
+      Math.floor(Date.now() / 1000),
+      latestUpdateCreatedAt + 1,
+    ),
+    tags: [
+      ["a", project.repoAddress],
+      ...[
+        ...new Set([
+          project.owner.toLowerCase(),
+          pullRequest.author.toLowerCase(),
+        ]),
+      ].map((pubkey) => ["p", pubkey]),
+      ["E", pullRequest.id],
+      ["P", pullRequest.author.toLowerCase()],
+      ["c", commit.toLowerCase()],
+      [
+        "clone",
+        ...(pullRequest.cloneUrls.length
+          ? pullRequest.cloneUrls
+          : project.cloneUrls),
+      ],
+      ...(mergeBase ? [["merge-base", mergeBase.toLowerCase()]] : []),
     ],
   });
 }
