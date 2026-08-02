@@ -72,9 +72,10 @@ new domain after the deployment data has moved.
 Bootstrap preserves an existing `owner_nsec` volume and continues configuring
 its public key as the relay owner. Its next deployment log prints an owner setup
 URL. Open that URL, paste the existing owner `nsec` once, and create a passkey
-vault. The key is delivered to the local signing worker and is not included in
-the claim request. A NIP-07 signer remains available as a compatibility fallback
-until this enrollment is completed.
+vault. A password-protected NIP-49 backup can be pasted or selected instead. The
+key or encrypted backup is delivered to the local signing worker and is not
+included in the claim request. A NIP-07 signer remains available as a
+compatibility fallback until this enrollment is completed.
 
 All service credentials are generated with the operating-system CSPRNG and kept
 in named volumes. Re-deploying does not rotate them. Back up the Postgres and

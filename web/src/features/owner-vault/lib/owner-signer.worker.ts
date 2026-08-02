@@ -2,7 +2,10 @@
 
 import { nip19 } from "nostr-tools";
 import { v2 as nip44 } from "nostr-tools/nip44";
-import { encrypt as encryptNip49 } from "nostr-tools/nip49";
+import {
+  decrypt as decryptNip49,
+  encrypt as encryptNip49,
+} from "nostr-tools/nip49";
 import { finalizeEvent, getPublicKey } from "nostr-tools/pure";
 
 import { decodeBase64Url, encodeBase64Url, randomBytes } from "./encoding";
@@ -23,8 +26,10 @@ type Wrapper = {
 type WorkerRequest =
   | {
       id: number;
-      action: "create" | "import";
+      action: "create" | "import" | "import-nip49";
       nsec?: string;
+      ncryptsec?: string;
+      backupPassword?: string;
       passkeyMaterial: ArrayBuffer;
       passkeyKdfSalt: string;
       recoveryMaterial: ArrayBuffer;
@@ -114,6 +119,22 @@ function parseSecret(value: string): Uint8Array<ArrayBuffer> {
   return new Uint8Array(decoded.data);
 }
 
+function parseEncryptedSecret(
+  value: string,
+  password: string,
+): Uint8Array<ArrayBuffer> {
+  const backup = value.trim();
+  if (!backup.startsWith("ncryptsec1") || backup.length > 5_000)
+    throw new Error("Choose a valid NIP-49 owner backup.");
+  if (!password || [...password].length > 256)
+    throw new Error("Enter the password for this owner backup.");
+  try {
+    return new Uint8Array(decryptNip49(backup, password));
+  } catch {
+    throw new Error("The owner backup or its password is invalid.");
+  }
+}
+
 async function deriveWrappingKey(
   material: ArrayBuffer,
   salt: Uint8Array<ArrayBuffer>,
@@ -199,11 +220,17 @@ self.onmessage = async (message: MessageEvent<WorkerRequest>) => {
     let result: unknown;
     switch (request.action) {
       case "create":
-      case "import": {
+      case "import":
+      case "import-nip49": {
         const candidate =
           request.action === "create"
             ? randomBytes(32)
-            : parseSecret(request.nsec ?? "");
+            : request.action === "import"
+              ? parseSecret(request.nsec ?? "")
+              : parseEncryptedSecret(
+                  request.ncryptsec ?? "",
+                  request.backupPassword ?? "",
+                );
         setSecret(candidate);
         candidate.fill(0);
         const pubkey = getPublicKey(requireSecret());

@@ -18,6 +18,7 @@ export function OwnerSetupPage({ claimToken }: { claimToken: string }) {
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState(false);
   const [existingNsec, setExistingNsec] = useState("");
+  const [backupPassword, setBackupPassword] = useState("");
   const [recoveryCode, setRecoveryCode] = useState<string | null>(null);
   const [recoverySaved, setRecoverySaved] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -53,13 +54,22 @@ export function OwnerSetupPage({ claimToken }: { claimToken: string }) {
       const recoverySecret = randomBytes(32);
       const displayRecovery = `buzz-recovery-v1_${encodeBase64Url(recoverySecret)}`;
       const recoveryKdfSalt = encodeBase64Url(randomBytes(32));
+      const ownerKey = existingNsec.trim();
+      const encryptedBackup = ownerKey.toLowerCase().startsWith("ncryptsec1");
       const vault = await createOwnerVault({
-        nsec: ownerPubkey ? existingNsec : undefined,
+        nsec: ownerPubkey && !encryptedBackup ? ownerKey : undefined,
+        ncryptsec: ownerPubkey && encryptedBackup ? ownerKey : undefined,
+        backupPassword: encryptedBackup ? backupPassword : undefined,
         passkeyMaterial: passkey.material,
         passkeyKdfSalt: passkey.kdfSalt,
         recoveryMaterial: recoverySecret.buffer,
         recoveryKdfSalt,
       });
+      if (ownerPubkey && vault.pubkey !== ownerPubkey) {
+        throw new Error(
+          "This key does not match the owner of this Buzz server.",
+        );
+      }
       await claimOwnerVault({
         token: claimToken,
         credential: {
@@ -180,15 +190,55 @@ export function OwnerSetupPage({ claimToken }: { claimToken: string }) {
                 autoComplete="off"
                 className="mt-2 font-mono"
                 id="existing-owner-key"
-                placeholder="nsec1…"
+                placeholder="nsec1… or ncryptsec1…"
                 spellCheck={false}
                 type="password"
                 value={existingNsec}
-                onChange={(event) => setExistingNsec(event.target.value)}
+                onChange={(event) => {
+                  setExistingNsec(event.target.value);
+                  setBackupPassword("");
+                }}
               />
+              <label className="mt-2 inline-flex cursor-pointer text-xs font-medium text-primary hover:underline">
+                Choose a backup file
+                <input
+                  accept=".key,.ncryptsec,text/plain"
+                  className="hidden"
+                  type="file"
+                  onChange={async (event) => {
+                    const file = event.target.files?.[0];
+                    event.target.value = "";
+                    if (!file) return;
+                    if (file.size > 10_000) {
+                      setError("That owner backup file is too large.");
+                      return;
+                    }
+                    setExistingNsec((await file.text()).trim());
+                    setBackupPassword("");
+                    setError(null);
+                  }}
+                />
+              </label>
+              {existingNsec.trim().toLowerCase().startsWith("ncryptsec1") ? (
+                <label
+                  className="mt-4 block text-sm font-medium"
+                  htmlFor="existing-owner-backup-password"
+                >
+                  Backup password
+                  <Input
+                    autoComplete="current-password"
+                    className="mt-2"
+                    id="existing-owner-backup-password"
+                    maxLength={256}
+                    type="password"
+                    value={backupPassword}
+                    onChange={(event) => setBackupPassword(event.target.value)}
+                  />
+                </label>
+              ) : null}
               <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                This relay already has an owner. The key is sent directly to the
-                local signing worker and is not uploaded.
+                This relay already has an owner. The key or encrypted backup is
+                sent directly to the local signing worker and is not uploaded.
               </p>
             </div>
           ) : null}
@@ -198,7 +248,9 @@ export function OwnerSetupPage({ claimToken }: { claimToken: string }) {
               pending ||
               !claimEnabled ||
               !/^[0-9a-fA-F]{64}$/.test(claimToken) ||
-              (ownerPubkey !== null && existingNsec.trim().length === 0)
+              (ownerPubkey !== null && existingNsec.trim().length === 0) ||
+              (existingNsec.trim().toLowerCase().startsWith("ncryptsec1") &&
+                backupPassword.length === 0)
             }
             onClick={setUpOwner}
           >

@@ -96,6 +96,8 @@ export async function getUnlockedOwnerPublicKey(): Promise<string> {
 
 export async function createOwnerVault(input: {
   nsec?: string;
+  ncryptsec?: string;
+  backupPassword?: string;
   passkeyMaterial: ArrayBuffer;
   passkeyKdfSalt: string;
   recoveryMaterial: ArrayBuffer;
@@ -104,6 +106,7 @@ export async function createOwnerVault(input: {
   const result = await request<CreatedOwnerVault>(
     {
       action: input.nsec ? "import" : "create",
+      ...(input.ncryptsec ? { action: "import-nip49" } : {}),
       ...input,
     },
     [input.passkeyMaterial, input.recoveryMaterial],

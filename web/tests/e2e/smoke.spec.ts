@@ -5,7 +5,10 @@ import {
   type Download as PlaywrightDownload,
 } from "@playwright/test";
 import { v2 as nip44 } from "nostr-tools/nip44";
-import { decrypt as decryptNip49 } from "nostr-tools/nip49";
+import {
+  decrypt as decryptNip49,
+  encrypt as encryptNip49,
+} from "nostr-tools/nip49";
 import { finalizeEvent, getPublicKey, verifyEvent } from "nostr-tools/pure";
 
 const testPort = process.env.BUZZ_WEB_TEST_PORT ?? "4173";
@@ -2544,6 +2547,77 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     ),
   ).toBe(true);
   await page.screenshot({ path: "/tmp/buzz-web-inbox-mobile.png" });
+});
+
+test("existing owner enrolls from an encrypted NIP-49 backup", async ({
+  page,
+}) => {
+  test.setTimeout(45_000);
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send("WebAuthn.enable");
+  await cdp.send("WebAuthn.addVirtualAuthenticator", {
+    options: {
+      protocol: "ctap2",
+      transport: "internal",
+      hasResidentKey: true,
+      hasUserVerification: true,
+      isUserVerified: true,
+      automaticPresenceSimulation: true,
+      hasPrf: true,
+    },
+  });
+
+  const token = "84".repeat(32);
+  const password = "desktop backup password";
+  const ownerSecret = new Uint8Array(32);
+  ownerSecret[31] = 9;
+  const expectedOwnerPubkey = getPublicKey(ownerSecret);
+  const encryptedBackup = encryptNip49(ownerSecret, password);
+  ownerSecret.fill(0);
+
+  await page.route("**/api/owner/status", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        claimed: false,
+        vault_ready: false,
+        owner_pubkey: expectedOwnerPubkey,
+        claim_enabled: true,
+      }),
+    });
+  });
+  await page.route("**/api/owner/claim", async (route) => {
+    const request = route.request();
+    const body = request.postData() ?? "";
+    expect(body).not.toContain(encryptedBackup);
+    expect(body).not.toContain(password);
+    const authorization = request.headers().authorization ?? "";
+    const event = JSON.parse(
+      Buffer.from(authorization.slice("Nostr ".length), "base64").toString(
+        "utf8",
+      ),
+    );
+    expect(verifyEvent(event)).toBe(true);
+    expect(event.pubkey).toBe(expectedOwnerPubkey);
+    expect(event.tags).toContainEqual([
+      "payload",
+      createHash("sha256").update(body).digest("hex"),
+    ]);
+    await route.fulfill({
+      status: 201,
+      contentType: "application/json",
+      body: JSON.stringify({ owner_pubkey: expectedOwnerPubkey }),
+    });
+  });
+
+  await page.goto(`${testOrigin}/agents/setup#${token}`);
+  await page.getByLabel("Existing owner key").fill(encryptedBackup);
+  await page.getByLabel("Backup password").fill(password);
+  await page.getByRole("button", { name: "Create owner passkey" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Owner passkey created" }),
+  ).toBeVisible();
 });
 
 test("invite requires age and legal consent before opening Buzz", async ({

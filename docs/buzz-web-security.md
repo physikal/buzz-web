@@ -28,7 +28,10 @@ runtime and does not give an agent process access to Docker.
   explicitly create a standard NIP-49 backup; scrypt and XChaCha20-Poly1305 run
   inside the same worker, and only the password-encrypted `ncryptsec` artifact
   crosses back to the page for download. The web UI does not expose a raw
-  private-key reveal path.
+  private-key reveal path. Existing-owner enrollment can also decrypt a NIP-49
+  backup inside the worker; the browser verifies that its public key matches the
+  configured relay owner, and neither the backup nor its password enters the
+  claim payload.
 - The relay verifies that the signer is the tenant's current relay owner before
   listing, creating, starting, stopping, or deleting hosted agents.
 - The relay creates agent identities server-side. Agent private keys and
