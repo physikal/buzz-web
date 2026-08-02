@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router";
 import {
   Bot,
   BookMarked,
+  BookOpen,
   FolderKanban,
   GitFork,
   Inbox,
@@ -28,6 +29,10 @@ import { DestructiveConfirmDialog } from "@/shared/ui/destructive-confirm-dialog
 import { Input } from "@/shared/ui/input";
 import { SidebarToggleButton } from "@/shared/ui/sidebar-toggle-button";
 import { ProjectPullRequestsPanel } from "./ProjectPullRequestsPanel";
+import {
+  ProjectRepositoryPanel,
+  type ProjectRepositoryView,
+} from "./ProjectRepositoryPanel";
 import {
   createProject,
   createProjectIssue,
@@ -219,9 +224,9 @@ function ProjectDetail({
   const queryClient = useQueryClient();
   const [issueOpen, setIssueOpen] = useState(false);
   const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
-  const [workItemView, setWorkItemView] = useState<"issues" | "pull-requests">(
-    "issues",
-  );
+  const [projectView, setProjectView] = useState<
+    ProjectRepositoryView | "issues" | "pull-requests"
+  >("overview");
   const issuesQuery = useQuery({
     queryKey: ["project-issues", project.repoAddress],
     queryFn: () => listProjectIssues(project),
@@ -291,9 +296,11 @@ function ProjectDetail({
           </p>
         </div>
         <div className="flex gap-2">
-          <Button onClick={() => setIssueOpen(true)}>
-            <Plus /> New issue
-          </Button>
+          {projectView === "issues" ? (
+            <Button onClick={() => setIssueOpen(true)}>
+              <Plus /> New issue
+            </Button>
+          ) : null}
           {project.cloneUrls[0] ? (
             <Button asChild variant="outline">
               <a href={project.cloneUrls[0]}>Clone URL</a>
@@ -302,21 +309,53 @@ function ProjectDetail({
         </div>
       </header>
       <section className="mt-8">
-        <div className="flex gap-1 border-b">
+        <div className="flex min-w-0 max-w-full gap-1 overflow-x-auto border-b scrollbar-none">
           <Button
-            onClick={() => setWorkItemView("issues")}
-            variant={workItemView === "issues" ? "secondary" : "ghost"}
+            aria-label="Overview"
+            className="h-8 w-8 shrink-0 rounded-md p-2"
+            onClick={() => setProjectView("overview")}
+            title="README"
+            variant={projectView === "overview" ? "secondary" : "ghost"}
           >
-            Issues
+            <BookOpen className="h-full w-full" />
           </Button>
-          <Button
-            onClick={() => setWorkItemView("pull-requests")}
-            variant={workItemView === "pull-requests" ? "secondary" : "ghost"}
-          >
-            Pull requests
-          </Button>
+          {(
+            [
+              ["files", "Files"],
+              ["commits", "Commits"],
+              ["issues", "Issues"],
+              ["pull-requests", "Pull Request"],
+              ["contributors", "Contributors"],
+            ] as const
+          ).map(([value, label]) => (
+            <Button
+              className={`relative h-8 shrink-0 rounded-none px-2.5 shadow-none after:absolute after:inset-x-2.5 after:bottom-0 after:h-0.5 after:bg-current after:content-[''] ${
+                projectView === value
+                  ? "font-semibold text-foreground after:opacity-100"
+                  : "text-muted-foreground after:opacity-0 hover:bg-transparent hover:text-foreground hover:after:opacity-100"
+              }`}
+              key={value}
+              onClick={() => setProjectView(value)}
+              variant="ghost"
+            >
+              <span className="grid">
+                <span
+                  aria-hidden="true"
+                  className="invisible col-start-1 row-start-1 font-semibold"
+                >
+                  {label}
+                </span>
+                <span className="col-start-1 row-start-1">{label}</span>
+              </span>
+            </Button>
+          ))}
         </div>
-        {workItemView === "issues" ? (
+        {projectView === "overview" ||
+        projectView === "files" ||
+        projectView === "commits" ||
+        projectView === "contributors" ? (
+          <ProjectRepositoryPanel project={project} view={projectView} />
+        ) : projectView === "issues" ? (
           <>
             <h2 className="mt-6 text-lg font-semibold">Issues</h2>
             <div className="mt-3 divide-y overflow-hidden rounded-md border">

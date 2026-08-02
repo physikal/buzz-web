@@ -10,6 +10,7 @@ export type Project = {
   description: string;
   owner: string;
   defaultBranch: string;
+  contributors: string[];
   cloneUrls: string[];
   webUrl: string | null;
   createdAt: number;
@@ -151,6 +152,7 @@ function eventProject(event: NostrEvent): Project {
     description: tag(event, "description") ?? event.content,
     owner: event.pubkey,
     defaultBranch: tag(event, "default-branch") ?? "main",
+    contributors: tags(event, "p").map((pubkey) => pubkey.toLowerCase()),
     cloneUrls,
     webUrl: tag(event, "web") ?? null,
     createdAt: event.created_at,

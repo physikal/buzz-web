@@ -2343,6 +2343,21 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await page.keyboard.press("Escape");
   await expect(deleteProjectDialog).toBeHidden();
   await page.getByRole("link", { name: "Relay project" }).click();
+  await expect(page.getByRole("button", { name: "Overview" })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Files", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Commits", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Contributors", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("3 branches")).toBeVisible();
+  await expect(page.getByText("attacker-branch")).toHaveCount(0);
+  await page.getByRole("button", { name: "Contributors", exact: true }).click();
+  await expect(page.getByText("Repository owner")).toBeVisible();
+  await page.getByRole("button", { name: "Issues", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Issues" })).toBeVisible();
   await page.getByRole("button", { name: "New issue" }).click();
   await page.getByLabel("Title").fill("Browser issue");
@@ -2394,7 +2409,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await page.screenshot({ path: "/tmp/buzz-web-project-issue.png" });
   await page.getByRole("button", { name: "Back to issues" }).click();
   await expect(page.getByText("1 comment", { exact: false })).toBeVisible();
-  await page.getByRole("button", { name: "Pull requests" }).click();
+  await page.getByRole("button", { name: "Pull Request" }).click();
   await expect(
     page.getByRole("button", { name: "Browser parity pull request" }),
   ).toBeVisible();
