@@ -25,6 +25,7 @@ import type { ChannelSection } from "../use-channel-sections";
 import { ChannelSectionDialog } from "./ChannelSectionDialog";
 
 export function ChannelSidebar({
+  open,
   channels,
   selectedId,
   unread,
@@ -48,6 +49,7 @@ export function ChannelSidebar({
   onAssignChannel,
   onMoveSection,
 }: {
+  open: boolean;
   channels: Channel[];
   selectedId: string | null;
   unread: Record<string, number>;
@@ -101,6 +103,7 @@ export function ChannelSidebar({
       ),
       `section:${sectionId}`,
     );
+  if (!open) return null;
   return (
     <>
       <aside className="hidden w-60 shrink-0 border-r bg-background sm:flex sm:flex-col">

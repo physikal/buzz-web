@@ -27,8 +27,10 @@ import { listChannels } from "@/features/channels/channel-api";
 import { lockOwnerVault } from "@/features/owner-vault/lib/vault-worker-client";
 import { truncatePubkey } from "@/shared/lib/pubkey";
 import { useEscapeSurface } from "@/shared/hooks/use-escape-surface";
+import { useSidebarVisibility } from "@/shared/hooks/use-sidebar-visibility";
 import { relayHttpBaseUrl } from "@/shared/lib/relay-url";
 import { Button } from "@/shared/ui/button";
+import { SidebarToggleButton } from "@/shared/ui/sidebar-toggle-button";
 import {
   deleteWorkflow,
   listWorkflows,
@@ -68,6 +70,7 @@ function WorkflowWorkspace({
   onDisconnect: () => void;
 }) {
   const [dialog, setDialog] = useState<DialogState>({ mode: "closed" });
+  const sidebar = useSidebarVisibility();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [webhook, setWebhook] = useState<{
     workflowId: string;
@@ -148,10 +151,13 @@ function WorkflowWorkspace({
 
   return (
     <div className="flex min-h-dvh bg-background">
-      <WorkflowNav ownerPubkey={ownerPubkey} onDisconnect={onDisconnect} />
+      {sidebar.open ? (
+        <WorkflowNav ownerPubkey={ownerPubkey} onDisconnect={onDisconnect} />
+      ) : null}
       <main className="min-w-0 flex-1 overflow-y-auto p-5 sm:p-8">
         <div className="mx-auto max-w-6xl">
           <header className="flex items-start justify-between gap-4">
+            <SidebarToggleButton />
             <div>
               <h1 className="text-2xl font-semibold">Workflows</h1>
               <p className="mt-1 text-sm text-muted-foreground">

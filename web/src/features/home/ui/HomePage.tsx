@@ -48,6 +48,8 @@ import {
 import { truncatePubkey } from "@/shared/lib/pubkey";
 import { relativeTime } from "@/shared/lib/relative-time";
 import { Button } from "@/shared/ui/button";
+import { useSidebarVisibility } from "@/shared/hooks/use-sidebar-visibility";
+import { SidebarToggleButton } from "@/shared/ui/sidebar-toggle-button";
 import {
   listInboxItems,
   subscribeInbox,
@@ -88,6 +90,7 @@ function HomeWorkspace({
   onDisconnect: () => void;
 }) {
   const queryClient = useQueryClient();
+  const sidebar = useSidebarVisibility();
   const [filter, setFilter] = useState<InboxFilter>("all");
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -316,13 +319,16 @@ function HomeWorkspace({
 
   return (
     <div className="flex h-dvh min-h-0 bg-background">
-      <HomeSidebar onDisconnect={onDisconnect} ownerPubkey={ownerPubkey} />
+      {sidebar.open ? (
+        <HomeSidebar onDisconnect={onDisconnect} ownerPubkey={ownerPubkey} />
+      ) : null}
       <main className="flex min-w-0 flex-1">
         <section
           className={`min-w-0 border-r ${mobileDetailVisible ? "hidden w-full sm:flex sm:w-96" : "flex w-full sm:w-96"} flex-col`}
         >
           <header className="border-b px-4 py-4">
             <div className="flex items-center gap-3">
+              <SidebarToggleButton />
               <h1 className="min-w-0 flex-1 text-xl font-semibold">Inbox</h1>
               {displayedCount ? (
                 <span className="rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">

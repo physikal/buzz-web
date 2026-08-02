@@ -15,14 +15,20 @@ import buzzAppIcon from "@/assets/app-icon@3x.png";
 import { truncatePubkey } from "@/shared/lib/pubkey";
 
 export function ChannelsPrimarySidebar({
+  open,
   ownerPubkey,
   onDisconnect,
 }: {
+  open: boolean;
   ownerPubkey: string;
   onDisconnect: () => void;
 }) {
+  if (!open) return null;
   return (
-    <aside className="hidden w-60 shrink-0 border-r border-sidebar-border bg-sidebar p-3 md:flex md:flex-col">
+    <aside
+      aria-label="App navigation"
+      className="hidden w-60 shrink-0 border-r border-sidebar-border bg-sidebar p-3 md:flex md:flex-col"
+    >
       <div className="flex items-center gap-2 px-2 py-2">
         <div
           className="h-8 w-8 overflow-hidden bg-black"

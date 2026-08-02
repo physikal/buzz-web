@@ -32,6 +32,8 @@ import {
   type UpdateAgentInput,
 } from "../agent-api";
 import { Button } from "@/shared/ui/button";
+import { useSidebarVisibility } from "@/shared/hooks/use-sidebar-visibility";
+import { SidebarToggleButton } from "@/shared/ui/sidebar-toggle-button";
 import { AddAgentToChannelDialog } from "./AddAgentToChannelDialog";
 import { AgentAuthDialog } from "./AgentAuthDialog";
 import { AgentActivityDialog } from "./AgentActivityDialog";
@@ -316,60 +318,64 @@ function AgentsWorkspace({
     stateMutation.isPending ||
     deleteMutation.isPending ||
     editMutation.isPending;
+  const sidebar = useSidebarVisibility();
 
   return (
     <div className="flex min-h-dvh bg-background">
-      <aside className="hidden w-60 shrink-0 border-r border-sidebar-border bg-sidebar p-3 sm:flex sm:flex-col">
-        <div className="flex items-center gap-2 px-2 py-2">
-          <div
-            className="h-8 w-8 overflow-hidden bg-black"
-            style={{ borderRadius: "22.37%" }}
-          >
-            <img alt="" className="h-full w-full" src={buzzAppIcon} />
+      {sidebar.open ? (
+        <aside className="hidden w-60 shrink-0 border-r border-sidebar-border bg-sidebar p-3 sm:flex sm:flex-col">
+          <div className="flex items-center gap-2 px-2 py-2">
+            <div
+              className="h-8 w-8 overflow-hidden bg-black"
+              style={{ borderRadius: "22.37%" }}
+            >
+              <img alt="" className="h-full w-full" src={buzzAppIcon} />
+            </div>
+            <span className="font-semibold">Buzz</span>
           </div>
-          <span className="font-semibold">Buzz</span>
-        </div>
-        <nav className="mt-4 space-y-1 text-sm">
-          <Link to="/" className="block">
-            <SidebarItem icon={<Inbox />} label="Inbox" />
-          </Link>
-          <Link to="/repos" className="block">
-            <SidebarItem icon={<BookMarked />} label="Repositories" />
-          </Link>
-          <Link to="/channels" className="block">
-            <SidebarItem icon={<MessageSquare />} label="Channels" />
-          </Link>
-          <Link to="/pulse" className="block">
-            <SidebarItem icon={<Zap />} label="Pulse" />
-          </Link>
-          <Link to="/projects" className="block">
-            <SidebarItem icon={<FolderKanban />} label="Projects" />
-          </Link>
-          <Link to="/workflows" className="block">
-            <SidebarItem icon={<GitFork />} label="Workflows" />
-          </Link>
-          <SidebarItem active icon={<Bot />} label="Agents" />
-          <Link to="/settings" className="block">
-            <SidebarItem icon={<Settings />} label="Settings" />
-          </Link>
-        </nav>
-        <div className="mt-auto border-t border-sidebar-border pt-3">
-          <button
-            className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-xs text-muted-foreground hover:bg-sidebar-accent"
-            onClick={onDisconnect}
-            type="button"
-          >
-            <LogOut className="h-4 w-4" />
-            <span className="min-w-0 flex-1 truncate">
-              {truncatePubkey(ownerPubkey)}
-            </span>
-          </button>
-        </div>
-      </aside>
+          <nav className="mt-4 space-y-1 text-sm">
+            <Link to="/" className="block">
+              <SidebarItem icon={<Inbox />} label="Inbox" />
+            </Link>
+            <Link to="/repos" className="block">
+              <SidebarItem icon={<BookMarked />} label="Repositories" />
+            </Link>
+            <Link to="/channels" className="block">
+              <SidebarItem icon={<MessageSquare />} label="Channels" />
+            </Link>
+            <Link to="/pulse" className="block">
+              <SidebarItem icon={<Zap />} label="Pulse" />
+            </Link>
+            <Link to="/projects" className="block">
+              <SidebarItem icon={<FolderKanban />} label="Projects" />
+            </Link>
+            <Link to="/workflows" className="block">
+              <SidebarItem icon={<GitFork />} label="Workflows" />
+            </Link>
+            <SidebarItem active icon={<Bot />} label="Agents" />
+            <Link to="/settings" className="block">
+              <SidebarItem icon={<Settings />} label="Settings" />
+            </Link>
+          </nav>
+          <div className="mt-auto border-t border-sidebar-border pt-3">
+            <button
+              className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-xs text-muted-foreground hover:bg-sidebar-accent"
+              onClick={onDisconnect}
+              type="button"
+            >
+              <LogOut className="h-4 w-4" />
+              <span className="min-w-0 flex-1 truncate">
+                {truncatePubkey(ownerPubkey)}
+              </span>
+            </button>
+          </div>
+        </aside>
+      ) : null}
 
       <main className="min-w-0 flex-1 overflow-y-auto px-4 py-7 sm:px-6 sm:py-8">
         <div className="mx-auto w-full max-w-6xl space-y-8 [container-type:inline-size]">
           <header className="flex min-w-0 items-start justify-between gap-4">
+            <SidebarToggleButton />
             <div className="min-w-0 space-y-1">
               <h1 className="text-2xl font-semibold">Agents</h1>
               <p className="text-base text-muted-foreground">

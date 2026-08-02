@@ -87,6 +87,14 @@ export const KEYBOARD_SHORTCUTS: KeyboardShortcut[] = [
     category: "Navigation",
   },
   {
+    id: "toggle-sidebar",
+    label: "Toggle sidebar",
+    description: "Show or hide the sidebar",
+    keys: "⌘S",
+    keysWindows: "Ctrl+S",
+    category: "Navigation",
+  },
+  {
     id: "send-message",
     label: "Send message",
     description: "Send the current message",

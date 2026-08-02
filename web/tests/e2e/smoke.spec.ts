@@ -1712,6 +1712,11 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await expect(shortcutCreate).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(shortcutCreate).toBeHidden();
+  const sidebarToggle = page.getByRole("button", { name: "Toggle Sidebar" });
+  await sidebarToggle.click();
+  await expect(page.getByRole("link", { name: "Inbox" })).toBeHidden();
+  await page.keyboard.press(`${shortcutModifier}+S`);
+  await expect(page.getByRole("link", { name: "Inbox" })).toBeVisible();
   await page.keyboard.press(`${shortcutModifier}+,`);
   await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Profile" })).toBeVisible();

@@ -22,8 +22,10 @@ import { OwnerConnection } from "@/features/agents/ui/OwnerConnection";
 import { lockOwnerVault } from "@/features/owner-vault/lib/vault-worker-client";
 import { truncatePubkey } from "@/shared/lib/pubkey";
 import { useEscapeSurface } from "@/shared/hooks/use-escape-surface";
+import { useSidebarVisibility } from "@/shared/hooks/use-sidebar-visibility";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
+import { SidebarToggleButton } from "@/shared/ui/sidebar-toggle-button";
 import {
   createProject,
   createProjectIssue,
@@ -59,6 +61,7 @@ function ProjectsWorkspace({
   onDisconnect: () => void;
 }) {
   const [createOpen, setCreateOpen] = useState(false);
+  const sidebar = useSidebarVisibility();
   const queryClient = useQueryClient();
   const projectsQuery = useQuery({
     queryKey: ["projects"],
@@ -90,7 +93,9 @@ function ProjectsWorkspace({
 
   return (
     <div className="flex min-h-dvh bg-background">
-      <ProjectNav ownerPubkey={ownerPubkey} onDisconnect={onDisconnect} />
+      {sidebar.open ? (
+        <ProjectNav ownerPubkey={ownerPubkey} onDisconnect={onDisconnect} />
+      ) : null}
       <main className="min-w-0 flex-1 overflow-y-auto p-5 sm:p-8">
         <div className="mx-auto max-w-6xl">
           {projectId ? (
@@ -106,6 +111,7 @@ function ProjectsWorkspace({
           ) : (
             <>
               <header className="flex items-start justify-between gap-4">
+                <SidebarToggleButton />
                 <div>
                   <h1 className="text-2xl font-semibold">Projects</h1>
                   <p className="mt-1 text-sm text-muted-foreground">
@@ -234,6 +240,7 @@ function ProjectDetail({
         ← Projects
       </Link>
       <header className="mt-5 flex flex-wrap items-start justify-between gap-4">
+        <SidebarToggleButton />
         <div>
           <h1 className="text-2xl font-semibold">{project.name}</h1>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">

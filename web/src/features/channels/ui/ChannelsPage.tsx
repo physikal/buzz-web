@@ -1,13 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  Circle,
-  Hash,
-  LayoutList,
-  MessageCircle,
-  Plus,
-  Search,
-  Settings,
-} from "lucide-react";
+import { Circle, Plus, Search, Settings } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -44,6 +36,8 @@ import { subscribeEvents } from "@/shared/lib/nostr-client";
 import { truncatePubkey } from "@/shared/lib/pubkey";
 import { relayWsUrl } from "@/shared/lib/relay-url";
 import { Button } from "@/shared/ui/button";
+import { useSidebarVisibility } from "@/shared/hooks/use-sidebar-visibility";
+import { SidebarToggleButton } from "@/shared/ui/sidebar-toggle-button";
 import type { ChannelAction } from "../channel-actions";
 import {
   addReaction,
@@ -77,6 +71,7 @@ import { useTypingIndicators } from "../use-typing";
 import { buildDmCandidates } from "../dm-candidates";
 import { ChannelSidebar } from "./ChannelSidebar";
 import { ChannelFindBar } from "./ChannelFindBar";
+import { ChannelIcon } from "./ChannelIcon";
 import { ChannelsPrimarySidebar } from "./ChannelsPrimarySidebar";
 import {
   ChannelBrowserDialog,
@@ -133,6 +128,7 @@ function ChannelsWorkspace({
   initialAction?: ChannelAction;
 }) {
   const queryClient = useQueryClient();
+  const sidebar = useSidebarVisibility();
   const [selectedId, setSelectedId] = useState<string | null>(
     initialChannelId ?? null,
   );
@@ -605,20 +601,15 @@ function ChannelsWorkspace({
   };
   const threadRoot =
     messages.find((message) => message.id === threadRootId) ?? null;
-  const ChannelIcon =
-    selected?.channelType === "forum"
-      ? LayoutList
-      : selected?.channelType === "dm"
-        ? MessageCircle
-        : Hash;
-
   return (
     <div className="flex h-dvh min-h-0 bg-background">
       <ChannelsPrimarySidebar
+        open={sidebar.open}
         ownerPubkey={ownerPubkey}
         onDisconnect={onDisconnect}
       />
       <ChannelSidebar
+        open={sidebar.open}
         channels={channels}
         selectedId={selected?.id ?? null}
         mutedChannelIds={mutedChannelIds}
@@ -644,7 +635,10 @@ function ChannelsWorkspace({
       />
       <main className="flex min-w-0 flex-1 flex-col">
         <header className="flex min-h-16 items-center gap-2 border-b px-3 sm:px-5">
-          <ChannelIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <SidebarToggleButton />
+          <span className="shrink-0 text-muted-foreground">
+            <ChannelIcon type={selected?.channelType} />
+          </span>
           <div className="min-w-0 flex-1">
             <h1 className="truncate font-semibold">
               {selected?.name ?? "Channels"}

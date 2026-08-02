@@ -13,6 +13,10 @@ import {
 import { hasUnlockedOwnerVault } from "@/features/owner-vault/lib/vault-worker-client";
 import { ReminderNotifier } from "@/features/reminders/ui/ReminderNotifier";
 import {
+  SidebarVisibilityProvider,
+  useSidebarVisibility,
+} from "@/shared/hooks/use-sidebar-visibility";
+import {
   hasPrimaryShortcutModifier,
   isMacPlatform,
 } from "@/shared/lib/keyboard-shortcuts";
@@ -23,7 +27,16 @@ export const Route = createRootRoute({
 });
 
 function RootLayout() {
+  return (
+    <SidebarVisibilityProvider>
+      <RootLayoutContent />
+    </SidebarVisibilityProvider>
+  );
+}
+
+function RootLayoutContent() {
   const [ownerPubkey, setOwnerPubkey] = useState<string | null>(null);
+  const sidebar = useSidebarVisibility();
   const navigate = useNavigate();
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
@@ -89,7 +102,10 @@ function RootLayout() {
       }
       if (!primary || event.altKey) return;
       const key = event.key.toLowerCase();
-      if (key === "[" && !event.shiftKey) {
+      if (key === "s" && !event.shiftKey) {
+        event.preventDefault();
+        sidebar.toggle();
+      } else if (key === "[" && !event.shiftKey) {
         event.preventDefault();
         window.history.back();
       } else if (key === "]" && !event.shiftKey) {
@@ -115,7 +131,7 @@ function RootLayout() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [navigate, pathname]);
+  }, [navigate, pathname, sidebar]);
 
   return (
     <div className="flex min-h-dvh flex-col">

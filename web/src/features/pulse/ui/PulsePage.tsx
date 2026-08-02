@@ -32,6 +32,8 @@ import { truncatePubkey } from "@/shared/lib/pubkey";
 import { hasPrimaryShortcutModifier } from "@/shared/lib/keyboard-shortcuts";
 import { relativeTime } from "@/shared/lib/relative-time";
 import { Button } from "@/shared/ui/button";
+import { useSidebarVisibility } from "@/shared/hooks/use-sidebar-visibility";
+import { SidebarToggleButton } from "@/shared/ui/sidebar-toggle-button";
 import { Input } from "@/shared/ui/input";
 import {
   getPulseData,
@@ -67,6 +69,7 @@ function PulseWorkspace({
   onDisconnect: () => void;
 }) {
   const [tab, setTab] = useState<PulseTab>("everyone");
+  const sidebar = useSidebarVisibility();
   const [search, setSearch] = useState("");
   const queryClient = useQueryClient();
   const pulseQuery = useQuery({
@@ -101,11 +104,14 @@ function PulseWorkspace({
 
   return (
     <div className="flex min-h-dvh bg-background">
-      <PulseNav ownerPubkey={ownerPubkey} onDisconnect={onDisconnect} />
+      {sidebar.open ? (
+        <PulseNav ownerPubkey={ownerPubkey} onDisconnect={onDisconnect} />
+      ) : null}
       <main className="min-w-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-2xl px-4 pb-12 sm:px-6">
           <header className="sticky top-0 z-20 border-b bg-background/95 pb-3 pt-5 backdrop-blur">
             <div className="flex items-center justify-between gap-3">
+              <SidebarToggleButton />
               <div>
                 <h1 className="text-2xl font-semibold">Pulse</h1>
                 <p className="text-sm text-muted-foreground">
