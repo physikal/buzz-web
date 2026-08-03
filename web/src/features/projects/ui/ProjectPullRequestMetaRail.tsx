@@ -1,7 +1,6 @@
 import { GitMerge, GitPullRequest } from "lucide-react";
 import type { ReactNode } from "react";
 
-import { truncatePubkey } from "@/shared/lib/pubkey";
 import { relativeTime } from "@/shared/lib/relative-time";
 import type {
   Project,
@@ -9,6 +8,7 @@ import type {
   ProjectPullRequestLifecycleStatus,
 } from "../project-api";
 import { PullRequestReviewersControl } from "./PullRequestReviewControls";
+import { ProjectProfileIdentity } from "./ProjectProfileIdentity";
 
 function RailSection({
   children,
@@ -92,9 +92,7 @@ export function ProjectPullRequestMetaRail({
         </RailSection>
       ) : null}
       <RailSection title="Author">
-        <p className="break-all font-mono text-xs text-muted-foreground">
-          {truncatePubkey(pullRequest.author)}
-        </p>
+        <ProjectProfileIdentity pubkey={pullRequest.author} />
       </RailSection>
       <RailSection title="Branches">
         <div className="space-y-1.5 text-xs text-muted-foreground">

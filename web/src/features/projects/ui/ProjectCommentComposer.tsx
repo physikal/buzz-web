@@ -4,10 +4,8 @@ import { useMemo } from "react";
 import { listProfiles, type Channel } from "@/features/channels/channel-api";
 import type { ComposerPayload } from "@/features/channels/ui/MessageComposer";
 import { MessageComposer } from "@/features/channels/ui/MessageComposer";
-import type { CustomEmoji } from "@/features/settings/custom-emoji-api";
+import { getCustomEmoji } from "@/features/settings/custom-emoji-api";
 import { truncatePubkey } from "@/shared/lib/pubkey";
-
-const NO_CUSTOM_EMOJI: CustomEmoji[] = [];
 
 export function ProjectCommentComposer({
   ownerPubkey,
@@ -39,6 +37,12 @@ export function ProjectCommentComposer({
     enabled: participantPubkeys.length > 0,
     staleTime: 60_000,
   });
+  const customEmojiQuery = useQuery({
+    queryKey: ["custom-emoji", ownerPubkey],
+    queryFn: () => getCustomEmoji(ownerPubkey),
+    staleTime: 30_000,
+    retry: false,
+  });
   const profiles = new Map(
     (profilesQuery.data ?? []).map((profile) => [profile.pubkey, profile]),
   );
@@ -65,7 +69,7 @@ export function ProjectCommentComposer({
     <MessageComposer
       channel={channel}
       className="p-0"
-      customEmoji={NO_CUSTOM_EMOJI}
+      customEmoji={customEmojiQuery.data?.community ?? []}
       mentionCandidates={mentionCandidates}
       ownerPubkey={ownerPubkey}
       pending={pending}

@@ -2769,6 +2769,9 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
       .locator("article")
       .filter({ hasText: "Reviewed the pull request from web" }),
   ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Show 3 earlier activities" }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Commits 1" }).click();
   await expect(
     page
@@ -2895,12 +2898,16 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
       );
     })
     .toBe(true);
-  await expect(page.getByText("bdbdbdb", { exact: false })).toBeVisible();
+  await expect(
+    page.getByText("feature/create-pr → main · bdbdbdb", { exact: true }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Commits 2" }).click();
   await expect(page.getByText("bcbcbcb", { exact: true })).toBeVisible();
   await expect(page.getByText("bdbdbdb", { exact: true })).toBeVisible();
   await expect(page.getByText("Updated pull request branch")).toBeVisible();
   await page.getByRole("button", { name: "Conversation" }).click();
+  await expect(page.getByRole("heading", { name: "Updates" })).toBeVisible();
+  await expect(page.getByText("Updated pull request branch")).toBeVisible();
   const createdStatus = page.getByLabel("Status for Create PR from web");
   await createdStatus.selectOption("draft");
   await expect(createdStatus).toHaveValue("draft");

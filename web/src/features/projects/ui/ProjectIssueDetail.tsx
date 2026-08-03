@@ -4,7 +4,6 @@ import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 
 import { relativeTime } from "@/shared/lib/relative-time";
-import { truncatePubkey } from "@/shared/lib/pubkey";
 import { createProjectIssueComment } from "../project-comments-api";
 import type {
   Project,
@@ -16,6 +15,7 @@ import {
   projectIssueStatusLabel,
 } from "../project-issue-status";
 import { ProjectCommentComposer } from "./ProjectCommentComposer";
+import { ProjectProfileIdentity } from "./ProjectProfileIdentity";
 import { ProjectRichContent } from "./ProjectRichContent";
 
 function issueStatusVisual(status: ProjectIssue["status"]) {
@@ -74,7 +74,11 @@ export function ProjectIssueDetail({
             <div className="min-w-0">
               <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
                 <CircleDot className="h-3.5 w-3.5" />
-                Issue from {truncatePubkey(issue.author)}
+                Issue from
+                <ProjectProfileIdentity
+                  pubkey={issue.author}
+                  showAvatar={false}
+                />
               </p>
               <h1 className="mt-1 text-xl font-semibold">
                 {issue.title}{" "}
@@ -95,10 +99,10 @@ export function ProjectIssueDetail({
               <div className="space-y-4">
                 {issue.comments.map((item) => (
                   <article key={item.id}>
-                    <p className="text-xs text-muted-foreground">
-                      {truncatePubkey(item.author)} ·{" "}
-                      {relativeTime(item.createdAt)}
-                    </p>
+                    <ProjectProfileIdentity
+                      pubkey={item.author}
+                      role={relativeTime(item.createdAt)}
+                    />
                     <ProjectRichContent
                       className="mt-2 text-sm"
                       content={item.content}
@@ -200,9 +204,7 @@ function IssueMetaRail({
         )}
       </RailSection>
       <RailSection title="Author">
-        <p className="break-all font-mono text-xs text-muted-foreground">
-          {truncatePubkey(issue.author)}
-        </p>
+        <ProjectProfileIdentity pubkey={issue.author} />
       </RailSection>
       {issue.labels.length ? (
         <RailSection title="Labels">

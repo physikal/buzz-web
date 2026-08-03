@@ -16,6 +16,7 @@ import {
   submitProjectPullRequestReview,
 } from "../project-api";
 import { MergePullRequestControl } from "./MergePullRequestControl";
+import { ProjectProfileIdentity } from "./ProjectProfileIdentity";
 
 export function PullRequestReviewControls({
   ownerPubkey,
@@ -264,7 +265,7 @@ function ReviewerBadge({
       ) : changes ? (
         <TriangleAlert className="h-3 w-3 text-amber-600" />
       ) : null}
-      {truncatePubkey(pubkey)}
+      <ProjectProfileIdentity pubkey={pubkey} showAvatar={false} />
     </span>
   );
 }

@@ -1,6 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import {
+  ChevronDown,
+  ChevronUp,
+  Copy,
   GitCommitHorizontal,
   GitPullRequest,
   MessageSquare,
@@ -12,6 +15,7 @@ import { toast } from "sonner";
 
 import { listChannels } from "@/features/channels/channel-api";
 import { truncatePubkey } from "@/shared/lib/pubkey";
+import { relativeTime } from "@/shared/lib/relative-time";
 import { useRepoRefs } from "@/features/repos/use-repo-refs";
 import { Button } from "@/shared/ui/button";
 import { createProjectPullRequestComment } from "../project-comments-api";
@@ -33,6 +37,7 @@ import {
 import { ProjectPullRequestFilesChangedPanel } from "./ProjectPullRequestFilesChangedPanel";
 import { ProjectPullRequestMetaRail } from "./ProjectPullRequestMetaRail";
 import { ProjectCommentComposer } from "./ProjectCommentComposer";
+import { ProjectProfileIdentity } from "./ProjectProfileIdentity";
 import { ProjectRichContent } from "./ProjectRichContent";
 import { PullRequestReviewControls } from "./PullRequestReviewControls";
 
@@ -433,20 +438,94 @@ function PullRequestConversation({
   ) => Promise<void>;
   onOpenFiles: (anchor: ProjectPullRequestCommentAnchor) => void;
 }) {
+  const [historyCollapsed, setHistoryCollapsed] = useState(false);
+  const [historyExpanded, setHistoryExpanded] = useState(false);
+  const earlierActivityCount = Math.max(0, pullRequest.comments.length - 3);
+  const visibleComments = historyCollapsed
+    ? []
+    : historyExpanded || earlierActivityCount === 0
+      ? pullRequest.comments
+      : pullRequest.comments.slice(-3);
   return (
     <div className="px-4 py-6">
+      {pullRequest.updates.length ? (
+        <section className="mb-6 space-y-3">
+          <h3 className="text-sm font-semibold">Updates</h3>
+          {pullRequest.updates.map((update) => (
+            <article className="rounded-md border p-3" key={update.id}>
+              <div className="flex min-w-0 items-start justify-between gap-3">
+                <ProjectProfileIdentity
+                  pubkey={update.author}
+                  role={relativeTime(update.createdAt)}
+                />
+                {update.commit ? (
+                  <button
+                    aria-label={`Copy commit ${update.commit.slice(0, 7)}`}
+                    className="inline-flex shrink-0 items-center gap-1 rounded-md bg-muted px-2 py-1 font-mono text-xs text-muted-foreground hover:text-foreground"
+                    onClick={() => {
+                      void navigator.clipboard.writeText(update.commit ?? "");
+                      toast.success("Commit copied");
+                    }}
+                    type="button"
+                  >
+                    {update.commit.slice(0, 7)} <Copy className="h-3 w-3" />
+                  </button>
+                ) : null}
+              </div>
+              {update.content ? (
+                <ProjectRichContent
+                  className="mt-2 text-sm"
+                  content={update.content}
+                  tags={update.tags}
+                />
+              ) : (
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Updated pull request branch
+                </p>
+              )}
+            </article>
+          ))}
+        </section>
+      ) : null}
       <h3 className="text-lg font-semibold">
         {pullRequest.comments.length}{" "}
         {pullRequest.comments.length === 1 ? "comment" : "comments"}
       </h3>
       <div className="mt-4 divide-y rounded-md border">
         {pullRequest.comments.length ? (
-          pullRequest.comments.map((item) => (
+          <button
+            aria-expanded={!historyCollapsed}
+            className="flex w-full items-center justify-between gap-3 p-3 text-left text-sm font-medium text-muted-foreground hover:text-foreground"
+            onClick={() => setHistoryCollapsed((current) => !current)}
+            type="button"
+          >
+            {historyCollapsed
+              ? `Show ${pullRequest.comments.length} earlier activities`
+              : "Collapse review history"}
+            {historyCollapsed ? (
+              <ChevronDown className="h-4 w-4" />
+            ) : (
+              <ChevronUp className="h-4 w-4" />
+            )}
+          </button>
+        ) : null}
+        {!historyCollapsed && earlierActivityCount > 0 && !historyExpanded ? (
+          <button
+            className="flex w-full items-center justify-between gap-3 p-3 text-left text-sm font-medium text-muted-foreground hover:text-foreground"
+            onClick={() => setHistoryExpanded(true)}
+            type="button"
+          >
+            Show {earlierActivityCount} earlier activities
+            <ChevronDown className="h-4 w-4" />
+          </button>
+        ) : null}
+        {pullRequest.comments.length ? (
+          visibleComments.map((item) => (
             <article className="p-4" key={item.id}>
-              <p className="text-xs text-muted-foreground">
-                {truncatePubkey(item.author)} ·{" "}
-                {new Date(item.createdAt * 1000).toLocaleString()}
-              </p>
+              <ProjectProfileIdentity
+                pubkey={item.author}
+                role={new Date(item.createdAt * 1000).toLocaleString()}
+              />
               {item.reviewDecisionStatus ? (
                 <p className="mt-2 text-xs font-medium">
                   {item.reviewDecision === "approved"
