@@ -46,10 +46,12 @@ import {
 } from "../project-api";
 
 export function ProjectsPage({
+  initialCommitOid,
   initialIssueId,
   initialPullRequestId,
   projectId,
 }: {
+  initialCommitOid?: string;
   initialIssueId?: string;
   initialPullRequestId?: string;
   projectId?: string;
@@ -59,6 +61,7 @@ export function ProjectsPage({
   return (
     <ProjectsWorkspace
       ownerPubkey={ownerPubkey}
+      initialCommitOid={initialCommitOid}
       initialIssueId={initialIssueId}
       initialPullRequestId={initialPullRequestId}
       projectId={projectId}
@@ -72,12 +75,14 @@ export function ProjectsPage({
 
 function ProjectsWorkspace({
   ownerPubkey,
+  initialCommitOid,
   initialIssueId,
   initialPullRequestId,
   projectId,
   onDisconnect,
 }: {
   ownerPubkey: string;
+  initialCommitOid?: string;
   initialIssueId?: string;
   initialPullRequestId?: string;
   projectId?: string;
@@ -126,6 +131,7 @@ function ProjectsWorkspace({
             selected ? (
               <ProjectDetail
                 initialIssueId={initialIssueId}
+                initialCommitOid={initialCommitOid}
                 initialPullRequestId={initialPullRequestId}
                 ownerPubkey={ownerPubkey}
                 project={selected}
@@ -178,11 +184,13 @@ function ProjectsWorkspace({
 }
 
 function ProjectDetail({
+  initialCommitOid,
   initialIssueId,
   initialPullRequestId,
   project,
   ownerPubkey,
 }: {
+  initialCommitOid?: string;
   initialIssueId?: string;
   initialPullRequestId?: string;
   project: Project;
@@ -201,7 +209,9 @@ function ProjectDetail({
       ? "issues"
       : initialPullRequestId
         ? "pull-requests"
-        : "overview",
+        : initialCommitOid
+          ? "commits"
+          : "overview",
   );
   const issuesQuery = useQuery({
     queryKey: ["project-issues", project.repoAddress],
@@ -338,7 +348,11 @@ function ProjectDetail({
         projectView === "files" ||
         projectView === "commits" ||
         projectView === "contributors" ? (
-          <ProjectRepositoryPanel project={project} view={projectView} />
+          <ProjectRepositoryPanel
+            initialCommitOid={initialCommitOid}
+            project={project}
+            view={projectView}
+          />
         ) : projectView === "issues" ? (
           <>
             <h2 className="mt-6 text-lg font-semibold">Issues</h2>

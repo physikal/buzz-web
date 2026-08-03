@@ -19,6 +19,10 @@ import { SidebarToggleButton } from "@/shared/ui/sidebar-toggle-button";
 import type { Project, ProjectIssue, ProjectPullRequest } from "../project-api";
 import { listProjectsWorkItems } from "../projects-work-items";
 import {
+  listProjectsRepoSnapshots,
+  type ProjectRepoActivitySnapshot,
+} from "../projects-repo-snapshots";
+import {
   isRelayHostedProject,
   projectUpdatedAt,
 } from "../projects-index-helpers";
@@ -29,6 +33,7 @@ import {
   writeProjectsIndexState,
 } from "../projects-index-state";
 import { ProjectsCreateControls } from "./ProjectsCreateControls";
+import { ProjectActivityBar } from "./ProjectActivityBar";
 import {
   projectActivityDayKey,
   ProjectsContributionGraph,
@@ -177,48 +182,6 @@ function RepositoryItems({
   );
 }
 
-function ProjectActivityBar({
-  commits,
-  issues,
-  pullRequests,
-}: {
-  commits: number;
-  issues: number;
-  pullRequests: number;
-}) {
-  const total = commits + issues + pullRequests;
-  return (
-    <div
-      aria-label={`${commits} ${commits === 1 ? "commit" : "commits"}, ${pullRequests} ${pullRequests === 1 ? "pull request" : "pull requests"}, ${issues} ${issues === 1 ? "issue" : "issues"}`}
-      className="pointer-events-none flex h-1.5 w-full gap-px overflow-hidden rounded-full bg-muted/60"
-      role="img"
-    >
-      {total ? (
-        <>
-          {commits ? (
-            <span
-              className="h-full bg-primary/60"
-              style={{ width: `${(commits / total) * 100}%` }}
-            />
-          ) : null}
-          {pullRequests ? (
-            <span
-              className="h-full bg-primary"
-              style={{ width: `${(pullRequests / total) * 100}%` }}
-            />
-          ) : null}
-          {issues ? (
-            <span
-              className="h-full bg-orange-500"
-              style={{ width: `${(issues / total) * 100}%` }}
-            />
-          ) : null}
-        </>
-      ) : null}
-    </div>
-  );
-}
-
 function statusLabel(
   kind: "issue" | "pull-request",
   status: ProjectIssue["status"] | ProjectPullRequest["status"],
@@ -331,12 +294,14 @@ function WorkItemItems({
 
 type ActivityItem = {
   id: string;
-  actor: string;
+  actor: string | null;
+  actorName: string | null;
   action: string;
   title: string;
   body: string;
   createdAt: number;
   project: Project;
+  commitOid?: string;
   issue?: ProjectIssue;
   pullRequest?: ProjectPullRequest;
 };
@@ -348,20 +313,38 @@ function activityItems(
     project: Project;
     pullRequest: ProjectPullRequest;
   }>,
+  snapshots: Record<string, ProjectRepoActivitySnapshot>,
 ) {
   const items: ActivityItem[] = projects.map((project) => ({
     id: `project:${project.id}`,
     actor: project.owner,
+    actorName: null,
     action: "created the repository",
     title: project.name,
     body: project.description,
     createdAt: project.createdAt,
     project,
   }));
+  for (const project of projects) {
+    const snapshot = snapshots[project.repoAddress];
+    if (!snapshot) continue;
+    items.push({
+      id: `commit:${project.id}:${snapshot.oid}`,
+      actor: null,
+      actorName: snapshot.authorName,
+      action: "pushed a commit to",
+      title: snapshot.message.split("\n")[0] || snapshot.oid.slice(0, 7),
+      body: "",
+      createdAt: snapshot.createdAt,
+      project,
+      commitOid: snapshot.oid,
+    });
+  }
   for (const { project, issue } of issues) {
     items.push({
       id: `issue:${issue.id}`,
       actor: issue.author,
+      actorName: null,
       action: "created an issue in",
       title: issue.title,
       body: issue.content,
@@ -373,6 +356,7 @@ function activityItems(
       items.push({
         id: `issue-comment:${comment.id}`,
         actor: comment.author,
+        actorName: null,
         action: "commented on an issue in",
         title: issue.title,
         body: comment.content,
@@ -386,6 +370,7 @@ function activityItems(
     items.push({
       id: `pull-request:${pullRequest.id}`,
       actor: pullRequest.author,
+      actorName: null,
       action: "opened a pull request in",
       title: pullRequest.title,
       body: pullRequest.content,
@@ -397,6 +382,7 @@ function activityItems(
       items.push({
         id: `pull-request-update:${update.id}`,
         actor: update.author,
+        actorName: null,
         action: "updated a pull request in",
         title: pullRequest.title,
         body: update.content,
@@ -409,6 +395,7 @@ function activityItems(
       items.push({
         id: `pull-request-comment:${comment.id}`,
         actor: comment.author,
+        actorName: null,
         action:
           comment.reviewDecisionStatus === "current" &&
           comment.reviewDecision === "approved"
@@ -432,6 +419,7 @@ function Overview({
   projects,
   issues,
   pullRequests,
+  snapshots,
   loading,
   onFilterChange,
   onOpenActivity,
@@ -442,18 +430,19 @@ function Overview({
     project: Project;
     pullRequest: ProjectPullRequest;
   }>;
+  snapshots: Record<string, ProjectRepoActivitySnapshot>;
   loading: boolean;
   onFilterChange: (filter: ProjectsFilter, local?: boolean) => void;
   onOpenActivity: (item: ActivityItem) => void;
 }) {
-  const activity = activityItems(projects, issues, pullRequests);
+  const activity = activityItems(projects, issues, pullRequests, snapshots);
   const people = [
     ...new Set([
       ...projects.flatMap((project) => [
         project.owner,
         ...project.contributors,
       ]),
-      ...activity.map((item) => item.actor),
+      ...activity.flatMap((item) => (item.actor ? [item.actor] : [])),
       ...pullRequests.flatMap(({ pullRequest }) => [
         ...pullRequest.recipients,
         ...pullRequest.reviewers,
@@ -544,12 +533,16 @@ function Overview({
                   type="button"
                 >
                   <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted font-mono text-[10px] font-semibold">
-                    {item.actor.slice(0, 2).toUpperCase()}
+                    {(item.actor ?? item.actorName ?? "?")
+                      .slice(0, 2)
+                      .toUpperCase()}
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-xs text-muted-foreground">
-                      {truncatePubkey(item.actor)} {item.action}{" "}
-                      {item.project.name}
+                      {item.actor
+                        ? truncatePubkey(item.actor)
+                        : item.actorName || "Someone"}{" "}
+                      {item.action} {item.project.name}
                     </span>
                     <span className="mt-0.5 block truncate text-sm font-semibold">
                       {item.title}
@@ -653,6 +646,16 @@ export function ProjectsIndex({
     queryFn: () => listProjectsWorkItems(projects),
     enabled: projects.length > 0,
     staleTime: 30_000,
+  });
+  const snapshotsQuery = useQuery({
+    queryKey: [
+      "projects-repo-snapshots",
+      projects.map((project) => project.id),
+    ],
+    queryFn: () => listProjectsRepoSnapshots(projects),
+    enabled: filter === "overview" && projects.length > 0,
+    retry: false,
+    staleTime: 15 * 60_000,
   });
   const issues = workItemsQuery.data?.issues ?? [];
   const pullRequests = workItemsQuery.data?.pullRequests ?? [];
@@ -812,6 +815,14 @@ export function ProjectsIndex({
     });
   }
   function openActivity(item: ActivityItem) {
+    if (item.commitOid) {
+      void navigate({
+        params: { projectId: item.project.id },
+        search: { commit: item.commitOid },
+        to: "/projects/$projectId",
+      });
+      return;
+    }
     if (item.issue) {
       openIssue({ ...item.issue, project: item.project });
       return;
@@ -875,9 +886,10 @@ export function ProjectsIndex({
           ) : null}
           <Overview
             issues={issues}
-            loading={workItemsQuery.isLoading}
+            loading={workItemsQuery.isLoading || snapshotsQuery.isLoading}
             projects={projects}
             pullRequests={pullRequests}
+            snapshots={snapshotsQuery.data ?? {}}
             onFilterChange={(nextFilter, local) => {
               if (local) setRepositoryScope("local");
               setFilter(nextFilter);

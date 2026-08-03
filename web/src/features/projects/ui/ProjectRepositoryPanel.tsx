@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import { GitBranch, Tag, Users } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import type { CommitInfo } from "@/features/repos/git-client";
@@ -31,9 +32,11 @@ export type ProjectRepositoryView =
   | "contributors";
 
 export function ProjectRepositoryPanel({
+  initialCommitOid,
   project,
   view,
 }: {
+  initialCommitOid?: string;
   project: Project;
   view: ProjectRepositoryView;
 }) {
@@ -179,6 +182,7 @@ export function ProjectRepositoryPanel({
           />
         ) : view === "commits" ? (
           <ProjectCommits
+            initialCommitOid={initialCommitOid}
             project={project}
             refName={refName}
             refType={selectedRef?.type ?? "branch"}
@@ -269,24 +273,46 @@ function ProjectFiles({
 }
 
 function ProjectCommits({
+  initialCommitOid,
   project,
   refName,
   refType,
   refsQuery,
 }: {
+  initialCommitOid?: string;
   project: Project;
   refName: string;
   refType: "branch" | "tag";
   refsQuery: RefsQuery;
 }) {
+  const navigate = useNavigate();
   const [selectedCommit, setSelectedCommit] = useState<CommitInfo | null>(null);
+  const appliedInitialCommit = useRef(false);
   const commits = useGitLog(project.owner, project.dtag, refName);
   const RefIcon = refType === "tag" ? Tag : GitBranch;
+  useEffect(() => {
+    if (appliedInitialCommit.current || !initialCommitOid || !commits.data) {
+      return;
+    }
+    appliedInitialCommit.current = true;
+    setSelectedCommit(
+      commits.data.find((commit) => commit.oid === initialCommitOid) ?? null,
+    );
+  }, [commits.data, initialCommitOid]);
+  function selectCommit(commit: CommitInfo | null) {
+    setSelectedCommit(commit);
+    void navigate({
+      params: { projectId: project.id },
+      search: commit ? { commit: commit.oid } : {},
+      to: "/projects/$projectId",
+      replace: true,
+    });
+  }
   if (selectedCommit) {
     return (
       <ProjectCommitDetail
         commit={selectedCommit}
-        onBack={() => setSelectedCommit(null)}
+        onBack={() => selectCommit(null)}
         project={project}
         refName={refName}
       />
@@ -302,7 +328,7 @@ function ProjectCommits({
       <RepoCommitsSection
         commits={commits.data}
         isLoading={commits.isLoading}
-        onSelect={setSelectedCommit}
+        onSelect={selectCommit}
       />
       {!commits.isLoading && !commits.error && !commits.data?.length ? (
         <p className="mt-8 text-sm text-muted-foreground">

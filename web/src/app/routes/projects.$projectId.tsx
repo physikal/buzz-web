@@ -8,6 +8,10 @@ const ProjectsPage = lazy(async () => {
 
 export const Route = createFileRoute("/projects/$projectId")({
   validateSearch: (search: Record<string, unknown>) => ({
+    ...(typeof search.commit === "string" &&
+    /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/iu.test(search.commit)
+      ? { commit: search.commit.toLowerCase() }
+      : {}),
     ...(typeof search.issue === "string" ? { issue: search.issue } : {}),
     ...(typeof search.pullRequest === "string"
       ? { pullRequest: search.pullRequest }
@@ -22,6 +26,7 @@ function ProjectRoute() {
   return (
     <ProjectsPage
       initialIssueId={search.issue}
+      initialCommitOid={search.commit}
       initialPullRequestId={search.pullRequest}
       projectId={projectId}
     />
