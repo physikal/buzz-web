@@ -2552,6 +2552,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await page.getByRole("button", { name: "New issue" }).click();
   await page.getByLabel("Title").fill("Browser issue");
   await page.getByLabel("Description").fill("Track this from Buzz Web");
+  await page.getByLabel("Labels").fill("browser");
   await page.getByRole("button", { name: "Create issue" }).click();
   await expect
     .poll(() =>
@@ -2560,7 +2561,8 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
           event.kind === 1621 &&
           event.tags.some(
             (tag) => tag[0] === "subject" && tag[1] === "Browser issue",
-          ),
+          ) &&
+          event.tags.some((tag) => tag[0] === "t" && tag[1] === "browser"),
       ),
     )
     .toBe(true);
@@ -2572,6 +2574,22 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     page.getByRole("button", { name: "Back to issues" }),
   ).toBeVisible();
   await expect(page.getByText("Track this from Buzz Web")).toBeVisible();
+  const issueMetaRail = page.getByRole("complementary", {
+    name: "Issue metadata",
+  });
+  await expect(
+    issueMetaRail.getByRole("heading", { name: "Status" }),
+  ).toBeVisible();
+  await expect(
+    issueMetaRail.getByRole("heading", { name: "Author" }),
+  ).toBeVisible();
+  await expect(
+    issueMetaRail.getByRole("heading", { name: "Labels" }),
+  ).toBeVisible();
+  await expect(
+    issueMetaRail.getByRole("heading", { name: "Activity" }),
+  ).toBeVisible();
+  await expect(issueMetaRail.getByText("browser")).toBeVisible();
   await page
     .getByLabel("Add your comment")
     .fill("Reviewed from the web issue view");
@@ -2596,7 +2614,18 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
       .locator("article")
       .filter({ hasText: "Reviewed from the web issue view" }),
   ).toBeVisible();
+  await expect(page.getByText("Comment posted")).toBeHidden({ timeout: 6_000 });
+  await expect(page.getByText("Issue created")).toBeHidden({ timeout: 6_000 });
   await page.screenshot({ path: "/tmp/buzz-web-project-issue.png" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+  await expect(issueMetaRail).toBeVisible();
+  await page.screenshot({ path: "/tmp/buzz-web-project-issue-mobile.png" });
+  await page.setViewportSize({ width: 1280, height: 720 });
   await page.getByRole("button", { name: "Back to issues" }).click();
   await expect(page.getByText("1 comment", { exact: false })).toBeVisible();
   await page.getByRole("button", { name: "Pull Request" }).click();
