@@ -1,16 +1,13 @@
 import { CircleCheck, CircleDot, CircleX, MessageSquare } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import type { ReactNode } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 
 import { relativeTime } from "@/shared/lib/relative-time";
 import { truncatePubkey } from "@/shared/lib/pubkey";
-import { Button } from "@/shared/ui/button";
-import {
-  createProjectIssueComment,
-  type Project,
-  type ProjectIssue,
-} from "../project-api";
+import { createProjectIssueComment } from "../project-comments-api";
+import type { Project, ProjectIssue } from "../project-api";
+import { ProjectCommentComposer } from "./ProjectCommentComposer";
 import { ProjectRichContent } from "./ProjectRichContent";
 
 function issueStatusVisual(status: ProjectIssue["status"]) {
@@ -44,11 +41,10 @@ export function ProjectIssueDetail({
   onStatusChange: (status: ProjectIssue["status"]) => void;
   onUpdated: () => Promise<unknown>;
 }) {
-  const [comment, setComment] = useState("");
   const createComment = useMutation({
-    mutationFn: () => createProjectIssueComment(project, issue, comment),
+    mutationFn: (input: Parameters<typeof createProjectIssueComment>[2]) =>
+      createProjectIssueComment(project, issue, input),
     onSuccess: async () => {
-      setComment("");
       await onUpdated();
       toast.success("Comment posted");
     },
@@ -106,32 +102,18 @@ export function ProjectIssueDetail({
             ) : (
               <p className="text-sm text-muted-foreground">No comments yet.</p>
             )}
-            <form
-              onSubmit={(event) => {
-                event.preventDefault();
-                if (comment.trim()) createComment.mutate();
-              }}
-            >
-              <label className="sr-only" htmlFor="issue-comment">
-                Add your comment
-              </label>
-              <textarea
-                className="min-h-28 w-full rounded-md border bg-background p-3 text-sm"
-                disabled={createComment.isPending}
-                id="issue-comment"
-                placeholder="Add a comment..."
-                value={comment}
-                onChange={(event) => setComment(event.target.value)}
-              />
-              <div className="mt-2 flex justify-end">
-                <Button
-                  disabled={!comment.trim() || createComment.isPending}
-                  type="submit"
-                >
-                  {createComment.isPending ? "Posting..." : "Comment"}
-                </Button>
-              </div>
-            </form>
+            <ProjectCommentComposer
+              ownerPubkey={ownerPubkey}
+              participants={[
+                project.owner,
+                issue.author,
+                ...project.contributors,
+                ...issue.recipients,
+              ]}
+              pending={createComment.isPending}
+              workItemId={issue.id}
+              onSubmit={(input) => createComment.mutateAsync(input)}
+            />
           </section>
         </div>
         <IssueMetaRail

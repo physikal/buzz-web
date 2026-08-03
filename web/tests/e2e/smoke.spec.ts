@@ -2600,7 +2600,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   ).toBeVisible();
   await expect(issueMetaRail.getByText("browser")).toBeVisible();
   await page
-    .getByLabel("Add your comment")
+    .getByLabel("Add a comment...")
     .fill("Reviewed from the web issue view");
   await page.getByRole("button", { name: "Comment", exact: true }).click();
   await expect
@@ -2741,7 +2741,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     trustedApproval?.created_at ?? 0,
   );
   await page
-    .getByLabel("Add pull request comment")
+    .getByLabel("Add a comment...")
     .fill("Reviewed the pull request from web");
   await page.getByRole("button", { name: "Comment", exact: true }).click();
   await expect

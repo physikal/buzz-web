@@ -379,27 +379,6 @@ export async function setProjectIssueStatus(
   });
 }
 
-export async function createProjectIssueComment(
-  project: Project,
-  issue: ProjectIssue,
-  content: string,
-): Promise<void> {
-  const body = content.trim();
-  if (!body) throw new Error("Comment cannot be empty.");
-  await submitEvent({
-    kind: 1,
-    content: body,
-    tags: [
-      ["e", issue.id, "", "root"],
-      ["a", project.repoAddress],
-      ...[...new Set([project.owner, issue.author])].map((pubkey) => [
-        "p",
-        pubkey.toLowerCase(),
-      ]),
-    ],
-  });
-}
-
 export async function listProjectPullRequests(
   project: Project,
   prefetchedEvents?: NostrEvent[],
@@ -647,30 +626,6 @@ export async function listProjectPullRequests(
       } satisfies ProjectPullRequest;
     })
     .sort((a, b) => b.updatedAt - a.updatedAt);
-}
-
-export async function createProjectPullRequestComment(
-  project: Project,
-  pullRequest: ProjectPullRequest,
-  content: string,
-): Promise<void> {
-  const body = content.trim();
-  if (!body) throw new Error("Comment cannot be empty.");
-  await submitEvent({
-    kind: 1,
-    content: body,
-    tags: [
-      ["e", pullRequest.id, "", "root"],
-      ["a", project.repoAddress],
-      ...[
-        ...new Set([
-          project.owner.toLowerCase(),
-          pullRequest.author.toLowerCase(),
-          ...pullRequest.recipients,
-        ]),
-      ].map((pubkey) => ["p", pubkey]),
-    ],
-  });
 }
 
 export async function createProjectPullRequestInlineComment(

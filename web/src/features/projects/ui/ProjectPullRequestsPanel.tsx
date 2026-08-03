@@ -14,8 +14,8 @@ import { listChannels } from "@/features/channels/channel-api";
 import { truncatePubkey } from "@/shared/lib/pubkey";
 import { useRepoRefs } from "@/features/repos/use-repo-refs";
 import { Button } from "@/shared/ui/button";
+import { createProjectPullRequestComment } from "../project-comments-api";
 import {
-  createProjectPullRequestComment,
   createProjectPullRequest,
   listProjectPullRequests,
   type Project,
@@ -32,6 +32,7 @@ import {
 } from "./CreatePullRequestDialog";
 import { ProjectPullRequestFilesChangedPanel } from "./ProjectPullRequestFilesChangedPanel";
 import { ProjectPullRequestMetaRail } from "./ProjectPullRequestMetaRail";
+import { ProjectCommentComposer } from "./ProjectCommentComposer";
 import { ProjectRichContent } from "./ProjectRichContent";
 import { PullRequestReviewControls } from "./PullRequestReviewControls";
 
@@ -189,7 +190,6 @@ function PullRequestDetail({
   onUpdated: () => Promise<unknown>;
 }) {
   const navigate = useNavigate();
-  const [comment, setComment] = useState("");
   const [mode, setMode] = useState<
     "conversation" | "commits" | "checks" | "files"
   >("conversation");
@@ -207,10 +207,10 @@ function PullRequestDetail({
     retry: false,
   });
   const commentMutation = useMutation({
-    mutationFn: () =>
-      createProjectPullRequestComment(project, pullRequest, comment),
+    mutationFn: (
+      input: Parameters<typeof createProjectPullRequestComment>[2],
+    ) => createProjectPullRequestComment(project, pullRequest, input),
     onSuccess: async () => {
-      setComment("");
       await onUpdated();
       toast.success("Comment posted");
     },
@@ -372,11 +372,11 @@ function PullRequestDetail({
                 pullRequest={pullRequest}
               />
               <PullRequestConversation
-                comment={comment}
                 commentPending={commentMutation.isPending}
+                ownerPubkey={ownerPubkey}
+                project={project}
                 pullRequest={pullRequest}
-                onCommentChange={setComment}
-                onCommentSubmit={() => commentMutation.mutate()}
+                onCommentSubmit={(input) => commentMutation.mutateAsync(input)}
                 onOpenFiles={(anchor) => {
                   setFocusedAnchor(anchor);
                   setMode("files");
@@ -417,18 +417,20 @@ function PullRequestDetail({
 }
 
 function PullRequestConversation({
-  comment,
   commentPending,
+  ownerPubkey,
+  project,
   pullRequest,
-  onCommentChange,
   onCommentSubmit,
   onOpenFiles,
 }: {
-  comment: string;
   commentPending: boolean;
+  ownerPubkey: string;
+  project: Project;
   pullRequest: ProjectPullRequest;
-  onCommentChange: (value: string) => void;
-  onCommentSubmit: () => void;
+  onCommentSubmit: (
+    input: Parameters<typeof createProjectPullRequestComment>[2],
+  ) => Promise<void>;
   onOpenFiles: (anchor: ProjectPullRequestCommentAnchor) => void;
 }) {
   return (
@@ -482,30 +484,20 @@ function PullRequestConversation({
           <p className="p-4 text-sm text-muted-foreground">No comments yet.</p>
         )}
       </div>
-      <form
-        className="mt-5"
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (comment.trim()) onCommentSubmit();
-        }}
-      >
-        <label className="text-sm font-medium" htmlFor="pull-request-comment">
-          Add pull request comment
-        </label>
-        <textarea
-          className="mt-2 min-h-28 w-full rounded-md border bg-background p-3 text-sm"
-          disabled={commentPending}
-          id="pull-request-comment"
-          placeholder="Add a comment..."
-          value={comment}
-          onChange={(event) => onCommentChange(event.target.value)}
+      <div className="mt-5">
+        <ProjectCommentComposer
+          ownerPubkey={ownerPubkey}
+          participants={[
+            project.owner,
+            pullRequest.author,
+            ...project.contributors,
+            ...pullRequest.recipients,
+          ]}
+          pending={commentPending}
+          workItemId={pullRequest.id}
+          onSubmit={onCommentSubmit}
         />
-        <div className="mt-2 flex justify-end">
-          <Button disabled={!comment.trim() || commentPending} type="submit">
-            {commentPending ? "Posting..." : "Comment"}
-          </Button>
-        </div>
-      </form>
+      </div>
     </div>
   );
 }

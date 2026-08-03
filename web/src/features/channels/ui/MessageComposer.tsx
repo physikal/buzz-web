@@ -44,21 +44,27 @@ function isFileDrag(event: DragEvent<HTMLElement>) {
 }
 
 export function MessageComposer({
+  className = "relative border-t p-3 sm:p-4",
   channel,
   parent,
   ownerPubkey,
   customEmoji,
   mentionCandidates,
   pending,
+  placeholder: placeholderOverride,
+  submitLabel = "Send message",
   onTyping,
   onSubmit,
 }: {
+  className?: string;
   channel: Channel;
   parent?: ChannelMessage | null;
   ownerPubkey: string;
   customEmoji: CustomEmoji[];
   mentionCandidates: DmCandidate[];
   pending: boolean;
+  placeholder?: string;
+  submitLabel?: string;
   onTyping?: () => void;
   onSubmit: (payload: ComposerPayload) => Promise<void>;
 }) {
@@ -196,13 +202,15 @@ export function MessageComposer({
     }
   }
 
-  const placeholder = parent
-    ? "Reply in thread"
-    : channel.channelType === "forum"
-      ? "Create a new post"
-      : channel.channelType === "dm"
-        ? `Message ${channel.name}`
-        : `Message #${channel.name}`;
+  const placeholder =
+    placeholderOverride ??
+    (parent
+      ? "Reply in thread"
+      : channel.channelType === "forum"
+        ? "Create a new post"
+        : channel.channelType === "dm"
+          ? `Message ${channel.name}`
+          : `Message #${channel.name}`);
   const mentionSuggestions = mentionAutocomplete
     ? mentionCandidates
         .filter((candidate) =>
@@ -283,7 +291,7 @@ export function MessageComposer({
 
   return (
     <form
-      className="relative border-t p-3 sm:p-4"
+      className={className}
       onDragEnter={(event) => {
         if (!isFileDrag(event) || pending || uploading) return;
         event.preventDefault();
@@ -548,7 +556,7 @@ export function MessageComposer({
             value={draft}
           />
           <Button
-            aria-label="Send message"
+            aria-label={submitLabel}
             disabled={
               (!draft.trim() && !attachments.length) || pending || uploading
             }
