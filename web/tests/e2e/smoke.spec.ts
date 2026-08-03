@@ -1071,6 +1071,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
                   ["clone", "https://example.com/relay-project.git"],
                   ["branch-name", "feature/web-parity"],
                   ["target-branch", "main"],
+                  ["h", "44444444-4444-4444-8444-444444444444"],
                 ],
               },
               signer,
@@ -2665,6 +2666,11 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     pullRequestMetaRail.getByRole("button", { name: "Add reviewer" }),
   ).toHaveCount(0);
   await expect(page.getByText("feature/web-parity → main")).toBeVisible();
+  const sourceChannelLink = page.getByRole("button", {
+    name: "Open author-claimed source channel #general",
+  });
+  await expect(sourceChannelLink).toBeVisible();
+  await expect(page.getByText("(author-claimed)")).toBeVisible();
   await expect(page.getByText("abababa", { exact: false })).toBeVisible();
   await expect(page.getByText("cdcdcdc", { exact: false })).toHaveCount(0);
   await expect(

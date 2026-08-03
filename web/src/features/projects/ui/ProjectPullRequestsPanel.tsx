@@ -10,6 +10,7 @@ import {
 import { useState } from "react";
 import { toast } from "sonner";
 
+import { listChannels } from "@/features/channels/channel-api";
 import { truncatePubkey } from "@/shared/lib/pubkey";
 import { useRepoRefs } from "@/features/repos/use-repo-refs";
 import { Button } from "@/shared/ui/button";
@@ -186,6 +187,7 @@ function PullRequestDetail({
   onBack: () => void;
   onUpdated: () => Promise<unknown>;
 }) {
+  const navigate = useNavigate();
   const [comment, setComment] = useState("");
   const [mode, setMode] = useState<
     "conversation" | "commits" | "checks" | "files"
@@ -253,6 +255,15 @@ function PullRequestDetail({
       sourceCommit &&
         sourceCommit.toLowerCase() !== pullRequest.commit?.toLowerCase(),
     );
+  const channelsQuery = useQuery({
+    queryKey: ["channels", ownerPubkey],
+    queryFn: () => listChannels(ownerPubkey),
+    enabled: Boolean(pullRequest.channelId),
+    staleTime: 30_000,
+  });
+  const sourceChannel = channelsQuery.data?.find(
+    (channel) => channel.id === pullRequest.channelId,
+  );
   return (
     <section className="mt-8">
       <button
@@ -296,6 +307,32 @@ function PullRequestDetail({
                 ? ` · merged as ${pullRequest.mergeCommit.slice(0, 7)}`
                 : ""}
             </p>
+            {pullRequest.channelId ? (
+              <p
+                className="mt-2 text-xs text-muted-foreground"
+                title="Source channel is claimed by the pull request author and is not relay-verified."
+              >
+                Linked from{" "}
+                {sourceChannel ? (
+                  <button
+                    aria-label={`Open author-claimed source channel #${sourceChannel.name}`}
+                    className="font-medium text-foreground underline-offset-2 hover:underline"
+                    onClick={() =>
+                      void navigate({
+                        search: { channel: sourceChannel.id },
+                        to: "/channels",
+                      })
+                    }
+                    type="button"
+                  >
+                    #{sourceChannel.name}
+                  </button>
+                ) : (
+                  <span>an unavailable channel</span>
+                )}{" "}
+                (author-claimed)
+              </p>
+            ) : null}
             {pullRequest.content ? (
               <p className="mt-5 whitespace-pre-wrap text-sm leading-6">
                 {pullRequest.content}

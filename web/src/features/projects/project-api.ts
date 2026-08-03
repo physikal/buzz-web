@@ -77,6 +77,7 @@ export type ProjectPullRequest = {
   title: string;
   content: string;
   author: string;
+  channelId: string | null;
   recipients: string[];
   reviewers: string[];
   approvals: ProjectPullRequestReviewDecision[];
@@ -592,6 +593,7 @@ export async function listProjectPullRequests(
           "Untitled pull request",
         content: event.content,
         author: event.pubkey,
+        channelId: safeProjectChannelId(tag(event, "h") ?? null),
         recipients: tags(event, "p").map((pubkey) => pubkey.toLowerCase()),
         reviewers: [...reviewers],
         approvals: decisions.filter(
