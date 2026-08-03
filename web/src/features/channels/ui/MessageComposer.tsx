@@ -167,6 +167,7 @@ export function MessageComposer({
     content: string;
     targetId: string;
   } | null>(null);
+  const pendingSubmitFocusRef = useRef<string | null>(null);
   const contextKey = `${channel.id}:${parent?.id ?? "root"}`;
   const operationContextKey = `${contextKey}:${editTarget?.id ?? "compose"}`;
   const operationContextKeyRef = useRef(operationContextKey);
@@ -295,6 +296,17 @@ export function MessageComposer({
       pendingFocus.content.length,
     );
   }, [draft, editTarget?.id]);
+  useLayoutEffect(() => {
+    const pendingContext = pendingSubmitFocusRef.current;
+    if (!pendingContext) return;
+    if (pendingContext !== operationContextKey) {
+      pendingSubmitFocusRef.current = null;
+      return;
+    }
+    if (pending || uploading) return;
+    pendingSubmitFocusRef.current = null;
+    textareaRef.current?.focus();
+  }, [operationContextKey, pending, uploading]);
   useEffect(() => {
     const resetDragState = () => {
       dragDepthRef.current = 0;
@@ -358,7 +370,6 @@ export function MessageComposer({
       setUploading(false);
     }
   }
-
   function replaceAttachment(currentUrl: string, replacement: DraftAttachment) {
     const nextSpoilers = new Set(spoileredAttachmentUrlsRef.current);
     if (nextSpoilers.delete(currentUrl)) nextSpoilers.add(replacement.url);
@@ -568,10 +579,7 @@ export function MessageComposer({
       setMentionAutocomplete(null);
       channelLinks.clear();
       deleteDraft(ownerPubkey, parent?.id ? `thread:${parent.id}` : channel.id);
-      requestAnimationFrame(() => {
-        if (operationContextKeyRef.current === submitContextKey)
-          textareaRef.current?.focus();
-      });
+      pendingSubmitFocusRef.current = submitContextKey;
     } finally {
       setUploading(false);
     }
