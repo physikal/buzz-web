@@ -1,4 +1,4 @@
-import { Bot, Copy, MessageCircle, X } from "lucide-react";
+import { Bot, Copy, MessageCircle, UserMinus, UserPlus, X } from "lucide-react";
 import { toast } from "sonner";
 
 import type { UserProfile } from "@/features/channels/channel-api";
@@ -35,6 +35,9 @@ export function UserProfileDialog({
   userStatus,
   onClose,
   onMessage,
+  following,
+  followPending = false,
+  onToggleFollow,
 }: {
   pubkey: string | null;
   ownerPubkey: string;
@@ -44,6 +47,9 @@ export function UserProfileDialog({
   userStatus?: UserStatus;
   onClose: () => void;
   onMessage: (pubkey: string) => void;
+  following?: boolean;
+  followPending?: boolean;
+  onToggleFollow?: () => void;
 }) {
   useEscapeSurface(Boolean(pubkey), onClose);
   if (!pubkey) return null;
@@ -130,10 +136,25 @@ export function UserProfileDialog({
           <Copy className="h-4 w-4 shrink-0" />
         </button>
         {pubkey !== ownerPubkey ? (
-          <Button className="mt-4 w-full" onClick={() => onMessage(pubkey)}>
-            <MessageCircle />
-            Message
-          </Button>
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            {onToggleFollow ? (
+              <Button
+                disabled={followPending}
+                onClick={onToggleFollow}
+                variant="outline"
+              >
+                {following ? <UserMinus /> : <UserPlus />}
+                {following ? "Unfollow" : "Follow"}
+              </Button>
+            ) : null}
+            <Button
+              className={onToggleFollow ? undefined : "col-span-2"}
+              onClick={() => onMessage(pubkey)}
+            >
+              <MessageCircle />
+              Message
+            </Button>
+          </div>
         ) : null}
       </div>
     </div>

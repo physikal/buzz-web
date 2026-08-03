@@ -25,6 +25,7 @@ export type PulseNote = {
 export type PulseData = {
   notes: PulseNote[];
   contacts: Set<string>;
+  contactTags: string[][];
   agents: Map<string, string>;
   profiles: Map<string, UserProfile>;
 };
@@ -156,7 +157,28 @@ export async function getPulseData(ownerPubkey: string): Promise<PulseData> {
   const profiles = new Map(
     profileRows.map((profile) => [profile.pubkey, profile]),
   );
-  return { notes, contacts, agents, profiles };
+  return {
+    notes,
+    contacts,
+    contactTags: contactEvent?.tags ?? [],
+    agents,
+    profiles,
+  };
+}
+
+export async function setPulseFollowing(
+  pubkey: string,
+  following: boolean,
+  contactTags: readonly string[][],
+) {
+  if (!/^[0-9a-f]{64}$/i.test(pubkey))
+    throw new Error("Choose a valid profile.");
+  const normalized = pubkey.toLowerCase();
+  const tags = contactTags.filter(
+    (tag) => !(tag[0] === "p" && tag[1]?.toLowerCase() === normalized),
+  );
+  if (following) tags.push(["p", normalized]);
+  await submitEvent({ kind: 3, content: "", tags });
 }
 
 export async function publishPulseNote(input: {

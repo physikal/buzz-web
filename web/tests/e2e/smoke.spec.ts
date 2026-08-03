@@ -3327,6 +3327,32 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   const pulseNote = page
     .getByText("Relay-native Pulse update", { exact: true })
     .locator("xpath=ancestor::article[1]");
+  await pulseNote
+    .getByRole("button", { name: "Open profile for Relay agent" })
+    .click();
+  await expect(page).toHaveURL(
+    new RegExp(`/pulse\\?profile=${catalogPubkey}$`),
+  );
+  const pulseProfile = page.getByRole("dialog", {
+    name: "Relay agent profile",
+  });
+  await expect(pulseProfile).toBeVisible();
+  await pulseProfile.getByRole("button", { name: "Follow" }).click();
+  await expect
+    .poll(() =>
+      submittedEvents.some(
+        (event) =>
+          event.kind === 3 &&
+          event.tags.some((tag) => tag[0] === "p" && tag[1] === catalogPubkey),
+      ),
+    )
+    .toBe(true);
+  await pulseProfile.getByRole("button", { name: "Close" }).click();
+  await expect(page).toHaveURL(/\/pulse$/u);
+  await page.goBack();
+  await expect(pulseProfile).toBeVisible();
+  await page.goForward();
+  await expect(pulseProfile).toBeHidden();
   await pulseNote.getByRole("button", { name: "Like" }).click();
   await expect
     .poll(() =>

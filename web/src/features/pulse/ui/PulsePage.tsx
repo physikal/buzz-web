@@ -11,7 +11,7 @@ import {
   X,
   Zap,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
@@ -20,6 +20,7 @@ import { OwnerConnection } from "@/features/agents/ui/OwnerConnection";
 import { openDm } from "@/features/channels/channel-api";
 import { AppPrimarySidebar } from "@/features/navigation/AppPrimarySidebar";
 import { lockOwnerVault } from "@/features/owner-vault/lib/vault-worker-client";
+import { UserProfileDialog } from "@/features/profile/UserProfileDialog";
 import { truncatePubkey } from "@/shared/lib/pubkey";
 import { hasPrimaryShortcutModifier } from "@/shared/lib/keyboard-shortcuts";
 import { relativeTime } from "@/shared/lib/relative-time";
@@ -34,16 +35,25 @@ import {
   type PulseData,
   type PulseNote,
   pulseShareUri,
+  setPulseFollowing,
   unlikePulseNote,
 } from "../pulse-api";
 
 type PulseTab = "search" | "everyone" | "people" | "liked" | "agents" | "mine";
 
-export function PulsePage() {
+export function PulsePage({
+  initialProfilePubkey,
+  onProfileChange,
+}: {
+  initialProfilePubkey?: string;
+  onProfileChange?: (pubkey: string | null) => void;
+} = {}) {
   const [ownerPubkey, setOwnerPubkey] = useState<string | null>(null);
   if (!ownerPubkey) return <OwnerConnection onConnected={setOwnerPubkey} />;
   return (
     <PulseWorkspace
+      initialProfilePubkey={initialProfilePubkey}
+      onProfileChange={onProfileChange}
       onDisconnect={() => {
         void lockOwnerVault();
         setOwnerPubkey(null);
@@ -56,13 +66,30 @@ export function PulsePage() {
 function PulseWorkspace({
   ownerPubkey,
   onDisconnect,
+  initialProfilePubkey,
+  onProfileChange,
 }: {
   ownerPubkey: string;
   onDisconnect: () => void;
+  initialProfilePubkey?: string;
+  onProfileChange?: (pubkey: string | null) => void;
 }) {
+  const navigate = useNavigate();
   const [tab, setTab] = useState<PulseTab>("everyone");
   const sidebar = useSidebarVisibility();
   const [search, setSearch] = useState("");
+  const [profilePubkey, setProfilePubkey] = useState<string | null>(
+    initialProfilePubkey ?? null,
+  );
+  useEffect(
+    () => setProfilePubkey(initialProfilePubkey ?? null),
+    [initialProfilePubkey],
+  );
+  const selectProfile = (pubkey: string | null) => {
+    if (pubkey === profilePubkey) return;
+    setProfilePubkey(pubkey);
+    onProfileChange?.(pubkey);
+  };
   const queryClient = useQueryClient();
   const pulseQuery = useQuery({
     queryKey: ["pulse", ownerPubkey],
@@ -92,6 +119,13 @@ function PulseWorkspace({
     onSuccess: refresh,
     onError: (error) =>
       toast.error("Could not update like", { description: error.message }),
+  });
+  const following = useMutation({
+    mutationFn: ({ pubkey, value }: { pubkey: string; value: boolean }) =>
+      setPulseFollowing(pubkey, value, data?.contactTags ?? []),
+    onSuccess: refresh,
+    onError: (error) =>
+      toast.error("Could not update follow", { description: error.message }),
   });
 
   return (
@@ -182,6 +216,7 @@ function PulseWorkspace({
                   key={note.id}
                   note={note}
                   onLike={() => reaction.mutate(note)}
+                  onOpenProfile={selectProfile}
                   onPublished={refresh}
                   ownerPubkey={ownerPubkey}
                 />
@@ -194,6 +229,25 @@ function PulseWorkspace({
           )}
         </div>
       </main>
+      <UserProfileDialog
+        agentName={profilePubkey ? data?.agents.get(profilePubkey) : undefined}
+        following={Boolean(profilePubkey && data?.contacts.has(profilePubkey))}
+        followPending={following.isPending}
+        onClose={() => selectProfile(null)}
+        onMessage={(pubkey) => {
+          void openDm([pubkey]).then(() => navigate({ to: "/channels" }));
+        }}
+        onToggleFollow={() => {
+          if (!profilePubkey) return;
+          following.mutate({
+            pubkey: profilePubkey,
+            value: !data?.contacts.has(profilePubkey),
+          });
+        }}
+        ownerPubkey={ownerPubkey}
+        profile={profilePubkey ? data?.profiles.get(profilePubkey) : undefined}
+        pubkey={profilePubkey}
+      />
     </div>
   );
 }
@@ -380,12 +434,14 @@ function NoteCard({
   ownerPubkey,
   onLike,
   onPublished,
+  onOpenProfile,
 }: {
   note: PulseNote;
   data?: PulseData;
   ownerPubkey: string;
   onLike: () => void;
   onPublished: () => Promise<unknown>;
+  onOpenProfile: (pubkey: string) => void;
 }) {
   const [replying, setReplying] = useState(false);
   const [reply, setReply] = useState("");
@@ -406,10 +462,23 @@ function NoteCard({
   };
   return (
     <article className="flex gap-3 py-5">
-      <Avatar data={data} pubkey={note.pubkey} />
+      <button
+        aria-label={`Open profile for ${name}`}
+        className="shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        onClick={() => onOpenProfile(note.pubkey)}
+        type="button"
+      >
+        <Avatar data={data} pubkey={note.pubkey} />
+      </button>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-baseline gap-2">
-          <span className="font-semibold">{name}</span>
+          <button
+            className="font-semibold hover:underline"
+            onClick={() => onOpenProfile(note.pubkey)}
+            type="button"
+          >
+            {name}
+          </button>
           {data?.agents.has(note.pubkey) ? (
             <span className="rounded bg-muted px-1 text-xs">bot</span>
           ) : null}
