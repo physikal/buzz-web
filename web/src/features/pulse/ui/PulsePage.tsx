@@ -21,6 +21,10 @@ import { openDm } from "@/features/channels/channel-api";
 import { AppPrimarySidebar } from "@/features/navigation/AppPrimarySidebar";
 import { lockOwnerVault } from "@/features/owner-vault/lib/vault-worker-client";
 import { UserProfileDialog } from "@/features/profile/UserProfileDialog";
+import {
+  profileFollowsQueryKey,
+  setProfileFollowing,
+} from "@/features/profile/profile-follow";
 import { truncatePubkey } from "@/shared/lib/pubkey";
 import { hasPrimaryShortcutModifier } from "@/shared/lib/keyboard-shortcuts";
 import { relativeTime } from "@/shared/lib/relative-time";
@@ -35,7 +39,6 @@ import {
   type PulseData,
   type PulseNote,
   pulseShareUri,
-  setPulseFollowing,
   unlikePulseNote,
 } from "../pulse-api";
 
@@ -122,8 +125,11 @@ function PulseWorkspace({
   });
   const following = useMutation({
     mutationFn: ({ pubkey, value }: { pubkey: string; value: boolean }) =>
-      setPulseFollowing(pubkey, value, data?.contactTags ?? []),
-    onSuccess: refresh,
+      setProfileFollowing(ownerPubkey, pubkey, value),
+    onSuccess: async (result) => {
+      queryClient.setQueryData(profileFollowsQueryKey(ownerPubkey), result);
+      await refresh();
+    },
     onError: (error) =>
       toast.error("Could not update follow", { description: error.message }),
   });

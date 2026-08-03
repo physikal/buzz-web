@@ -9,10 +9,12 @@ export function ChannelsPage({
   initialAction,
   initialChannelId,
   initialMessageId,
+  initialProfilePubkey,
 }: {
   initialAction?: ChannelAction;
   initialChannelId?: string;
   initialMessageId?: string;
+  initialProfilePubkey?: string;
 } = {}) {
   const [ownerPubkey, setOwnerPubkey] = useState<string | null>(null);
   if (!ownerPubkey) return <OwnerConnection onConnected={setOwnerPubkey} />;
@@ -21,6 +23,7 @@ export function ChannelsPage({
       initialAction={initialAction}
       initialChannelId={initialChannelId}
       initialMessageId={initialMessageId}
+      initialProfilePubkey={initialProfilePubkey}
       ownerPubkey={ownerPubkey}
       onDisconnect={() => {
         void lockOwnerVault();

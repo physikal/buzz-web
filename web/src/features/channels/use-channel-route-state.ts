@@ -4,9 +4,11 @@ import { useCallback, useEffect, useState } from "react";
 export function useChannelRouteState({
   initialChannelId,
   initialMessageId,
+  initialProfilePubkey,
 }: {
   initialChannelId?: string;
   initialMessageId?: string;
+  initialProfilePubkey?: string;
 }) {
   const navigate = useNavigate();
   const [selectedId, setSelectedId] = useState<string | null>(
@@ -16,20 +18,28 @@ export function useChannelRouteState({
   const [highlightedId, setHighlightedId] = useState<string | null>(
     initialMessageId ?? null,
   );
+  const [profileTarget, setProfileTarget] = useState<string | null>(
+    initialProfilePubkey ?? null,
+  );
 
   useEffect(() => setSelectedId(initialChannelId ?? null), [initialChannelId]);
   useEffect(() => {
     setHighlightedId(initialMessageId ?? null);
     if (!initialMessageId) setThreadRootId(null);
   }, [initialMessageId]);
+  useEffect(
+    () => setProfileTarget(initialProfilePubkey ?? null),
+    [initialProfilePubkey],
+  );
 
   const updateLocation = useCallback(
-    (channelId?: string, messageId?: string) =>
+    (channelId?: string, messageId?: string, profile?: string) =>
       void navigate({
         to: "/channels",
         search: {
           ...(channelId ? { channel: channelId } : {}),
           ...(messageId ? { message: messageId } : {}),
+          ...(profile ? { profile } : {}),
         },
       }),
     [navigate],
@@ -40,6 +50,7 @@ export function useChannelRouteState({
       setSelectedId(channelId);
       setThreadRootId(null);
       setHighlightedId(null);
+      setProfileTarget(null);
       updateLocation(channelId);
     },
     [updateLocation],
@@ -49,6 +60,7 @@ export function useChannelRouteState({
       setSelectedId(channelId);
       setThreadRootId(rootId);
       setHighlightedId(messageId);
+      setProfileTarget(null);
       updateLocation(channelId, messageId);
     },
     [updateLocation],
@@ -57,14 +69,26 @@ export function useChannelRouteState({
     (channelId: string) => {
       setThreadRootId(null);
       setHighlightedId(null);
-      updateLocation(channelId);
+      updateLocation(channelId, undefined, profileTarget ?? undefined);
     },
-    [updateLocation],
+    [profileTarget, updateLocation],
+  );
+  const selectProfile = useCallback(
+    (pubkey: string | null) => {
+      setProfileTarget(pubkey);
+      updateLocation(
+        selectedId ?? undefined,
+        highlightedId ?? undefined,
+        pubkey ?? undefined,
+      );
+    },
+    [highlightedId, selectedId, updateLocation],
   );
   const clearChannel = useCallback(() => {
     setSelectedId(null);
     setThreadRootId(null);
     setHighlightedId(null);
+    setProfileTarget(null);
     updateLocation();
   }, [updateLocation]);
 
@@ -73,7 +97,9 @@ export function useChannelRouteState({
     closeThread,
     highlightedId,
     openMessage,
+    profileTarget,
     selectChannel,
+    selectProfile,
     selectedId,
     setHighlightedId,
     setSelectedId,

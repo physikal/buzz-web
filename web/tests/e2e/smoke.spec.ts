@@ -1623,6 +1623,19 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
               socket.send(JSON.stringify(["EVENT", subscriptionId, event]));
             }
           }
+          if (filters.includes('"kinds":[3]')) {
+            const latestContactList = submittedEvents
+              .filter(
+                (event) =>
+                  event.kind === 3 &&
+                  event.pubkey.toLowerCase() === ownerPubkey,
+              )
+              .at(-1);
+            if (latestContactList)
+              socket.send(
+                JSON.stringify(["EVENT", subscriptionId, latestContactList]),
+              );
+          }
           socket.send(JSON.stringify(["EOSE", subscriptionId]));
         }
       });
@@ -1936,8 +1949,11 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   });
   expect(capturedSearchFilter?.since).toEqual(expect.any(Number));
   expect(capturedSearchFilter?.until).toEqual(expect.any(Number));
-  await page.getByRole("button", { name: "Close" }).click();
+  await page.getByRole("button", { name: "Close", exact: true }).click();
   await page.getByRole("button", { name: "Open Relay agent profile" }).click();
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get("profile"))
+    .toBe(catalogPubkey);
   await expect(
     page.getByRole("dialog", { name: "Relay agent profile" }),
   ).toBeVisible();
@@ -1958,10 +1974,41 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
       .getByRole("dialog", { name: "Relay agent profile" })
       .getByRole("button", { name: "Message", exact: true }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Close" }).click();
-  const welcomeMessage = page.locator("article").filter({
-    hasText: "Welcome to Buzz Web.",
+  const channelProfile = page.getByRole("dialog", {
+    name: "Relay agent profile",
   });
+  await channelProfile.getByRole("button", { name: "Follow" }).click();
+  await expect
+    .poll(() => submittedEvents.filter((event) => event.kind === 3).length)
+    .toBe(1);
+  expect(
+    submittedEvents.filter((event) => event.kind === 3).at(-1)?.tags,
+  ).toContainEqual(["p", catalogPubkey]);
+  await expect(
+    channelProfile.getByRole("button", { name: "Unfollow" }),
+  ).toBeVisible();
+  await channelProfile.getByRole("button", { name: "Unfollow" }).click();
+  await expect
+    .poll(() => submittedEvents.filter((event) => event.kind === 3).length)
+    .toBe(2);
+  expect(
+    submittedEvents
+      .filter((event) => event.kind === 3)
+      .at(-1)
+      ?.tags.some((tag) => tag[0] === "p" && tag[1] === catalogPubkey),
+  ).toBe(false);
+  await channelProfile.getByRole("button", { name: "Close" }).click();
+  await expect
+    .poll(() => new URL(page.url()).searchParams.has("profile"))
+    .toBe(false);
+  await page.goBack();
+  await expect(channelProfile).toBeVisible();
+  await page.goForward();
+  await expect(channelProfile).toBeHidden();
+  const welcomeMessage = page
+    .getByLabel("Messages", { exact: true })
+    .locator("article")
+    .filter({ hasText: "Welcome to Buzz Web." });
   await welcomeMessage.hover();
   await welcomeMessage.getByRole("button", { name: "More actions" }).click();
   await expect(page.getByRole("menu")).toBeVisible();
@@ -3560,9 +3607,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     .poll(() => page.evaluate(() => navigator.clipboard.readText()))
     .toMatch(/^nostr:nevent/);
   await page.getByRole("tab", { name: "Following" }).click();
-  await expect(
-    page.getByText("Follow people to see their updates here."),
-  ).toBeVisible();
+  await expect(page.getByText("Relay-native Pulse update")).toBeVisible();
   await page.getByRole("tab", { name: /Agents/ }).click();
   await expect(page.getByText("Relay-native Pulse update")).toBeVisible();
   await page.getByRole("link", { name: "Agents" }).click();

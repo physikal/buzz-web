@@ -11,8 +11,8 @@ import {
   renderCanvasTemplate,
 } from "@/features/channel-templates/channel-template-api";
 import { TemplateDeployDialog } from "@/features/channel-templates/ui/TemplateDeployDialog";
-import { useWorkspacePresence } from "@/features/presence/use-presence";
 import { UserProfileDialog } from "@/features/profile/UserProfileDialog";
+import { useProfileFollow } from "@/features/profile/profile-follow";
 import { ReminderDialog } from "@/features/reminders/ui/ReminderDialog";
 import { getCommunityMembership } from "@/features/settings/community-api";
 import {
@@ -28,7 +28,7 @@ import { useHuddle } from "@/features/huddles/use-huddle";
 import { useChannelFind } from "../use-channel-find";
 import { useChannelReadShortcuts } from "../use-channel-read-shortcuts";
 import { useChannelRouteState } from "../use-channel-route-state";
-import { buildAgentNames, useRelayAgents } from "../use-relay-agents";
+import { useChannelDirectory } from "../use-channel-directory";
 import { useChannelActions } from "../use-channel-actions";
 import { getCustomEmoji } from "@/features/settings/custom-emoji-api";
 import { submitModerationReport } from "@/features/settings/moderation-api";
@@ -49,7 +49,6 @@ import {
   joinChannel,
   leaveChannel,
   listChannelMessages,
-  listProfiles,
   openDm,
   removeReaction,
   restoreChannel,
@@ -69,7 +68,6 @@ import { useChannelSections } from "../use-channel-sections";
 import { useThreadFollows } from "../use-thread-follows";
 import { useThreadViewMode } from "../thread-view-mode";
 import { useTypingIndicators } from "../use-typing";
-import { buildDmCandidates } from "../dm-candidates";
 import { messageSubtree } from "../message-tree";
 import { ChannelSidebar } from "./ChannelSidebar";
 import { ChannelFindBar } from "./ChannelFindBar";
@@ -99,12 +97,14 @@ export function ChannelsWorkspace({
   onDisconnect,
   initialChannelId,
   initialMessageId,
+  initialProfilePubkey,
   initialAction,
 }: {
   ownerPubkey: string;
   onDisconnect: () => void;
   initialChannelId?: string;
   initialMessageId?: string;
+  initialProfilePubkey?: string;
   initialAction?: ChannelAction;
 }) {
   const queryClient = useQueryClient();
@@ -114,13 +114,19 @@ export function ChannelsWorkspace({
     closeThread,
     highlightedId,
     openMessage,
+    profileTarget,
     selectChannel,
+    selectProfile,
     selectedId,
     setHighlightedId,
     setSelectedId,
     setThreadRootId,
     threadRootId,
-  } = useChannelRouteState({ initialChannelId, initialMessageId });
+  } = useChannelRouteState({
+    initialChannelId,
+    initialMessageId,
+    initialProfilePubkey,
+  });
   const threadViewMode = useThreadViewMode();
   const [createOpen, setCreateOpen] = useState(false);
   const [dmOpen, setDmOpen] = useState(false);
@@ -129,7 +135,6 @@ export function ChannelsWorkspace({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [huddleStartOpen, setHuddleStartOpen] = useState(false);
   const [reportTarget, setReportTarget] = useState<ChannelMessage | null>(null);
-  const [profileTarget, setProfileTarget] = useState<string | null>(null);
   const [reminderTarget, setReminderTarget] = useState<ChannelMessage | null>(
     null,
   );
@@ -156,7 +161,6 @@ export function ChannelsWorkspace({
     staleTime: 10_000,
     retry: false,
   });
-  const relayAgents = useRelayAgents(ownerPubkey);
   const communityQuery = useQuery({
     queryKey: ["community-members", ownerPubkey],
     queryFn: () => getCommunityMembership(ownerPubkey),
@@ -306,60 +310,17 @@ export function ChannelsWorkspace({
     setThreadRootId,
     Boolean(initialMessageId),
   );
-  const allPubkeys = useMemo(
-    () => [
+  const { agentNames, dmCandidates, presence, profiles, userStatuses } =
+    useChannelDirectory({
       ownerPubkey,
-      ...messages.map((message) => message.pubkey),
-      ...(selected?.participantPubkeys ?? []),
-      ...(huddle.joined?.participants ?? []),
-      ...(agentsQuery.data ?? []).map((agent) => agent.agent_pubkey),
-      ...relayAgents.map((agent) => agent.pubkey),
-    ],
-    [
-      agentsQuery.data,
-      huddle.joined?.participants,
       messages,
-      ownerPubkey,
-      relayAgents,
-      selected?.participantPubkeys,
-    ],
-  );
-  const profileKey = [...new Set(allPubkeys)].sort().join(",");
-  const { presence, userStatuses } = useWorkspacePresence(allPubkeys);
-  const profilesQuery = useQuery({
-    queryKey: ["profiles", profileKey],
-    queryFn: () => listProfiles([...new Set(allPubkeys)]),
-    enabled: Boolean(profileKey),
-    staleTime: 60_000,
-  });
-  const profiles = useMemo(
-    () =>
-      new Map(
-        (profilesQuery.data ?? []).map((profile) => [profile.pubkey, profile]),
-      ),
-    [profilesQuery.data],
-  );
-  const agentNames = useMemo(
-    () => buildAgentNames(agentsQuery.data ?? [], relayAgents),
-    [agentsQuery.data, relayAgents],
-  );
-  const dmCandidates = useMemo(() => {
-    return buildDmCandidates({
-      ownerPubkey,
-      pubkeys: allPubkeys,
-      profiles,
-      agents: agentsQuery.data ?? [],
-      relayAgents,
-      members: communityQuery.data?.members ?? [],
+      participantPubkeys: selected?.participantPubkeys,
+      huddleParticipantPubkeys: huddle.joined?.participants,
+      managedAgents: agentsQuery.data,
+      members: communityQuery.data?.members,
+      profileTarget,
     });
-  }, [
-    agentsQuery.data,
-    allPubkeys,
-    communityQuery.data?.members,
-    ownerPubkey,
-    profiles,
-    relayAgents,
-  ]);
+  const profileFollow = useProfileFollow(ownerPubkey, profileTarget);
   const refreshSelected = useCallback(async () => {
     if (!selected) return;
     await queryClient.invalidateQueries({
@@ -579,7 +540,7 @@ export function ChannelsWorkspace({
       markMessagesRead(messageSubtree(message, messages)),
     onMarkUnread: (message) =>
       markMessagesUnread(messageSubtree(message, messages).map(({ id }) => id)),
-    onOpenProfile: setProfileTarget,
+    onOpenProfile: selectProfile,
     onReact: (message, emoji, ownEventId, customEmojiUrl) =>
       reactionMutation.mutate({
         eventId: message.id,
@@ -870,11 +831,14 @@ export function ChannelsWorkspace({
       />
       <UserProfileDialog
         agentName={profileTarget ? agentNames.get(profileTarget) : undefined}
-        onClose={() => setProfileTarget(null)}
+        following={profileFollow.following}
+        followPending={profileFollow.pending}
+        onClose={() => selectProfile(null)}
         onMessage={(pubkey) => {
           dmMutation.mutate([pubkey]);
-          setProfileTarget(null);
+          selectProfile(null);
         }}
+        onToggleFollow={profileFollow.toggle}
         ownerPubkey={ownerPubkey}
         presence={
           profileTarget ? (presence.get(profileTarget) ?? "offline") : "offline"

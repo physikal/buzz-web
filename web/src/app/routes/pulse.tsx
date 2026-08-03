@@ -10,8 +10,9 @@ type PulseSearch = { profile?: string };
 
 export const Route = createFileRoute("/pulse")({
   validateSearch: (search: Record<string, unknown>): PulseSearch => ({
-    ...(typeof search.profile === "string" && search.profile.length
-      ? { profile: search.profile }
+    ...(typeof search.profile === "string" &&
+    /^[0-9a-f]{64}$/i.test(search.profile)
+      ? { profile: search.profile.toLowerCase() }
       : {}),
   }),
   component: PulseRoute,
