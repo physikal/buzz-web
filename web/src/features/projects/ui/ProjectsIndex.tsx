@@ -17,6 +17,7 @@ import { PubkeyAvatar } from "@/features/repos/ui/PubkeyAvatar";
 import { Button } from "@/shared/ui/button";
 import { SidebarToggleButton } from "@/shared/ui/sidebar-toggle-button";
 import type { Project, ProjectIssue, ProjectPullRequest } from "../project-api";
+import { projectIssueStatusLabel } from "../project-issue-status";
 import { listProjectsWorkItems } from "../projects-work-items";
 import {
   listProjectsRepoSnapshots,
@@ -187,8 +188,7 @@ function statusLabel(
   status: ProjectIssue["status"] | ProjectPullRequest["status"],
 ) {
   if (kind === "issue") {
-    if (status === "draft") return "Triage";
-    if (status === "merged") return "Done";
+    return projectIssueStatusLabel(status as ProjectIssue["status"]);
   }
   return status === "draft"
     ? "Draft"

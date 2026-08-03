@@ -2599,6 +2599,11 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     issueMetaRail.getByRole("heading", { name: "Activity" }),
   ).toBeVisible();
   await expect(issueMetaRail.getByText("browser")).toBeVisible();
+  await expect(
+    issueMetaRail
+      .getByLabel("Status for Browser issue")
+      .locator("option:checked"),
+  ).toHaveText("Backlog");
   await page
     .getByLabel("Add a comment...")
     .fill("Reviewed from the web issue view");

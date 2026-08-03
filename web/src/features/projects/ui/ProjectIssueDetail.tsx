@@ -6,12 +6,20 @@ import { toast } from "sonner";
 import { relativeTime } from "@/shared/lib/relative-time";
 import { truncatePubkey } from "@/shared/lib/pubkey";
 import { createProjectIssueComment } from "../project-comments-api";
-import type { Project, ProjectIssue } from "../project-api";
+import type {
+  Project,
+  ProjectIssue,
+  ProjectIssueLifecycleStatus,
+} from "../project-api";
+import {
+  projectIssueLifecycleStatus,
+  projectIssueStatusLabel,
+} from "../project-issue-status";
 import { ProjectCommentComposer } from "./ProjectCommentComposer";
 import { ProjectRichContent } from "./ProjectRichContent";
 
 function issueStatusVisual(status: ProjectIssue["status"]) {
-  if (status === "merged") {
+  if (status === "done") {
     return { className: "text-violet-500", icon: CircleCheck, label: "Done" };
   }
   if (status === "closed") {
@@ -20,7 +28,7 @@ function issueStatusVisual(status: ProjectIssue["status"]) {
   return {
     className: "text-emerald-600",
     icon: CircleDot,
-    label: status === "draft" ? "Triage" : "Open",
+    label: projectIssueStatusLabel(status),
   };
 }
 
@@ -38,7 +46,7 @@ export function ProjectIssueDetail({
   project: Project;
   statusPending: boolean;
   onBack: () => void;
-  onStatusChange: (status: ProjectIssue["status"]) => void;
+  onStatusChange: (status: ProjectIssueLifecycleStatus) => void;
   onUpdated: () => Promise<unknown>;
 }) {
   const createComment = useMutation({
@@ -154,7 +162,7 @@ function IssueMetaRail({
   canManage: boolean;
   issue: ProjectIssue;
   statusPending: boolean;
-  onStatusChange: (status: ProjectIssue["status"]) => void;
+  onStatusChange: (status: ProjectIssueLifecycleStatus) => void;
 }) {
   const status = issueStatusVisual(issue.status);
   const StatusIcon = status.icon;
@@ -169,12 +177,16 @@ function IssueMetaRail({
             aria-label={`Status for ${issue.title}`}
             className="h-9 w-full rounded-md border bg-background px-3 text-sm"
             disabled={statusPending}
-            value={issue.status}
+            value={projectIssueLifecycleStatus(issue.status)}
             onChange={(event) =>
-              onStatusChange(event.target.value as ProjectIssue["status"])
+              onStatusChange(event.target.value as ProjectIssueLifecycleStatus)
             }
           >
-            <option value="open">Open</option>
+            <option value="open">
+              {projectIssueLifecycleStatus(issue.status) === "open"
+                ? status.label
+                : "Backlog"}
+            </option>
             <option value="draft">Triage</option>
             <option value="merged">Done</option>
             <option value="closed">Closed</option>

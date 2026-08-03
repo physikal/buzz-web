@@ -44,8 +44,13 @@ import {
   listProjectIssues,
   listProjects,
   type Project,
+  type ProjectIssueLifecycleStatus,
   setProjectIssueStatus,
 } from "../project-api";
+import {
+  projectIssueLifecycleStatus,
+  projectIssueStatusLabel,
+} from "../project-issue-status";
 
 export function ProjectsPage({
   initialCommitOid,
@@ -240,7 +245,7 @@ function ProjectDetail({
       status,
     }: {
       id: string;
-      status: "open" | "draft" | "merged" | "closed";
+      status: ProjectIssueLifecycleStatus;
     }) => setProjectIssueStatus(project, id, status),
     onSuccess: refresh,
     onError: (error) =>
@@ -426,7 +431,8 @@ function ProjectDetail({
                         {issue.content}
                       </p>
                       <p className="mt-2 text-xs text-muted-foreground">
-                        {issue.status} · {truncatePubkey(issue.author)}
+                        {projectIssueStatusLabel(issue.status)} ·{" "}
+                        {truncatePubkey(issue.author)}
                         {issue.comments.length
                           ? ` · ${issue.comments.length} ${issue.comments.length === 1 ? "comment" : "comments"}`
                           : ""}
@@ -437,15 +443,20 @@ function ProjectDetail({
                         aria-label={`Status for ${issue.title}`}
                         className="h-8 rounded-md border bg-background px-2 text-xs"
                         disabled={statusMutation.isPending}
-                        value={issue.status}
+                        value={projectIssueLifecycleStatus(issue.status)}
                         onChange={(event) =>
                           statusMutation.mutate({
                             id: issue.id,
-                            status: event.target.value as typeof issue.status,
+                            status: event.target
+                              .value as ProjectIssueLifecycleStatus,
                           })
                         }
                       >
-                        <option value="open">Open</option>
+                        <option value="open">
+                          {projectIssueLifecycleStatus(issue.status) === "open"
+                            ? projectIssueStatusLabel(issue.status)
+                            : "Backlog"}
+                        </option>
                         <option value="draft">Triage</option>
                         <option value="merged">Done</option>
                         <option value="closed">Closed</option>

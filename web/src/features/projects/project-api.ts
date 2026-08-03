@@ -3,6 +3,7 @@ import { truncatePubkey } from "@/shared/lib/pubkey";
 import { submitEvent } from "@/shared/lib/relay-events";
 import { relayHttpBaseUrl, relayWsUrl } from "@/shared/lib/relay-url";
 import { projectImetaTags } from "./project-event-metadata";
+import { projectIssueStatusFrom } from "./project-issue-status";
 
 export type Project = {
   id: string;
@@ -27,11 +28,25 @@ export type ProjectIssue = {
   author: string;
   recipients: string[];
   labels: string[];
-  status: "open" | "draft" | "merged" | "closed";
+  status: ProjectIssueStatus;
   createdAt: number;
   updatedAt: number;
   comments: ProjectIssueComment[];
 };
+
+export type ProjectIssueStatus =
+  | "triage"
+  | "backlog"
+  | "in-progress"
+  | "in-review"
+  | "done"
+  | "closed";
+
+export type ProjectIssueLifecycleStatus =
+  | "open"
+  | "draft"
+  | "merged"
+  | "closed";
 
 export type ProjectIssueComment = {
   id: string;
@@ -297,10 +312,7 @@ export async function listProjectIssues(
             ),
         )
         .sort((a, b) => b.created_at - a.created_at)[0];
-      const state =
-        ({ 1631: "merged", 1632: "closed", 1633: "draft" } as const)[
-          status?.kind as 1631 | 1632 | 1633
-        ] ?? "open";
+      const labels = tags(event, "t");
       const comments = events
         .filter(
           (candidate) =>
@@ -328,8 +340,8 @@ export async function listProjectIssues(
         tags: projectImetaTags(event),
         author: event.pubkey,
         recipients: tags(event, "p").map((pubkey) => pubkey.toLowerCase()),
-        labels: tags(event, "t"),
-        status: state,
+        labels,
+        status: projectIssueStatusFrom(status?.kind, labels),
         createdAt: event.created_at,
         updatedAt: Math.max(
           event.created_at,
@@ -365,7 +377,7 @@ export async function createProjectIssue(
 export async function setProjectIssueStatus(
   project: Project,
   issueId: string,
-  status: ProjectIssue["status"],
+  status: ProjectIssueLifecycleStatus,
 ): Promise<void> {
   const kind = { open: 1630, merged: 1631, closed: 1632, draft: 1633 }[status];
   await submitEvent({
