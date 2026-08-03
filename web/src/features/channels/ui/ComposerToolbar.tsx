@@ -12,7 +12,7 @@ import {
   SmilePlus,
   Strikethrough,
 } from "lucide-react";
-import { type RefObject, useState } from "react";
+import { type RefObject, useLayoutEffect, useRef, useState } from "react";
 
 import type { CustomEmoji } from "@/features/settings/custom-emoji-api";
 import { Button } from "@/shared/ui/button";
@@ -47,6 +47,25 @@ export function ComposerToolbar({
     null,
   );
   const [mentionQuery, setMentionQuery] = useState("");
+  const pendingSelectionRef = useRef<{
+    content: string;
+    end: number;
+    start: number;
+  } | null>(null);
+
+  useLayoutEffect(() => {
+    const pendingSelection = pendingSelectionRef.current;
+    const textarea = textareaRef.current;
+    if (
+      !pendingSelection ||
+      value !== pendingSelection.content ||
+      textarea?.value !== pendingSelection.content
+    )
+      return;
+    pendingSelectionRef.current = null;
+    textarea.focus();
+    textarea.setSelectionRange(pendingSelection.start, pendingSelection.end);
+  }, [textareaRef, value]);
 
   const replaceSelection = (
     content: string,
@@ -54,11 +73,12 @@ export function ComposerToolbar({
     selectionEnd: number,
     selectedMention?: DmCandidate,
   ) => {
+    pendingSelectionRef.current = {
+      content,
+      end: selectionEnd,
+      start: selectionStart,
+    };
     onValueChange(content, selectionEnd, selectedMention);
-    requestAnimationFrame(() => {
-      textareaRef.current?.focus();
-      textareaRef.current?.setSelectionRange(selectionStart, selectionEnd);
-    });
   };
   const insert = (text: string, selectedMention?: DmCandidate) => {
     const textarea = textareaRef.current;

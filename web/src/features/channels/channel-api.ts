@@ -64,6 +64,7 @@ export type ChannelMessage = {
 export type UserProfile = {
   pubkey: string;
   displayName: string | null;
+  name?: string | null;
   avatarUrl: string | null;
   about: string | null;
   nip05Handle: string | null;
@@ -625,6 +626,7 @@ export async function listProfiles(pubkeys: string[]): Promise<UserProfile[]> {
     }
     return {
       pubkey: event.pubkey,
+      name: typeof profile.name === "string" ? profile.name : null,
       displayName:
         typeof profile.display_name === "string"
           ? profile.display_name

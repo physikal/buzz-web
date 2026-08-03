@@ -12,6 +12,7 @@ import {
 import { finalizeEvent, getPublicKey, verifyEvent } from "nostr-tools/pure";
 import { mergeOwnerProfileMetadata } from "../../src/features/profile/profile-metadata";
 import { buildCustomEmojiTags } from "../../src/features/channels/custom-emoji-tags";
+import { resolveMessageMentions } from "../../src/features/channels/message-mentions";
 
 const testPort = process.env.BUZZ_WEB_TEST_PORT ?? "4173";
 const testOrigin = `http://localhost:${testPort}`;
@@ -73,6 +74,31 @@ test("custom emoji tags are canonical, unique, and self-contained", () => {
     ["emoji", "shipit", "https://example.com/shipit.png"],
     ["emoji", "party-parrot", "https://example.com/party.gif"],
   ]);
+});
+
+test("message mentions resolve only tagged profile aliases", () => {
+  const pubkey = "ab".repeat(32);
+  const resolved = resolveMessageMentions(
+    { tags: [["p", pubkey]] },
+    new Map([
+      [
+        pubkey,
+        {
+          pubkey,
+          displayName: "Relay agent",
+          name: "relay-alias",
+          avatarUrl: null,
+          about: null,
+          nip05Handle: "relay-agent@example.com",
+        },
+      ],
+    ]),
+    new Map([[pubkey, "Relay agent"]]),
+  );
+  expect(resolved.names).toEqual(["Relay agent", "relay-alias", "relay-agent"]);
+  expect(resolved.pubkeysByName.get("relay-alias")).toBe(pubkey);
+  expect(resolved.pubkeysByName.has("unknown")).toBe(false);
+  expect(resolved.agentPubkeysByName.get("relay agent")).toBe(pubkey);
 });
 
 test("owner setup creates a passkey-wrapped signer and enters Channels", async ({
@@ -1794,6 +1820,38 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   expect(emojiEdit?.tags.filter((tag) => tag[0] === "emoji")).toEqual([
     ["emoji", "shipit", "https://example.com/shipit.png"],
   ]);
+  const mentionComposer = page.getByLabel("Message #general");
+  await page.getByRole("button", { name: "Mention someone" }).click();
+  await page.getByRole("button", { name: "Mention Relay agent" }).click();
+  const mentionContent =
+    "@Relay agent review `@Relay agent` [@Relay agent](https://example.com)";
+  await expect(mentionComposer).toHaveValue("@Relay agent ");
+  await mentionComposer.fill(mentionContent);
+  await expect(mentionComposer).toHaveValue(mentionContent);
+  await mentionComposer.press("Enter");
+  await expect
+    .poll(() =>
+      submittedEvents.find(
+        (event) => event.kind === 9 && event.content === mentionContent,
+      ),
+    )
+    .toMatchObject({ tags: expect.arrayContaining([["p", catalogPubkey]]) });
+  const mentionMessage = submittedEvents.find(
+    (event) => event.kind === 9 && event.content === mentionContent,
+  );
+  const mentionArticle = page.locator(
+    `article[id="message-${mentionMessage?.id}"]`,
+  );
+  await expect(mentionArticle.locator("[data-mention]")).toHaveCount(1);
+  await mentionArticle.screenshot({
+    path: "/tmp/buzz-web-message-mention.png",
+  });
+  await mentionArticle.locator("[data-mention]").click();
+  const mentionProfile = page.getByRole("dialog", {
+    name: "Relay agent profile",
+  });
+  await expect(mentionProfile).toBeVisible();
+  await mentionProfile.getByRole("button", { name: "Close" }).click();
   expect(ownerPubkey).toMatch(/^[0-9a-f]{64}$/);
   await page.getByRole("button", { name: "web-forum", exact: true }).click();
   await expect(

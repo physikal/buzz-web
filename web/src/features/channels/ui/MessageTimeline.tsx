@@ -13,7 +13,7 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { relativeTime } from "@/shared/lib/relative-time";
@@ -25,6 +25,11 @@ import type { MessageEditScope } from "../use-message-edit-session";
 import { stripTrailingAttachmentMarkdown } from "../attachment-markdown";
 import { hasNamedMention } from "../mention-routing";
 import { editLastOwnMessage } from "../message-management";
+import {
+  type ResolvedMessageMentions,
+  resolveMessageMentions,
+} from "../message-mentions";
+import remarkMentions from "../remark-mentions";
 import { PresenceDot } from "@/features/profile/UserProfileDialog";
 import type { PresenceStatus } from "@/features/presence/presence-api";
 import type {
@@ -132,7 +137,7 @@ export function MessageTimeline({
           key={message.id}
           message={message}
           ownerPubkey={ownerPubkey}
-          profile={profiles.get(message.pubkey)}
+          profiles={profiles}
           presence={presence.get(message.pubkey) ?? "offline"}
           replyCount={repliesByRoot.get(message.id) ?? 0}
           scope="main"
@@ -146,7 +151,7 @@ function MessageRow({
   channelId,
   message,
   ownerPubkey,
-  profile,
+  profiles,
   presence,
   agentNames,
   replyCount,
@@ -160,7 +165,7 @@ function MessageRow({
   channelId: string;
   message: ChannelMessage;
   ownerPubkey: string;
-  profile?: UserProfile;
+  profiles: Map<string, UserProfile>;
   presence: PresenceStatus;
   agentNames: Map<string, string>;
   replyCount: number;
@@ -173,6 +178,30 @@ function MessageRow({
 }) {
   const [reactionOpen, setReactionOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const profile = profiles.get(message.pubkey);
+  const mentions = useMemo(
+    () => resolveMessageMentions(message, profiles, agentNames),
+    [agentNames, message, profiles],
+  );
+  const markdownComponents = {
+    mention: ({ children }: { children?: React.ReactNode }) => (
+      <MentionChip mentions={mentions} onOpenProfile={actions.onOpenProfile}>
+        {children}
+      </MentionChip>
+    ),
+    img: ({ alt, title, ...props }) => (
+      <img
+        {...props}
+        alt={alt ?? ""}
+        className={
+          title === "buzz-custom-emoji"
+            ? "not-prose mx-0.5 inline h-5 w-5 object-contain align-text-bottom"
+            : undefined
+        }
+        title={title}
+      />
+    ),
+  } as Components;
   const author =
     message.pubkey === ownerPubkey
       ? "You"
@@ -234,21 +263,11 @@ function MessageRow({
           <>
             <div className="prose prose-sm mt-1 max-w-none break-words text-foreground dark:prose-invert prose-p:my-1 prose-pre:max-w-full prose-pre:overflow-x-auto">
               <ReactMarkdown
-                components={{
-                  img: ({ alt, title, ...props }) => (
-                    <img
-                      {...props}
-                      alt={alt ?? ""}
-                      className={
-                        title === "buzz-custom-emoji"
-                          ? "not-prose mx-0.5 inline h-5 w-5 object-contain align-text-bottom"
-                          : undefined
-                      }
-                      title={title}
-                    />
-                  ),
-                }}
-                remarkPlugins={[remarkGfm]}
+                components={markdownComponents}
+                remarkPlugins={[
+                  remarkGfm,
+                  [remarkMentions, { mentionNames: mentions.names }],
+                ]}
               >
                 {expandCustomEmojiMarkdown(
                   stripTrailingAttachmentMarkdown(
@@ -412,6 +431,53 @@ function MessageRow({
         pending={actions.deletePending}
       />
     </article>
+  );
+}
+
+function MentionChip({
+  children,
+  mentions,
+  onOpenProfile,
+}: {
+  children?: React.ReactNode;
+  mentions: ResolvedMessageMentions;
+  onOpenProfile: (pubkey: string) => void;
+}) {
+  const mentionText = String(children ?? "");
+  const name = mentionText.replace(/^@/u, "").trim();
+  const normalizedName = name.toLowerCase();
+  const pubkey = mentions.pubkeysByName.get(normalizedName);
+  const isAgent =
+    pubkey !== undefined &&
+    mentions.agentPubkeysByName.get(normalizedName) === pubkey;
+  const content = isAgent ? (
+    name
+  ) : (
+    <>
+      <span className="inline-block -translate-y-px">@</span>
+      {name}
+    </>
+  );
+  const className = `inline-flex min-h-5 items-center rounded-sm px-1 py-0.5 font-medium leading-none ${
+    isAgent
+      ? "bg-amber-500/15 text-amber-700 dark:text-amber-300"
+      : "bg-primary/15 text-primary"
+  }`;
+  if (!pubkey)
+    return (
+      <span className={className} data-mention="">
+        {content}
+      </span>
+    );
+  return (
+    <button
+      className={`${className} cursor-pointer hover:bg-primary/25`}
+      data-mention=""
+      onClick={() => onOpenProfile(pubkey)}
+      type="button"
+    >
+      {content}
+    </button>
   );
 }
 
@@ -695,7 +761,7 @@ export function ThreadPanel({
             key={message.id}
             message={message}
             ownerPubkey={ownerPubkey}
-            profile={profiles.get(message.pubkey)}
+            profiles={profiles}
             presence={presence.get(message.pubkey) ?? "offline"}
             replyCount={0}
             scope="thread"
