@@ -479,6 +479,7 @@ export async function sendChannelMessage(input: {
   if (!content && !input.mediaTags?.length) throw new Error("Enter a message.");
   if (new TextEncoder().encode(content).length > 64 * 1024)
     throw new Error("Message is too long.");
+  assertOutgoingMessageTags(input.mediaTags ?? []);
   const tags: string[][] = [
     ["h", input.channelId],
     ...[...new Set(input.mentionPubkeys ?? [])].map((pubkey) => ["p", pubkey]),
@@ -505,6 +506,7 @@ export async function editMessage(input: {
     throw new Error("A message cannot be empty.");
   if (new TextEncoder().encode(content).length > 64 * 1024)
     throw new Error("Message is too long.");
+  assertOutgoingMessageTags(input.mediaTags);
   await submitEvent({
     kind: 40003,
     content,
@@ -518,6 +520,21 @@ export async function editMessage(input: {
       ...input.mediaTags,
     ],
   });
+}
+
+function assertOutgoingMessageTags(tags: readonly string[][]): void {
+  for (const tag of tags) {
+    if (tag[0] === "imeta" && tag.some((field) => field.startsWith("url ")))
+      continue;
+    if (
+      tag[0] === "emoji" &&
+      tag.length === 3 &&
+      /^[a-z0-9_-]+$/u.test(tag[1] ?? "") &&
+      tag[2]
+    )
+      continue;
+    throw new Error("Invalid outgoing message tag.");
+  }
 }
 
 export async function deleteMessage(

@@ -11,6 +11,7 @@ import {
 } from "nostr-tools/nip49";
 import { finalizeEvent, getPublicKey, verifyEvent } from "nostr-tools/pure";
 import { mergeOwnerProfileMetadata } from "../../src/features/profile/profile-metadata";
+import { buildCustomEmojiTags } from "../../src/features/channels/custom-emoji-tags";
 
 const testPort = process.env.BUZZ_WEB_TEST_PORT ?? "4173";
 const testOrigin = `http://localhost:${testPort}`;
@@ -60,6 +61,18 @@ test("profile edits preserve interoperable kind-0 metadata", () => {
     website: "https://example.com",
     lud16: "owner@example.com",
   });
+});
+
+test("custom emoji tags are canonical, unique, and self-contained", () => {
+  expect(
+    buildCustomEmojiTags(":SHIPIT: :unknown: :shipit: :party-parrot:", [
+      { shortcode: "party-parrot", url: "https://example.com/party.gif" },
+      { shortcode: "shipit", url: "https://example.com/shipit.png" },
+    ]),
+  ).toEqual([
+    ["emoji", "shipit", "https://example.com/shipit.png"],
+    ["emoji", "party-parrot", "https://example.com/party.gif"],
+  ]);
 });
 
 test("owner setup creates a passkey-wrapped signer and enters Channels", async ({
@@ -1723,6 +1736,64 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await expect(
     unownedAgentArticle.getByRole("button", { name: "Report message" }),
   ).toBeVisible();
+  const emojiComposer = page.getByLabel("Message #general");
+  await page.getByRole("button", { name: "Insert emoji" }).click();
+  await page.getByRole("button", { name: "Insert :shipit:" }).click();
+  await emojiComposer.press("Enter");
+  await expect
+    .poll(() =>
+      submittedEvents.find(
+        (event) => event.kind === 9 && event.content === ":shipit:",
+      ),
+    )
+    .toMatchObject({
+      tags: expect.arrayContaining([
+        ["emoji", "shipit", "https://example.com/shipit.png"],
+      ]),
+    });
+  const emojiMessage = submittedEvents.find(
+    (event) => event.kind === 9 && event.content === ":shipit:",
+  );
+  const emojiArticle = page.locator(
+    `article[id="message-${emojiMessage?.id}"]`,
+  );
+  await expect(emojiArticle).toBeVisible();
+  await emojiArticle.hover();
+  await emojiArticle.getByRole("button", { name: "Edit message" }).click();
+  const emojiEditComposer = page.getByRole("textbox", {
+    name: "Edit message",
+    exact: true,
+  });
+  await emojiEditComposer.fill(":SHIPIT: :shipit: :unknown:");
+  await page.getByRole("button", { name: "Save edit" }).click();
+  await expect
+    .poll(() =>
+      submittedEvents
+        .filter(
+          (event) =>
+            event.kind === 40003 &&
+            event.tags.some(
+              (tag) => tag[0] === "e" && tag[1] === emojiMessage?.id,
+            ),
+        )
+        .at(-1),
+    )
+    .toMatchObject({
+      content: ":SHIPIT: :shipit: :unknown:",
+      tags: expect.arrayContaining([
+        ["emoji", "shipit", "https://example.com/shipit.png"],
+      ]),
+    });
+  const emojiEdit = submittedEvents
+    .filter(
+      (event) =>
+        event.kind === 40003 &&
+        event.tags.some((tag) => tag[0] === "e" && tag[1] === emojiMessage?.id),
+    )
+    .at(-1);
+  expect(emojiEdit?.tags.filter((tag) => tag[0] === "emoji")).toEqual([
+    ["emoji", "shipit", "https://example.com/shipit.png"],
+  ]);
   expect(ownerPubkey).toMatch(/^[0-9a-f]{64}$/);
   await page.getByRole("button", { name: "web-forum", exact: true }).click();
   await expect(

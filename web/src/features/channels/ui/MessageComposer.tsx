@@ -24,6 +24,7 @@ import {
   uploadMedia,
 } from "../channel-api";
 import { wrapComposerSelection } from "../composer-edit";
+import { buildCustomEmojiTags } from "../custom-emoji-tags";
 import {
   deleteDraft,
   type DraftAttachment,
@@ -490,19 +491,6 @@ export function MessageComposer({
       return;
     setUploading(true);
     try {
-      const mediaTags = attachments.map((attachment) =>
-        mediaImetaTag(
-          {
-            url: attachment.url,
-            sha256: attachment.sha256,
-            size: attachment.size,
-            type: attachment.type,
-            dimensions: attachment.dim,
-            thumbnailUrl: attachment.thumb,
-          },
-          attachment.filename ?? "attachment",
-        ),
-      );
       const mentionPubkeys = resolveMentionPubkeys(
         draft,
         mentionRefs,
@@ -513,6 +501,22 @@ export function MessageComposer({
         attachments,
         spoileredAttachmentUrls,
       );
+      const mediaTags = [
+        ...attachments.map((attachment) =>
+          mediaImetaTag(
+            {
+              url: attachment.url,
+              sha256: attachment.sha256,
+              size: attachment.size,
+              type: attachment.type,
+              dimensions: attachment.dim,
+              thumbnailUrl: attachment.thumb,
+            },
+            attachment.filename ?? "attachment",
+          ),
+        ),
+        ...buildCustomEmojiTags(content, customEmoji),
+      ];
       if (activeEditTarget && onEditSubmit) {
         const originalBody = stripTrailingAttachmentMarkdown(
           activeEditTarget.content,
