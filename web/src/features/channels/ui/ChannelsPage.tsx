@@ -11,8 +11,12 @@ import {
   renderCanvasTemplate,
 } from "@/features/channel-templates/channel-template-api";
 import { TemplateDeployDialog } from "@/features/channel-templates/ui/TemplateDeployDialog";
-import { UserProfileDialog } from "@/features/profile/UserProfileDialog";
+import { ManagedUserProfileDialog } from "@/features/agents/ui/ManagedUserProfileDialog";
 import { useProfileFollow } from "@/features/profile/profile-follow";
+import type {
+  ProfilePanelTab,
+  ProfilePanelView,
+} from "@/features/profile/profile-panel-state";
 import { ReminderDialog } from "@/features/reminders/ui/ReminderDialog";
 import { getCommunityMembership } from "@/features/settings/community-api";
 import {
@@ -98,6 +102,10 @@ export function ChannelsWorkspace({
   initialChannelId,
   initialMessageId,
   initialProfilePubkey,
+  initialProfileTab,
+  initialProfileView,
+  onProfileTabChange,
+  onProfileViewChange,
   initialAction,
 }: {
   ownerPubkey: string;
@@ -105,6 +113,10 @@ export function ChannelsWorkspace({
   initialChannelId?: string;
   initialMessageId?: string;
   initialProfilePubkey?: string;
+  initialProfileTab?: ProfilePanelTab;
+  initialProfileView?: ProfilePanelView;
+  onProfileTabChange?: (tab: ProfilePanelTab) => void;
+  onProfileViewChange?: (view: ProfilePanelView) => void;
   initialAction?: ChannelAction;
 }) {
   const queryClient = useQueryClient();
@@ -829,7 +841,7 @@ export function ChannelsWorkspace({
         open={huddleStartOpen}
         onClose={() => setHuddleStartOpen(false)}
       />
-      <UserProfileDialog
+      <ManagedUserProfileDialog
         agentName={profileTarget ? agentNames.get(profileTarget) : undefined}
         following={profileFollow.following}
         followPending={profileFollow.pending}
@@ -838,14 +850,21 @@ export function ChannelsWorkspace({
           dmMutation.mutate([pubkey]);
           selectProfile(null);
         }}
+        onOpenChannel={(channelId) => {
+          selectChannel(channelId);
+        }}
+        onTabChange={onProfileTabChange}
         onToggleFollow={profileFollow.toggle}
+        onViewChange={onProfileViewChange}
         ownerPubkey={ownerPubkey}
         presence={
           profileTarget ? (presence.get(profileTarget) ?? "offline") : "offline"
         }
         profile={profileTarget ? profiles.get(profileTarget) : undefined}
         pubkey={profileTarget}
+        tab={initialProfileTab}
         userStatus={profileTarget ? userStatuses.get(profileTarget) : undefined}
+        view={initialProfileView}
       />
       <ChannelBrowserDialog
         channels={allChannels}

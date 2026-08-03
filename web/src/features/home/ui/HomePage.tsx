@@ -34,8 +34,12 @@ import {
 import { lockOwnerVault } from "@/features/owner-vault/lib/vault-worker-client";
 import { AppPrimarySidebar } from "@/features/navigation/AppPrimarySidebar";
 import { useWorkspacePresence } from "@/features/presence/use-presence";
-import { UserProfileDialog } from "@/features/profile/UserProfileDialog";
+import { ManagedUserProfileDialog } from "@/features/agents/ui/ManagedUserProfileDialog";
 import { useProfileFollow } from "@/features/profile/profile-follow";
+import type {
+  ProfilePanelTab,
+  ProfilePanelView,
+} from "@/features/profile/profile-panel-state";
 import { readNotificationSettings } from "@/features/settings/notification-settings";
 import {
   cancelReminder,
@@ -70,13 +74,21 @@ type InboxFilter =
 export function HomePage({
   initialItemId,
   initialProfilePubkey,
+  initialProfileTab,
+  initialProfileView,
   onItemChange,
   onProfileChange,
+  onProfileTabChange,
+  onProfileViewChange,
 }: {
   initialItemId?: string;
   initialProfilePubkey?: string;
+  initialProfileTab?: ProfilePanelTab;
+  initialProfileView?: ProfilePanelView;
   onItemChange?: (itemId: string | null) => void;
   onProfileChange?: (pubkey: string | null) => void;
+  onProfileTabChange?: (tab: ProfilePanelTab) => void;
+  onProfileViewChange?: (view: ProfilePanelView) => void;
 } = {}) {
   const [ownerPubkey, setOwnerPubkey] = useState<string | null>(null);
   if (!ownerPubkey) return <OwnerConnection onConnected={setOwnerPubkey} />;
@@ -84,8 +96,12 @@ export function HomePage({
     <HomeWorkspace
       initialItemId={initialItemId}
       initialProfilePubkey={initialProfilePubkey}
+      initialProfileTab={initialProfileTab}
+      initialProfileView={initialProfileView}
       onItemChange={onItemChange}
       onProfileChange={onProfileChange}
+      onProfileTabChange={onProfileTabChange}
+      onProfileViewChange={onProfileViewChange}
       ownerPubkey={ownerPubkey}
       onDisconnect={() => {
         void lockOwnerVault();
@@ -100,15 +116,23 @@ function HomeWorkspace({
   onDisconnect,
   initialItemId,
   initialProfilePubkey,
+  initialProfileTab,
+  initialProfileView,
   onItemChange,
   onProfileChange,
+  onProfileTabChange,
+  onProfileViewChange,
 }: {
   ownerPubkey: string;
   onDisconnect: () => void;
   initialItemId?: string;
   initialProfilePubkey?: string;
+  initialProfileTab?: ProfilePanelTab;
+  initialProfileView?: ProfilePanelView;
   onItemChange?: (itemId: string | null) => void;
   onProfileChange?: (pubkey: string | null) => void;
+  onProfileTabChange?: (tab: ProfilePanelTab) => void;
+  onProfileViewChange?: (view: ProfilePanelView) => void;
 }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -602,7 +626,7 @@ function HomeWorkspace({
           />
         )}
       </main>
-      <UserProfileDialog
+      <ManagedUserProfileDialog
         agentName={
           profilePubkey
             ? agentsQuery.data?.find(
@@ -614,14 +638,22 @@ function HomeWorkspace({
         followPending={profileFollow.pending}
         onClose={() => selectProfile(null)}
         onMessage={(pubkey) => profileDmMutation.mutate(pubkey)}
+        onOpenChannel={(channelId) => {
+          selectProfile(null);
+          void navigate({ to: "/channels", search: { channel: channelId } });
+        }}
         onToggleFollow={profileFollow.toggle}
+        onTabChange={onProfileTabChange}
+        onViewChange={onProfileViewChange}
         ownerPubkey={ownerPubkey}
         presence={
           profilePubkey ? (presence.get(profilePubkey) ?? "offline") : "offline"
         }
         profile={profilePubkey ? profiles.get(profilePubkey) : undefined}
         pubkey={profilePubkey}
+        tab={initialProfileTab}
         userStatus={profilePubkey ? userStatuses.get(profilePubkey) : undefined}
+        view={initialProfileView}
       />
     </div>
   );

@@ -12,13 +12,17 @@ import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { OwnerConnection } from "@/features/agents/ui/OwnerConnection";
+import { ManagedUserProfileDialog } from "@/features/agents/ui/ManagedUserProfileDialog";
 import { listProfiles, openDm } from "@/features/channels/channel-api";
 import { AppPrimarySidebar } from "@/features/navigation/AppPrimarySidebar";
 import { lockOwnerVault } from "@/features/owner-vault/lib/vault-worker-client";
 import { useWorkspacePresence } from "@/features/presence/use-presence";
-import { UserProfileDialog } from "@/features/profile/UserProfileDialog";
 import { useProfileFollow } from "@/features/profile/profile-follow";
 import { truncatePubkey } from "@/shared/lib/pubkey";
+import type {
+  ProfilePanelTab,
+  ProfilePanelView,
+} from "@/features/profile/profile-panel-state";
 import { isSafeHttpUrl } from "@/shared/lib/url";
 import { useEscapeSurface } from "@/shared/hooks/use-escape-surface";
 import { useSidebarVisibility } from "@/shared/hooks/use-sidebar-visibility";
@@ -54,14 +58,22 @@ export function ProjectsPage({
   initialIssueId,
   initialPullRequestId,
   initialProfilePubkey,
+  initialProfileTab,
+  initialProfileView,
   onProfileChange,
+  onProfileTabChange,
+  onProfileViewChange,
   projectId,
 }: {
   initialCommitOid?: string;
   initialIssueId?: string;
   initialPullRequestId?: string;
   initialProfilePubkey?: string;
+  initialProfileTab?: ProfilePanelTab;
+  initialProfileView?: ProfilePanelView;
   onProfileChange?: (pubkey: string | null) => void;
+  onProfileTabChange?: (tab: ProfilePanelTab) => void;
+  onProfileViewChange?: (view: ProfilePanelView) => void;
   projectId?: string;
 }) {
   const [ownerPubkey, setOwnerPubkey] = useState<string | null>(null);
@@ -73,7 +85,11 @@ export function ProjectsPage({
       initialIssueId={initialIssueId}
       initialPullRequestId={initialPullRequestId}
       initialProfilePubkey={initialProfilePubkey}
+      initialProfileTab={initialProfileTab}
+      initialProfileView={initialProfileView}
       onProfileChange={onProfileChange}
+      onProfileTabChange={onProfileTabChange}
+      onProfileViewChange={onProfileViewChange}
       projectId={projectId}
       onDisconnect={() => {
         void lockOwnerVault();
@@ -89,7 +105,11 @@ function ProjectsWorkspace({
   initialIssueId,
   initialPullRequestId,
   initialProfilePubkey,
+  initialProfileTab,
+  initialProfileView,
   onProfileChange,
+  onProfileTabChange,
+  onProfileViewChange,
   projectId,
   onDisconnect,
 }: {
@@ -98,7 +118,11 @@ function ProjectsWorkspace({
   initialIssueId?: string;
   initialPullRequestId?: string;
   initialProfilePubkey?: string;
+  initialProfileTab?: ProfilePanelTab;
+  initialProfileView?: ProfilePanelView;
   onProfileChange?: (pubkey: string | null) => void;
+  onProfileTabChange?: (tab: ProfilePanelTab) => void;
+  onProfileViewChange?: (view: ProfilePanelView) => void;
   projectId?: string;
   onDisconnect: () => void;
 }) {
@@ -216,19 +240,27 @@ function ProjectsWorkspace({
           )}
         </div>
       </main>
-      <UserProfileDialog
+      <ManagedUserProfileDialog
         following={profileFollow.following}
         followPending={profileFollow.pending}
         onClose={() => selectProfile(null)}
         onMessage={(pubkey) => profileDmMutation.mutate(pubkey)}
+        onOpenChannel={(channelId) => {
+          selectProfile(null);
+          void navigate({ to: "/channels", search: { channel: channelId } });
+        }}
+        onTabChange={onProfileTabChange}
         onToggleFollow={profileFollow.toggle}
+        onViewChange={onProfileViewChange}
         ownerPubkey={ownerPubkey}
         presence={
           profilePubkey ? (presence.get(profilePubkey) ?? "offline") : "offline"
         }
         profile={profile}
         pubkey={profilePubkey}
+        tab={initialProfileTab}
         userStatus={profilePubkey ? userStatuses.get(profilePubkey) : undefined}
+        view={initialProfileView}
       />
       <DestructiveConfirmDialog
         confirmLabel="Delete project"

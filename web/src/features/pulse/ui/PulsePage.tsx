@@ -17,15 +17,19 @@ import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
 
 import { OwnerConnection } from "@/features/agents/ui/OwnerConnection";
+import { ManagedUserProfileDialog } from "@/features/agents/ui/ManagedUserProfileDialog";
 import { openDm } from "@/features/channels/channel-api";
 import { AppPrimarySidebar } from "@/features/navigation/AppPrimarySidebar";
 import { lockOwnerVault } from "@/features/owner-vault/lib/vault-worker-client";
-import { UserProfileDialog } from "@/features/profile/UserProfileDialog";
 import {
   profileFollowsQueryKey,
   setProfileFollowing,
 } from "@/features/profile/profile-follow";
 import { truncatePubkey } from "@/shared/lib/pubkey";
+import type {
+  ProfilePanelTab,
+  ProfilePanelView,
+} from "@/features/profile/profile-panel-state";
 import { hasPrimaryShortcutModifier } from "@/shared/lib/keyboard-shortcuts";
 import { relativeTime } from "@/shared/lib/relative-time";
 import { Button } from "@/shared/ui/button";
@@ -46,17 +50,29 @@ type PulseTab = "search" | "everyone" | "people" | "liked" | "agents" | "mine";
 
 export function PulsePage({
   initialProfilePubkey,
+  initialProfileTab,
+  initialProfileView,
   onProfileChange,
+  onProfileTabChange,
+  onProfileViewChange,
 }: {
   initialProfilePubkey?: string;
+  initialProfileTab?: ProfilePanelTab;
+  initialProfileView?: ProfilePanelView;
   onProfileChange?: (pubkey: string | null) => void;
+  onProfileTabChange?: (tab: ProfilePanelTab) => void;
+  onProfileViewChange?: (view: ProfilePanelView) => void;
 } = {}) {
   const [ownerPubkey, setOwnerPubkey] = useState<string | null>(null);
   if (!ownerPubkey) return <OwnerConnection onConnected={setOwnerPubkey} />;
   return (
     <PulseWorkspace
       initialProfilePubkey={initialProfilePubkey}
+      initialProfileTab={initialProfileTab}
+      initialProfileView={initialProfileView}
       onProfileChange={onProfileChange}
+      onProfileTabChange={onProfileTabChange}
+      onProfileViewChange={onProfileViewChange}
       onDisconnect={() => {
         void lockOwnerVault();
         setOwnerPubkey(null);
@@ -70,12 +86,20 @@ function PulseWorkspace({
   ownerPubkey,
   onDisconnect,
   initialProfilePubkey,
+  initialProfileTab,
+  initialProfileView,
   onProfileChange,
+  onProfileTabChange,
+  onProfileViewChange,
 }: {
   ownerPubkey: string;
   onDisconnect: () => void;
   initialProfilePubkey?: string;
+  initialProfileTab?: ProfilePanelTab;
+  initialProfileView?: ProfilePanelView;
   onProfileChange?: (pubkey: string | null) => void;
+  onProfileTabChange?: (tab: ProfilePanelTab) => void;
+  onProfileViewChange?: (view: ProfilePanelView) => void;
 }) {
   const navigate = useNavigate();
   const [tab, setTab] = useState<PulseTab>("everyone");
@@ -235,7 +259,7 @@ function PulseWorkspace({
           )}
         </div>
       </main>
-      <UserProfileDialog
+      <ManagedUserProfileDialog
         agentName={profilePubkey ? data?.agents.get(profilePubkey) : undefined}
         following={Boolean(profilePubkey && data?.contacts.has(profilePubkey))}
         followPending={following.isPending}
@@ -243,6 +267,11 @@ function PulseWorkspace({
         onMessage={(pubkey) => {
           void openDm([pubkey]).then(() => navigate({ to: "/channels" }));
         }}
+        onOpenChannel={(channelId) => {
+          selectProfile(null);
+          void navigate({ to: "/channels", search: { channel: channelId } });
+        }}
+        onTabChange={onProfileTabChange}
         onToggleFollow={() => {
           if (!profilePubkey) return;
           following.mutate({
@@ -250,9 +279,12 @@ function PulseWorkspace({
             value: !data?.contacts.has(profilePubkey),
           });
         }}
+        onViewChange={onProfileViewChange}
         ownerPubkey={ownerPubkey}
         profile={profilePubkey ? data?.profiles.get(profilePubkey) : undefined}
         pubkey={profilePubkey}
+        tab={initialProfileTab}
+        view={initialProfileView}
       />
     </div>
   );

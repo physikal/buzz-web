@@ -5,6 +5,12 @@ import {
   type ChannelAction,
   isChannelAction,
 } from "@/features/channels/channel-actions";
+import {
+  parseProfilePanelTab,
+  parseProfilePanelView,
+  type ProfilePanelTab,
+  type ProfilePanelView,
+} from "@/features/profile/profile-panel-state";
 
 const ChannelsPage = lazy(async () => {
   const module = await import("@/features/channels/ui/ChannelsPageEntry");
@@ -16,6 +22,8 @@ type ChannelsSearch = {
   channel?: string;
   message?: string;
   profile?: string;
+  profileTab?: ProfilePanelTab;
+  profileView?: ProfilePanelView;
 };
 
 export const Route = createFileRoute("/channels")({
@@ -27,18 +35,43 @@ export const Route = createFileRoute("/channels")({
     /^[0-9a-f]{64}$/i.test(search.profile)
       ? { profile: search.profile.toLowerCase() }
       : {}),
+    ...(parseProfilePanelTab(search.profileTab)
+      ? { profileTab: parseProfilePanelTab(search.profileTab) }
+      : {}),
+    ...(parseProfilePanelView(search.profileView)
+      ? { profileView: parseProfilePanelView(search.profileView) }
+      : {}),
   }),
   component: ChannelsRoute,
 });
 
 function ChannelsRoute() {
   const search = Route.useSearch();
+  const navigate = Route.useNavigate();
   return (
     <ChannelsPage
       initialAction={search.action}
       initialChannelId={search.channel}
       initialMessageId={search.message}
       initialProfilePubkey={search.profile}
+      initialProfileTab={search.profileTab}
+      initialProfileView={search.profileView}
+      onProfileTabChange={(profileTab) =>
+        void navigate({
+          search: (previous) => ({
+            ...previous,
+            profileTab: profileTab === "info" ? undefined : profileTab,
+          }),
+        })
+      }
+      onProfileViewChange={(profileView) =>
+        void navigate({
+          search: (previous) => ({
+            ...previous,
+            profileView: profileView === "summary" ? undefined : profileView,
+          }),
+        })
+      }
     />
   );
 }

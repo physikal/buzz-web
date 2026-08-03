@@ -65,7 +65,7 @@ test("profile edits preserve interoperable kind-0 metadata", () => {
 test("owner setup creates a passkey-wrapped signer and enters Channels", async ({
   page,
 }) => {
-  test.setTimeout(150_000);
+  test.setTimeout(180_000);
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"], {
     origin: testOrigin,
   });
@@ -2913,9 +2913,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   );
   await page.keyboard.press("Escape");
   await expect(globalPullRequestDialog).toBeHidden();
-  await page
-    .getByRole("button", { name: "Pull Requests", exact: true })
-    .click();
+  await page.getByRole("button", { name: /^Pull Request/u }).click();
   await expect(
     page.getByRole("heading", { name: "Browser parity pull request" }),
   ).toBeVisible();
@@ -3916,6 +3914,48 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await expect(agentProfile).toBeVisible();
   await page.goForward();
   await expect(agentProfile).toBeHidden();
+  await page.getByRole("link", { name: "Projects" }).click({ timeout: 10_000 });
+  await page
+    .getByRole("link", { name: "Relay project" })
+    .click({ timeout: 10_000 });
+  await page
+    .getByRole("button", { name: /^Pull Request/u })
+    .click({ timeout: 10_000 });
+  await page
+    .getByRole("button", { name: "Create PR from web" })
+    .click({ timeout: 10_000 });
+  await page
+    .getByRole("button", { name: `Open ${agentReviewerLabel} profile` })
+    .click();
+  const projectManagedProfile = page.getByRole("dialog", {
+    name: "Snapshot auditor profile",
+  });
+  await expect(
+    projectManagedProfile.getByRole("tab", { name: "Memories" }),
+  ).toBeVisible();
+  await projectManagedProfile.getByRole("tab", { name: "Runtime" }).click();
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get("profileTab"))
+    .toBe("runtime");
+  expect(new URL(page.url()).searchParams.get("pullRequest")).toBe(
+    createdPullRequest?.id,
+  );
+  await expect(
+    projectManagedProfile.getByRole("button", { name: "Edit", exact: true }),
+  ).toBeVisible();
+  await projectManagedProfile
+    .getByRole("button", { name: "Edit", exact: true })
+    .click();
+  const projectAgentEdit = page.getByRole("dialog", { name: "Edit agent" });
+  await expect(projectAgentEdit.locator("textarea")).toHaveValue(
+    "Inspect imported changes.",
+  );
+  await projectAgentEdit.getByRole("button", { name: "Close" }).click();
+  await projectManagedProfile.getByRole("button", { name: "Close" }).click();
+  await expect
+    .poll(() => new URL(page.url()).searchParams.has("profileTab"))
+    .toBe(false);
+  await page.getByRole("link", { name: "Agents" }).click();
   await page.getByRole("button", { name: "Agent catalog" }).click();
   await expect(
     page.getByRole("heading", { name: "Agent catalog" }),

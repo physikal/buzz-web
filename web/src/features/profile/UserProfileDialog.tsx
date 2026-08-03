@@ -57,6 +57,34 @@ export function PresenceDot({ status }: { status: PresenceStatus }) {
   );
 }
 
+export type UserProfileDialogProps = {
+  pubkey: string | null;
+  ownerPubkey: string;
+  profile?: UserProfile;
+  agentName?: string;
+  presence?: PresenceStatus;
+  userStatus?: UserStatus;
+  onClose: () => void;
+  onMessage: (pubkey: string) => void;
+  following?: boolean;
+  followPending?: boolean;
+  onToggleFollow?: () => void;
+  agentRunning?: boolean;
+  agentActionPending?: boolean;
+  onEditAgent?: () => void;
+  onToggleAgentState?: () => void;
+  managedAgent?: ManagedAgent;
+  agentChannels?: AgentChannel[];
+  agentChannelsLoading?: boolean;
+  onAddToChannel?: () => void;
+  onOpenActivity?: () => void;
+  onOpenChannel?: (channelId: string) => void;
+  tab?: ProfilePanelTab;
+  view?: ProfilePanelView;
+  onTabChange?: (tab: ProfilePanelTab) => void;
+  onViewChange?: (view: ProfilePanelView) => void;
+};
+
 export function UserProfileDialog({
   pubkey,
   ownerPubkey,
@@ -83,33 +111,7 @@ export function UserProfileDialog({
   view = "summary",
   onTabChange,
   onViewChange,
-}: {
-  pubkey: string | null;
-  ownerPubkey: string;
-  profile?: UserProfile;
-  agentName?: string;
-  presence?: PresenceStatus;
-  userStatus?: UserStatus;
-  onClose: () => void;
-  onMessage: (pubkey: string) => void;
-  following?: boolean;
-  followPending?: boolean;
-  onToggleFollow?: () => void;
-  agentRunning?: boolean;
-  agentActionPending?: boolean;
-  onEditAgent?: () => void;
-  onToggleAgentState?: () => void;
-  managedAgent?: ManagedAgent;
-  agentChannels?: AgentChannel[];
-  agentChannelsLoading?: boolean;
-  onAddToChannel?: () => void;
-  onOpenActivity?: () => void;
-  onOpenChannel?: (channelId: string) => void;
-  tab?: ProfilePanelTab;
-  view?: ProfilePanelView;
-  onTabChange?: (tab: ProfilePanelTab) => void;
-  onViewChange?: (view: ProfilePanelView) => void;
-}) {
+}: UserProfileDialogProps) {
   useEscapeSurface(Boolean(pubkey), onClose);
   if (!pubkey) return null;
   const displayName =
