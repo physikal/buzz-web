@@ -29,6 +29,7 @@ import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { CommunityMembersPanel } from "./CommunityMembersPanel";
 import { AgentDefaultsPanel } from "./AgentDefaultsPanel";
+import { AgentBehaviorPanel } from "./AgentBehaviorPanel";
 import { AgentRuntimesPanel } from "./AgentRuntimesPanel";
 import { CustomEmojiPanel } from "./CustomEmojiPanel";
 import { KeyboardShortcutsPanel } from "./KeyboardShortcutsPanel";
@@ -162,6 +163,7 @@ function SettingsWorkspace({
           {section === "shortcuts" ? <KeyboardShortcutsPanel /> : null}
           {section === "agents" ? (
             <div className="space-y-12">
+              <AgentBehaviorPanel ownerPubkey={ownerPubkey} />
               <AgentRuntimesPanel />
               <AgentDefaultsPanel ownerPubkey={ownerPubkey} />
             </div>

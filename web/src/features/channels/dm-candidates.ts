@@ -1,4 +1,4 @@
-import type { ManagedAgent } from "@/features/agents/agent-api";
+import type { ManagedAgent, RelayAgent } from "@/features/agents/agent-api";
 import type { CommunityMember } from "@/features/settings/community-api";
 import { truncatePubkey } from "@/shared/lib/pubkey";
 import type { UserProfile } from "./channel-api";
@@ -15,18 +15,21 @@ export function buildDmCandidates({
   pubkeys,
   profiles,
   agents,
+  relayAgents,
   members,
 }: {
   ownerPubkey: string;
   pubkeys: string[];
   profiles: Map<string, UserProfile>;
   agents: ManagedAgent[];
+  relayAgents: RelayAgent[];
   members: CommunityMember[];
 }): DmCandidate[] {
   const candidates = new Map<string, DmCandidate>();
   const agentNames = new Map(
-    agents.map((agent) => [agent.agent_pubkey, agent.name]),
+    relayAgents.map((agent) => [agent.pubkey, agent.name]),
   );
+  for (const agent of agents) agentNames.set(agent.agent_pubkey, agent.name);
   for (const pubkey of new Set(pubkeys)) {
     if (pubkey === ownerPubkey) continue;
     const profile = profiles.get(pubkey);
@@ -42,11 +45,15 @@ export function buildDmCandidates({
   }
   for (const member of members) {
     if (member.pubkey === ownerPubkey) continue;
+    const existing = candidates.get(member.pubkey);
     candidates.set(member.pubkey, {
       pubkey: member.pubkey,
-      displayName: member.profile?.displayName ?? truncatePubkey(member.pubkey),
-      avatarUrl: member.profile?.avatarUrl ?? null,
-      isAgent: false,
+      displayName:
+        agentNames.get(member.pubkey) ??
+        member.profile?.displayName ??
+        truncatePubkey(member.pubkey),
+      avatarUrl: member.profile?.avatarUrl ?? existing?.avatarUrl ?? null,
+      isAgent: agentNames.has(member.pubkey),
     });
   }
   for (const profile of profiles.values()) {
@@ -63,6 +70,15 @@ export function buildDmCandidates({
     candidates.set(agent.agent_pubkey, {
       pubkey: agent.agent_pubkey,
       displayName: agent.name,
+      avatarUrl: existing?.avatarUrl ?? null,
+      isAgent: true,
+    });
+  }
+  for (const agent of relayAgents) {
+    const existing = candidates.get(agent.pubkey);
+    candidates.set(agent.pubkey, {
+      pubkey: agent.pubkey,
+      displayName: agentNames.get(agent.pubkey) ?? agent.name,
       avatarUrl: existing?.avatarUrl ?? null,
       isAgent: true,
     });

@@ -20,6 +20,7 @@ import { truncatePubkey } from "@/shared/lib/pubkey";
 import { Button } from "@/shared/ui/button";
 import type { CustomEmoji } from "@/features/settings/custom-emoji-api";
 import type { DmCandidate } from "../dm-candidates";
+import { hasNamedMention } from "../mention-routing";
 import { PresenceDot } from "@/features/profile/UserProfileDialog";
 import type { PresenceStatus } from "@/features/presence/presence-api";
 import type {
@@ -580,6 +581,34 @@ export function ThreadPanel({
   layout?: "focus" | "split";
 }) {
   const replies = messages.filter((message) => message.rootId === root.id);
+  const initialAgentRefs = useMemo(() => {
+    if (root.pubkey !== ownerPubkey) return [];
+    const content = root.content.toLocaleLowerCase();
+    return mentionCandidates
+      .filter(
+        (candidate) =>
+          candidate.isAgent &&
+          hasNamedMention(root.content, candidate.displayName) &&
+          root.tags.some(
+            (tag) => tag[0] === "p" && tag[1] === candidate.pubkey,
+          ),
+      )
+      .map((candidate) => ({
+        displayName: candidate.displayName,
+        pubkey: candidate.pubkey,
+        isAgent: true,
+        position: content.indexOf(
+          `@${candidate.displayName.toLocaleLowerCase()}`,
+        ),
+      }))
+      .sort((left, right) => left.position - right.position)
+      .filter(
+        (candidate, index, candidates) =>
+          candidates.findIndex((item) => item.pubkey === candidate.pubkey) ===
+          index,
+      )
+      .map(({ position: _position, ...candidate }) => candidate);
+  }, [mentionCandidates, ownerPubkey, root.content, root.pubkey, root.tags]);
   return (
     <aside
       aria-label={forum ? "Forum thread" : "Thread"}
@@ -646,6 +675,7 @@ export function ThreadPanel({
       <MessageComposer
         channel={channel}
         customEmoji={customEmoji}
+        initialAgentRefs={initialAgentRefs}
         mentionCandidates={mentionCandidates}
         ownerPubkey={ownerPubkey}
         parent={root}

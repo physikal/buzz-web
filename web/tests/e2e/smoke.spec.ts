@@ -1308,19 +1308,27 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
               socket.send(JSON.stringify(["EVENT", subscriptionId, event]));
           }
           if (filters.includes("10100")) {
+            const relayAgentProfile = finalizeEvent(
+              {
+                kind: 10100,
+                created_at: createdAt,
+                content: JSON.stringify({ name: "Relay agent" }),
+                tags: [],
+              },
+              signer,
+            );
+            socket.send(
+              JSON.stringify(["EVENT", subscriptionId, relayAgentProfile]),
+            );
             socket.send(
               JSON.stringify([
                 "EVENT",
                 subscriptionId,
-                finalizeEvent(
-                  {
-                    kind: 10100,
-                    created_at: createdAt,
-                    content: JSON.stringify({ name: "Relay agent" }),
-                    tags: [],
-                  },
-                  signer,
-                ),
+                {
+                  ...relayAgentProfile,
+                  id: "72".repeat(32),
+                  content: JSON.stringify({ name: "Forged relay agent" }),
+                },
               ]),
             );
           }
@@ -1607,6 +1615,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   );
   await expect(page.getByRole("heading", { name: "general" })).toBeVisible();
   await expect(page.getByText("Welcome to Buzz Web.")).toBeVisible();
+  await expect(page.getByText("Forged relay agent")).toHaveCount(0);
   await expect(page.getByLabel("Message #general")).toBeVisible();
   expect(ownerPubkey).toMatch(/^[0-9a-f]{64}$/);
   await page.getByRole("button", { name: "web-forum", exact: true }).click();
@@ -2519,6 +2528,111 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     })
     .toBe(true);
   await page.getByRole("button", { name: "Agents" }).click();
+  const persistentAudienceSetting = page.getByRole("checkbox", {
+    name: "Keep addressed agents active",
+  });
+  await persistentAudienceSetting.check();
+  await expect
+    .poll(() =>
+      page.evaluate((pubkey) => {
+        const key = Object.keys(localStorage).find(
+          (candidate) =>
+            candidate.startsWith("buzz-web:persistent-agent-audience.v1:") &&
+            candidate.endsWith(`:${pubkey}`),
+        );
+        return key ? JSON.parse(localStorage.getItem(key) ?? "null") : null;
+      }, ownerPubkey),
+    )
+    .toMatchObject({ enabled: true });
+  await page.getByRole("link", { name: "Channels" }).click();
+  const persistentRootContent = "@Relay agent Persistent audience root";
+  const channelComposer = page.getByLabel("Message #general");
+  await channelComposer.fill(persistentRootContent);
+  await channelComposer.press("Enter");
+  await expect(channelComposer).toHaveValue("");
+  await expect
+    .poll(() =>
+      submittedEvents.some(
+        (event) =>
+          event.kind === 9 &&
+          event.content === persistentRootContent &&
+          event.tags.some((tag) => tag[0] === "p" && tag[1] === catalogPubkey),
+      ),
+    )
+    .toBe(true);
+  const persistentRootEvent = submittedEvents.find(
+    (event) => event.kind === 9 && event.content === persistentRootContent,
+  );
+  expect(persistentRootEvent?.id).toMatch(/^[0-9a-f]{64}$/u);
+  const persistentRootMessage = page.locator(
+    `article[id="message-${persistentRootEvent?.id}"]`,
+  );
+  await expect(persistentRootMessage).toBeVisible();
+  await persistentRootMessage.hover();
+  await persistentRootMessage.getByRole("button", { name: "Reply" }).click();
+  const persistentReplyComposer = page.getByLabel("Reply in thread");
+  await expect(persistentReplyComposer).toHaveValue("@Relay agent ");
+  await persistentReplyComposer.fill("@Relay agent First persistent reply");
+  await persistentReplyComposer.press("Enter");
+  await expect(persistentReplyComposer).toHaveValue("@Relay agent ");
+  await persistentReplyComposer.fill("@Relay agent Second persistent reply");
+  await persistentReplyComposer.press("Enter");
+  await expect
+    .poll(() =>
+      submittedEvents.some(
+        (event) =>
+          event.kind === 45003 &&
+          event.content === "@Relay agent Second persistent reply" &&
+          event.tags.some((tag) => tag[0] === "p" && tag[1] === catalogPubkey),
+      ),
+    )
+    .toBe(true);
+  await persistentReplyComposer.fill("Audience removed");
+  await expect
+    .poll(() =>
+      page.evaluate(
+        ({ pubkey, agentPubkey: expectedAgentPubkey }) => {
+          const key = Object.keys(localStorage).find(
+            (candidate) =>
+              candidate.startsWith("buzz-web:persistent-agent-audience.v1:") &&
+              candidate.endsWith(`:${pubkey}`),
+          );
+          if (!key) return false;
+          const stored = JSON.parse(localStorage.getItem(key) ?? "null") as {
+            audiences?: Record<string, Array<{ pubkey?: string }>>;
+          } | null;
+          return Object.values(stored?.audiences ?? {}).every((refs) =>
+            refs.every((ref) => ref.pubkey !== expectedAgentPubkey),
+          );
+        },
+        { pubkey: ownerPubkey, agentPubkey: catalogPubkey },
+      ),
+    )
+    .toBe(true);
+  await page.getByRole("button", { name: "Close thread" }).click();
+  await page.getByRole("link", { name: "Settings" }).click();
+  await page.getByRole("button", { name: "Agents" }).click();
+  await persistentAudienceSetting.uncheck();
+  await expect
+    .poll(() =>
+      page.evaluate((pubkey) => {
+        const key = Object.keys(localStorage).find(
+          (candidate) =>
+            candidate.startsWith("buzz-web:persistent-agent-audience.v1:") &&
+            candidate.endsWith(`:${pubkey}`),
+        );
+        if (!key) return null;
+        const stored = JSON.parse(localStorage.getItem(key) ?? "null") as {
+          enabled?: boolean;
+          audiences?: Record<string, unknown>;
+        } | null;
+        return {
+          enabled: stored?.enabled,
+          audienceCount: Object.keys(stored?.audiences ?? {}).length,
+        };
+      }, ownerPubkey),
+    )
+    .toEqual({ enabled: false, audienceCount: 0 });
   const runtimePanel = page.getByRole("region", { name: "Agent runtimes" });
   await expect(runtimePanel).toBeVisible();
   await expect(

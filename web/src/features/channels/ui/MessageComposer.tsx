@@ -25,6 +25,7 @@ import {
   loadDraftState,
   saveDraft,
 } from "../draft-store";
+import { usePersistentAgentAudience } from "../persistent-agent-audience";
 import type { DmCandidate } from "../dm-candidates";
 import {
   findMentionQuery,
@@ -39,6 +40,15 @@ export type ComposerPayload = {
   mentionPubkeys: string[];
 };
 
+function persistentPrefix(refs: readonly DraftMentionRef[]) {
+  return (
+    refs.map((ref) => `@${ref.displayName}`).join(" ") +
+    (refs.length ? " " : "")
+  );
+}
+
+const EMPTY_INITIAL_AGENT_REFS: readonly DraftMentionRef[] = [];
+
 function isFileDrag(event: DragEvent<HTMLElement>) {
   return Array.from(event.dataTransfer.types).includes("Files");
 }
@@ -50,6 +60,7 @@ export function MessageComposer({
   ownerPubkey,
   customEmoji,
   mentionCandidates,
+  initialAgentRefs = EMPTY_INITIAL_AGENT_REFS,
   pending,
   placeholder: placeholderOverride,
   submitLabel = "Send message",
@@ -62,6 +73,7 @@ export function MessageComposer({
   ownerPubkey: string;
   customEmoji: CustomEmoji[];
   mentionCandidates: DmCandidate[];
+  initialAgentRefs?: readonly DraftMentionRef[];
   pending: boolean;
   placeholder?: string;
   submitLabel?: string;
@@ -93,16 +105,44 @@ export function MessageComposer({
   draftRef.current = draft;
   contextKeyRef.current = contextKey;
   const lastTypingSent = useRef(0);
+  const persistentAudience = usePersistentAgentAudience({
+    ownerPubkey,
+    channelId: channel.id,
+    threadRootId: parent?.id ?? null,
+    initialRefs: initialAgentRefs,
+  });
+
+  function reconcilePersistentAudience(nextRefs: DraftMentionRef[]) {
+    if (!persistentAudience.enabled) return;
+    const present = new Set(nextRefs.map((ref) => ref.pubkey));
+    const retained = persistentAudience.refs.filter((ref) =>
+      present.has(ref.pubkey),
+    );
+    if (retained.length !== persistentAudience.refs.length)
+      persistentAudience.setRefs(retained);
+  }
 
   useEffect(() => {
     const saved = loadDraftState(ownerPubkey, channel.id, parent?.id);
-    setDraft(saved.content);
+    const hydrate =
+      persistentAudience.enabled &&
+      !saved.content.trim() &&
+      persistentAudience.refs.length;
+    setDraft(
+      hydrate ? persistentPrefix(persistentAudience.refs) : saved.content,
+    );
     setAttachments(saved.pendingImeta);
-    setMentionRefs(saved.mentionRefs);
+    setMentionRefs(hydrate ? [...persistentAudience.refs] : saved.mentionRefs);
     dragDepthRef.current = 0;
     setIsDragOver(false);
     setMentionAutocomplete(null);
-  }, [channel.id, ownerPubkey, parent?.id]);
+  }, [
+    channel.id,
+    ownerPubkey,
+    parent?.id,
+    persistentAudience.enabled,
+    persistentAudience.refs,
+  ]);
 
   useEffect(() => {
     const resetDragState = () => {
@@ -183,18 +223,36 @@ export function MessageComposer({
           attachment.filename ?? "attachment",
         ),
       );
+      const mentionPubkeys = resolveMentionPubkeys(
+        draft,
+        mentionRefs,
+        mentionCandidates,
+      );
+      const audienceGeneration = persistentAudience.generation;
+      const audienceRevision = persistentAudience.revision;
+      const explicitAgentRefs = mentionCandidates
+        .filter(
+          (candidate) =>
+            candidate.isAgent && mentionPubkeys.includes(candidate.pubkey),
+        )
+        .map((candidate) => ({
+          displayName: candidate.displayName,
+          pubkey: candidate.pubkey,
+          isAgent: true,
+        }));
       await onSubmit({
         content: draft,
         mediaTags,
-        mentionPubkeys: resolveMentionPubkeys(
-          draft,
-          mentionRefs,
-          mentionCandidates,
-        ),
+        mentionPubkeys,
       });
-      setDraft("");
+      const retainedRefs = persistentAudience.promoteRefs({
+        expectedGeneration: audienceGeneration,
+        expectedRevision: audienceRevision,
+        refs: explicitAgentRefs,
+      });
+      setDraft(persistentPrefix(retainedRefs));
       setAttachments([]);
-      setMentionRefs([]);
+      setMentionRefs([...retainedRefs]);
       setMentionAutocomplete(null);
       deleteDraft(ownerPubkey, parent?.id ? `thread:${parent.id}` : channel.id);
     } finally {
@@ -233,6 +291,7 @@ export function MessageComposer({
     const next = `${draft.slice(0, mentionAutocomplete.start)}${insertText}${draft.slice(selection)}`;
     const nextSelection = mentionAutocomplete.start + insertText.length;
     const nextMentionRefs = reconcileMentionRefs(next, mentionRefs, candidate);
+    reconcilePersistentAudience(nextMentionRefs);
     setDraft(next);
     setMentionRefs(nextMentionRefs);
     setMentionAutocomplete(null);
@@ -268,6 +327,7 @@ export function MessageComposer({
       placeholder,
     );
     const nextMentionRefs = reconcileMentionRefs(edit.value, mentionRefs);
+    reconcilePersistentAudience(nextMentionRefs);
     setDraft(edit.value);
     setMentionRefs(nextMentionRefs);
     setMentionAutocomplete(null);
@@ -427,6 +487,7 @@ export function MessageComposer({
                 event.target.value,
                 mentionRefs,
               );
+              reconcilePersistentAudience(nextMentionRefs);
               setDraft(event.target.value);
               setMentionRefs(nextMentionRefs);
               updateMentionAutocomplete(
@@ -539,6 +600,7 @@ export function MessageComposer({
                 mentionRefs,
                 selectedMention,
               );
+              reconcilePersistentAudience(nextMentionRefs);
               setDraft(value);
               setMentionRefs(nextMentionRefs);
               if (selectedMention) setMentionAutocomplete(null);

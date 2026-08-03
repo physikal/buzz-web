@@ -28,6 +28,7 @@ import { useHuddle } from "@/features/huddles/use-huddle";
 import { useChannelFind } from "../use-channel-find";
 import { useChannelReadShortcuts } from "../use-channel-read-shortcuts";
 import { useChannelRouteState } from "../use-channel-route-state";
+import { buildAgentNames, useRelayAgents } from "../use-relay-agents";
 import { useChannelActions } from "../use-channel-actions";
 import { getCustomEmoji } from "@/features/settings/custom-emoji-api";
 import { submitModerationReport } from "@/features/settings/moderation-api";
@@ -155,6 +156,7 @@ export function ChannelsWorkspace({
     staleTime: 10_000,
     retry: false,
   });
+  const relayAgents = useRelayAgents(ownerPubkey);
   const communityQuery = useQuery({
     queryKey: ["community-members", ownerPubkey],
     queryFn: () => getCommunityMembership(ownerPubkey),
@@ -311,12 +313,14 @@ export function ChannelsWorkspace({
       ...(selected?.participantPubkeys ?? []),
       ...(huddle.joined?.participants ?? []),
       ...(agentsQuery.data ?? []).map((agent) => agent.agent_pubkey),
+      ...relayAgents.map((agent) => agent.pubkey),
     ],
     [
       agentsQuery.data,
       huddle.joined?.participants,
       messages,
       ownerPubkey,
+      relayAgents,
       selected?.participantPubkeys,
     ],
   );
@@ -336,14 +340,8 @@ export function ChannelsWorkspace({
     [profilesQuery.data],
   );
   const agentNames = useMemo(
-    () =>
-      new Map(
-        (agentsQuery.data ?? []).map((agent) => [
-          agent.agent_pubkey,
-          agent.name,
-        ]),
-      ),
-    [agentsQuery.data],
+    () => buildAgentNames(agentsQuery.data ?? [], relayAgents),
+    [agentsQuery.data, relayAgents],
   );
   const dmCandidates = useMemo(() => {
     return buildDmCandidates({
@@ -351,6 +349,7 @@ export function ChannelsWorkspace({
       pubkeys: allPubkeys,
       profiles,
       agents: agentsQuery.data ?? [],
+      relayAgents,
       members: communityQuery.data?.members ?? [],
     });
   }, [
@@ -359,6 +358,7 @@ export function ChannelsWorkspace({
     communityQuery.data?.members,
     ownerPubkey,
     profiles,
+    relayAgents,
   ]);
   const refreshSelected = useCallback(async () => {
     if (!selected) return;

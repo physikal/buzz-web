@@ -1,6 +1,7 @@
 import { makeNip98AuthHeader } from "@/shared/lib/nip98";
-import { relayHttpBaseUrl } from "@/shared/lib/relay-url";
-import type { NostrEvent } from "@/shared/lib/nostr-client";
+import { queryEvents, type NostrEvent } from "@/shared/lib/nostr-client";
+import { relayHttpBaseUrl, relayWsUrl } from "@/shared/lib/relay-url";
+import { truncatePubkey } from "@/shared/lib/pubkey";
 
 export type AgentRuntime = string;
 export type AgentProvider =
@@ -41,6 +42,11 @@ export type ManagedAgent = {
   last_error: string | null;
   created_at: string;
   updated_at: string;
+};
+
+export type RelayAgent = {
+  pubkey: string;
+  name: string;
 };
 
 export type CreateAgentInput = {
@@ -139,6 +145,47 @@ async function signedRequest<T>(path: string, init?: RequestInit): Promise<T> {
 export async function listAgents(): Promise<ManagedAgent[]> {
   const result = await signedRequest<{ agents: ManagedAgent[] }>("/api/agents");
   return result.agents;
+}
+
+export async function listRelayAgents(): Promise<RelayAgent[]> {
+  const events = await queryEvents(
+    relayWsUrl(),
+    { kinds: [10100], limit: 500 },
+    { requireNip07: true },
+  );
+  const latest = new Map<string, NostrEvent>();
+  for (const event of events) {
+    if (event.kind !== 10100) continue;
+    const previous = latest.get(event.pubkey);
+    if (
+      !previous ||
+      event.created_at > previous.created_at ||
+      (event.created_at === previous.created_at && event.id > previous.id)
+    ) {
+      latest.set(event.pubkey, event);
+    }
+  }
+  return [...latest.values()]
+    .map((event) => {
+      let metadata: Record<string, unknown> = {};
+      try {
+        const value = JSON.parse(event.content) as unknown;
+        if (value && typeof value === "object" && !Array.isArray(value)) {
+          metadata = value as Record<string, unknown>;
+        }
+      } catch {
+        // A signed profile still identifies an agent when metadata is malformed.
+      }
+      const rawName =
+        (typeof metadata.name === "string" && metadata.name) ||
+        (typeof metadata.display_name === "string" && metadata.display_name) ||
+        "";
+      return {
+        pubkey: event.pubkey,
+        name: rawName.trim().slice(0, 200) || truncatePubkey(event.pubkey),
+      };
+    })
+    .sort((left, right) => left.name.localeCompare(right.name));
 }
 
 export async function listAgentRuntimes(): Promise<AgentRuntimeCatalogEntry[]> {
