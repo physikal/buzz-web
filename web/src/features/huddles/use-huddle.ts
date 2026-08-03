@@ -29,6 +29,11 @@ export type JoinedHuddle = {
   micLevel: number;
 };
 
+export type HuddleStartTarget = {
+  channelId: string;
+  channelName: string;
+};
+
 export function useHuddle({
   channelId,
   channelName,
@@ -244,26 +249,30 @@ export function useHuddle({
   );
 
   const start = useCallback(
-    async (agentPubkeys: string[]) => {
-      if (!channelId || !channelName || pending || joined) return;
+    async (agentPubkeys: string[], target?: HuddleStartTarget) => {
+      const parentChannelId = target?.channelId ?? channelId;
+      const parentChannelName = target?.channelName ?? channelName;
+      if (!parentChannelId || !parentChannelName || pending || joined) return;
       setPending(true);
       setError(null);
       let ephemeralChannelId: string | null = null;
       try {
         ephemeralChannelId = await createHuddle({
-          parentChannelId: channelId,
-          parentChannelName: channelName,
+          parentChannelId,
+          parentChannelName,
           agentPubkeys,
         });
-        await connect(channelId, ephemeralChannelId, true, agentPubkeys);
+        await connect(parentChannelId, ephemeralChannelId, true, agentPubkeys);
       } catch (cause) {
         audioRef.current?.stop();
         audioRef.current = null;
         setJoined(null);
         if (ephemeralChannelId)
-          await leaveHuddleChannel(channelId, ephemeralChannelId, true).catch(
-            () => {},
-          );
+          await leaveHuddleChannel(
+            parentChannelId,
+            ephemeralChannelId,
+            true,
+          ).catch(() => {});
         setError(
           cause instanceof Error ? cause.message : "Could not start huddle.",
         );
@@ -386,6 +395,7 @@ export function useHuddle({
     active,
     joined,
     pending,
+    startBlocked: pending || Boolean(joined),
     muted,
     voiceInputMode,
     pttActive,

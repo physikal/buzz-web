@@ -269,7 +269,7 @@ test("wave messages use the desktop marker and fallback semantics", () => {
 test("owner setup creates a passkey-wrapped signer and enters Channels", async ({
   page,
 }) => {
-  test.setTimeout(180_000);
+  test.setTimeout(240_000);
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"], {
     origin: testOrigin,
   });
@@ -342,6 +342,24 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
       configurable: true,
       value: spoken,
     });
+    const huddleAudioContexts: AudioContext[] = [];
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: {
+        addEventListener() {},
+        enumerateDevices: async () => [],
+        getUserMedia: async () => {
+          const context = new AudioContext();
+          const oscillator = context.createOscillator();
+          const destination = context.createMediaStreamDestination();
+          oscillator.connect(destination);
+          oscillator.start();
+          huddleAudioContexts.push(context);
+          return destination.stream;
+        },
+        removeEventListener() {},
+      },
+    });
   });
   const cdp = await page.context().newCDPSession(page);
   await cdp.send("WebAuthn.enable");
@@ -408,6 +426,11 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     created_at: number;
     content: string;
     tags: string[][];
+  }> = [];
+  const huddleAudioAuths: Array<{
+    event: (typeof submittedEvents)[number];
+    parent_channel_id: string;
+    protocol_version: number;
   }> = [];
   let sendLiveChannelEvent:
     | ((event: (typeof submittedEvents)[number]) => void)
@@ -1128,6 +1151,51 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
       }),
     });
   });
+  await page.routeWebSocket(
+    new RegExp(
+      `ws://(?:127\\.0\\.0\\.1|localhost):${testPort}/huddle/[0-9a-f-]+/audio$`,
+    ),
+    (socket) => {
+      socket.send(
+        JSON.stringify({
+          type: "challenge",
+          challenge: "web-smoke-huddle-challenge",
+        }),
+      );
+      socket.onMessage((message) => {
+        let frame: {
+          type?: string;
+          event?: (typeof submittedEvents)[number];
+          parent_channel_id?: string;
+          protocol_version?: number;
+        };
+        try {
+          frame = JSON.parse(String(message));
+        } catch {
+          return;
+        }
+        if (
+          frame.type !== "auth" ||
+          !frame.event ||
+          !frame.parent_channel_id ||
+          frame.protocol_version === undefined
+        )
+          return;
+        huddleAudioAuths.push({
+          event: frame.event,
+          parent_channel_id: frame.parent_channel_id,
+          protocol_version: frame.protocol_version,
+        });
+        socket.send(
+          JSON.stringify({
+            type: "joined",
+            peer_index: 0,
+            peers: [{ pubkey: ownerPubkey, peer_index: 0 }],
+          }),
+        );
+      });
+    },
+  );
   await page.routeWebSocket(
     new RegExp(`ws:\\/\\/(?:127\\.0\\.0\\.1|localhost):${testPort}\\/?$`),
     (socket) => {
@@ -2009,6 +2077,45 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await humanArticle.getByRole("button", { name: "Open Bob profile" }).click();
   const humanProfile = page.getByRole("dialog", { name: "Bob profile" });
   await expect(humanProfile).toBeVisible();
+  await humanProfile.screenshot({ path: "/tmp/buzz-web-profile-huddle.png" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(humanProfile).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({ path: "/tmp/buzz-web-profile-huddle-mobile.png" });
+  await page.setViewportSize({ width: 1280, height: 720 });
+  const humanHuddleStartIndex = submittedEvents.length;
+  await humanProfile.getByRole("button", { name: "Huddle" }).click();
+  await expect(page.getByLabel("Active huddle")).toBeVisible();
+  await expect.poll(() => huddleAudioAuths.length).toBe(1);
+  expect(verifyEvent(huddleAudioAuths[0]?.event)).toBe(true);
+  expect(huddleAudioAuths[0]).toMatchObject({
+    parent_channel_id: directMessageChannelId,
+    protocol_version: 2,
+    event: {
+      kind: 22242,
+      pubkey: ownerPubkey,
+      tags: expect.arrayContaining([
+        ["challenge", "web-smoke-huddle-challenge"],
+      ]),
+    },
+  });
+  expect(
+    submittedEvents
+      .slice(humanHuddleStartIndex)
+      .find((event) => event.kind === 48100),
+  ).toMatchObject({
+    pubkey: ownerPubkey,
+    tags: expect.arrayContaining([["h", directMessageChannelId]]),
+  });
+  await page.getByRole("button", { name: "Leave huddle" }).click();
+  await expect(page.getByLabel("Active huddle")).toBeHidden();
+  await page.getByRole("button", { name: /^general(?: \d+)?$/u }).click();
+  await humanArticle.getByRole("button", { name: "Open Bob profile" }).click();
+  await expect(humanProfile).toBeVisible();
   const waveButton = humanProfile.getByRole("button", { name: "Wave" });
   await expect(waveButton).toBeVisible();
   await waveButton.click();
@@ -2715,6 +2822,9 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   const channelProfile = page.getByRole("dialog", {
     name: "Relay agent profile",
   });
+  await expect(
+    channelProfile.getByRole("button", { name: "Huddle" }),
+  ).toHaveCount(0);
   await expect(
     channelProfile.getByRole("tab", { name: "Runtime" }),
   ).toHaveCount(0);
@@ -5519,6 +5629,40 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await expect(managedAgentArticle).toContainText(
     "Owner corrected managed agent message",
   );
+  await managedAgentArticle
+    .getByRole("button", { name: /^Open .+ profile$/u })
+    .click();
+  const managedChannelProfile = page
+    .getByRole("dialog")
+    .filter({ has: page.getByRole("button", { name: "Huddle" }) });
+  await expect(managedChannelProfile).toBeVisible();
+  const managedHuddleStartIndex = submittedEvents.length;
+  await managedChannelProfile.getByRole("button", { name: "Huddle" }).click();
+  await expect(page.getByLabel("Active huddle")).toBeVisible();
+  await expect.poll(() => huddleAudioAuths.length).toBe(2);
+  expect(verifyEvent(huddleAudioAuths[1]?.event)).toBe(true);
+  expect(huddleAudioAuths[1]).toMatchObject({
+    parent_channel_id: directMessageChannelId,
+    protocol_version: 2,
+    event: { kind: 22242, pubkey: ownerPubkey },
+  });
+  const managedHuddleEvents = submittedEvents.slice(managedHuddleStartIndex);
+  expect(
+    managedHuddleEvents.find((event) => event.kind === 48100),
+  ).toMatchObject({
+    tags: expect.arrayContaining([["h", directMessageChannelId]]),
+  });
+  expect(
+    managedHuddleEvents.find((event) => event.kind === 9000),
+  ).toMatchObject({
+    tags: expect.arrayContaining([
+      ["p", agentPubkey],
+      ["role", "bot"],
+    ]),
+  });
+  await page.getByRole("button", { name: "Leave huddle" }).click();
+  await expect(page.getByLabel("Active huddle")).toBeHidden();
+  await page.getByRole("button", { name: /^general\b/u }).click();
 
   const { credentials } = await cdp.send("WebAuthn.getCredentials", {
     authenticatorId,

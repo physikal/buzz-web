@@ -7,6 +7,7 @@ import {
   CircleAlert,
   Copy,
   Fingerprint,
+  Headphones,
   Logs,
   MessageCircle,
   Pencil,
@@ -66,6 +67,8 @@ export type UserProfileDialogProps = {
   userStatus?: UserStatus;
   onClose: () => void;
   onMessage: (pubkey: string) => void;
+  onHuddle?: (input: { pubkey: string; agentPubkeys: string[] }) => void;
+  huddlePending?: boolean;
   onWave?: (pubkey: string) => void;
   wavePending?: boolean;
   following?: boolean;
@@ -96,6 +99,8 @@ export function UserProfileDialog({
   userStatus,
   onClose,
   onMessage,
+  onHuddle,
+  huddlePending = false,
   onWave,
   wavePending = false,
   following,
@@ -178,6 +183,15 @@ export function UserProfileDialog({
               managedAgent={managedAgent}
               onAddToChannel={onAddToChannel}
               onEditAgent={onEditAgent}
+              onHuddle={
+                onHuddle
+                  ? () =>
+                      onHuddle({
+                        pubkey,
+                        agentPubkeys: managedAgent ? [pubkey] : [],
+                      })
+                  : undefined
+              }
               onMessage={() => onMessage(pubkey)}
               onWave={onWave ? () => onWave(pubkey) : undefined}
               onOpenActivity={onOpenActivity}
@@ -192,6 +206,7 @@ export function UserProfileDialog({
               pubkey={pubkey}
               tab={tab}
               userStatus={userStatus}
+              huddlePending={huddlePending}
               wavePending={wavePending}
             />
           ) : managedAgent ? (
@@ -226,6 +241,7 @@ function ProfileSummary({
   managedAgent,
   onAddToChannel,
   onEditAgent,
+  onHuddle,
   onMessage,
   onWave,
   onOpenActivity,
@@ -240,6 +256,7 @@ function ProfileSummary({
   pubkey,
   tab,
   userStatus,
+  huddlePending,
   wavePending,
 }: {
   agentActionPending: boolean;
@@ -253,6 +270,7 @@ function ProfileSummary({
   managedAgent?: ManagedAgent;
   onAddToChannel?: () => void;
   onEditAgent?: () => void;
+  onHuddle?: () => void;
   onMessage: () => void;
   onWave?: () => void;
   onOpenActivity?: () => void;
@@ -267,6 +285,7 @@ function ProfileSummary({
   pubkey: string;
   tab: ProfilePanelTab;
   userStatus?: UserStatus;
+  huddlePending: boolean;
   wavePending: boolean;
 }) {
   return (
@@ -310,6 +329,16 @@ function ProfileSummary({
                 👋
               </span>
               {wavePending ? "Sending..." : "Wave"}
+            </Button>
+          ) : null}
+          {onHuddle && (!agentName || managedAgent) ? (
+            <Button
+              disabled={huddlePending}
+              onClick={onHuddle}
+              variant="outline"
+            >
+              <Headphones />
+              {huddlePending ? "Starting..." : "Huddle"}
             </Button>
           ) : null}
           {onEditAgent ? (

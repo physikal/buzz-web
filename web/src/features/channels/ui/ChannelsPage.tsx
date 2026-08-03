@@ -384,13 +384,15 @@ export function ChannelsWorkspace({
     },
     onError: mutationError("Could not create channel"),
   });
-  const { dmMutation, waveMutation } = useProfileMessaging({
-    onCloseNewMessage: () => setDmOpen(false),
-    onCloseProfile: () => selectProfile(null),
-    onOpenChannel: selectChannel,
-    ownerPubkey,
-    profiles,
-  });
+  const { dmMutation, huddleMutation, openProfileDm, waveMutation } =
+    useProfileMessaging({
+      onCloseNewMessage: () => setDmOpen(false),
+      onCloseProfile: () => selectProfile(null),
+      onOpenChannel: selectChannel,
+      onStartHuddle: huddle.start,
+      ownerPubkey,
+      profiles,
+    });
   const sendMutation = useMutation({
     mutationFn: sendChannelMessage,
     onSuccess: refreshSelected,
@@ -861,14 +863,11 @@ export function ChannelsWorkspace({
         following={profileFollow.following}
         followPending={profileFollow.pending}
         onClose={() => selectProfile(null)}
-        onMessage={(pubkey) => {
-          dmMutation.mutate([pubkey]);
-          selectProfile(null);
-        }}
+        onMessage={openProfileDm}
+        huddlePending={huddleMutation.isPending || huddle.startBlocked}
+        onHuddle={huddleMutation.mutate}
         onWave={(pubkey) => waveMutation.mutate(pubkey)}
-        onOpenChannel={(channelId) => {
-          selectChannel(channelId);
-        }}
+        onOpenChannel={selectChannel}
         onTabChange={onProfileTabChange}
         onToggleFollow={profileFollow.toggle}
         onViewChange={onProfileViewChange}
