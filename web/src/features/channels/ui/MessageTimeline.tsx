@@ -29,6 +29,7 @@ import {
   type ResolvedMessageMentions,
   resolveMessageMentions,
 } from "../message-mentions";
+import remarkChannelLinks from "../remark-channel-links";
 import remarkMentions from "../remark-mentions";
 import { PresenceDot } from "@/features/profile/UserProfileDialog";
 import type { PresenceStatus } from "@/features/presence/presence-api";
@@ -53,6 +54,7 @@ export type MessageActions = {
   isUnread: (message: ChannelMessage) => boolean;
   onMarkRead: (message: ChannelMessage) => void;
   onMarkUnread: (message: ChannelMessage) => void;
+  onOpenChannel: (channelId: string) => void;
   onOpenProfile: (pubkey: string) => void;
   onReact: (
     message: ChannelMessage,
@@ -64,6 +66,7 @@ export type MessageActions = {
 
 export function MessageTimeline({
   channel,
+  channels,
   messages,
   ownerPubkey,
   profiles,
@@ -76,6 +79,7 @@ export function MessageTimeline({
   actions,
 }: {
   channel: Channel;
+  channels: Channel[];
   messages: ChannelMessage[];
   ownerPubkey: string;
   profiles: Map<string, UserProfile>;
@@ -129,6 +133,7 @@ export function MessageTimeline({
         <MessageRow
           actions={actions}
           channelId={channel.id}
+          channels={channels}
           agentNames={agentNames}
           forum={channel.channelType === "forum"}
           highlighted={selectedMessageId === message.id}
@@ -149,6 +154,7 @@ export function MessageTimeline({
 
 function MessageRow({
   channelId,
+  channels,
   message,
   ownerPubkey,
   profiles,
@@ -163,6 +169,7 @@ function MessageRow({
   scope,
 }: {
   channelId: string;
+  channels: Channel[];
   message: ChannelMessage;
   ownerPubkey: string;
   profiles: Map<string, UserProfile>;
@@ -183,7 +190,22 @@ function MessageRow({
     () => resolveMessageMentions(message, profiles, agentNames),
     [agentNames, message, profiles],
   );
+  const channelNames = useMemo(
+    () =>
+      channels
+        .filter((candidate) => candidate.channelType !== "dm")
+        .map((candidate) => candidate.name),
+    [channels],
+  );
   const markdownComponents = {
+    "channel-link": ({ children }: { children?: React.ReactNode }) => (
+      <ChannelLinkChip
+        channels={channels}
+        onOpenChannel={actions.onOpenChannel}
+      >
+        {children}
+      </ChannelLinkChip>
+    ),
     mention: ({ children }: { children?: React.ReactNode }) => (
       <MentionChip mentions={mentions} onOpenProfile={actions.onOpenProfile}>
         {children}
@@ -267,6 +289,7 @@ function MessageRow({
                 remarkPlugins={[
                   remarkGfm,
                   [remarkMentions, { mentionNames: mentions.names }],
+                  [remarkChannelLinks, { channelNames }],
                 ]}
               >
                 {expandCustomEmojiMarkdown(
@@ -481,6 +504,43 @@ function MentionChip({
   );
 }
 
+function ChannelLinkChip({
+  channels,
+  children,
+  onOpenChannel,
+}: {
+  channels: Channel[];
+  children?: React.ReactNode;
+  onOpenChannel: (channelId: string) => void;
+}) {
+  const text = String(children ?? "");
+  const channelName = text.replace(/^#/u, "");
+  const channel = channels.find(
+    (candidate) =>
+      candidate.channelType !== "dm" &&
+      candidate.name.toLowerCase() === channelName.toLowerCase(),
+  );
+  const className =
+    "inline-flex min-h-5 items-center rounded-sm bg-primary/15 px-1 py-0.5 font-medium leading-none text-primary";
+  if (!channel)
+    return (
+      <span className={className} data-channel-link="">
+        {text}
+      </span>
+    );
+  return (
+    <button
+      aria-label={`Open channel ${channelName}`}
+      className={`${className} cursor-pointer hover:bg-primary/25`}
+      data-channel-link=""
+      onClick={() => onOpenChannel(channel.id)}
+      type="button"
+    >
+      {text}
+    </button>
+  );
+}
+
 function renderSystemContent(message: ChannelMessage): string {
   if (message.kind !== 40099) return message.content;
   try {
@@ -622,6 +682,7 @@ function SpoilerReveal({
 
 export function ThreadPanel({
   channel,
+  channels,
   root,
   messages,
   ownerPubkey,
@@ -648,6 +709,7 @@ export function ThreadPanel({
   layout = "split",
 }: {
   channel: Channel;
+  channels: Channel[];
   root: ChannelMessage;
   messages: ChannelMessage[];
   ownerPubkey: string;
@@ -753,6 +815,7 @@ export function ThreadPanel({
           <MessageRow
             actions={actions}
             channelId={channel.id}
+            channels={channels}
             customEmoji={customEmoji}
             agentNames={agentNames}
             forum={false}
@@ -771,6 +834,7 @@ export function ThreadPanel({
       <ThreadTypingLine profiles={profiles} pubkeys={typingPubkeys} />
       <MessageComposer
         channel={channel}
+        channels={channels}
         customEmoji={customEmoji}
         editTarget={editTarget}
         initialAgentRefs={initialAgentRefs}

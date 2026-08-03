@@ -33,6 +33,7 @@ import {
   saveDraft,
 } from "../draft-store";
 import { usePersistentAgentAudience } from "../persistent-agent-audience";
+import { useChannelLinks } from "../use-channel-links";
 import type { DmCandidate } from "../dm-candidates";
 import {
   findMentionQuery,
@@ -42,6 +43,8 @@ import {
 } from "../mention-routing";
 import { ComposerToolbar } from "./ComposerToolbar";
 import { ComposerAttachments } from "./ComposerAttachments";
+import { ChannelAutocomplete } from "./ChannelAutocomplete";
+import { MentionAutocomplete } from "./MentionAutocomplete";
 
 export type ComposerPayload = {
   content: string;
@@ -86,6 +89,7 @@ function isFileDrag(event: DragEvent<HTMLElement>) {
 export function MessageComposer({
   className = "relative border-t p-3 sm:p-4",
   channel,
+  channels = [],
   parent,
   ownerPubkey,
   customEmoji,
@@ -103,6 +107,7 @@ export function MessageComposer({
 }: {
   className?: string;
   channel: Channel;
+  channels?: Channel[];
   parent?: ChannelMessage | null;
   ownerPubkey: string;
   customEmoji: CustomEmoji[];
@@ -149,6 +154,7 @@ export function MessageComposer({
     start: number;
     selectedIndex: number;
   } | null>(null);
+  const channelLinks = useChannelLinks(channels);
   const fileInput = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const dragDepthRef = useRef(0);
@@ -175,7 +181,6 @@ export function MessageComposer({
     threadRootId: parent?.id ?? null,
     initialRefs: initialAgentRefs,
   });
-
   function reconcilePersistentAudience(nextRefs: DraftMentionRef[]) {
     if (editTargetRef.current) return;
     if (!persistentAudience.enabled) return;
@@ -186,7 +191,6 @@ export function MessageComposer({
     if (retained.length !== persistentAudience.refs.length)
       persistentAudience.setRefs(retained);
   }
-
   useEffect(() => {
     if (editTargetRef.current) return;
     const saved = loadDraftState(ownerPubkey, channel.id, parent?.id);
@@ -204,14 +208,15 @@ export function MessageComposer({
     dragDepthRef.current = 0;
     setIsDragOver(false);
     setMentionAutocomplete(null);
+    channelLinks.clear();
   }, [
     channel.id,
     ownerPubkey,
     parent?.id,
     persistentAudience.enabled,
     persistentAudience.refs,
+    channelLinks.clear,
   ]);
-
   // Desktop edit mode temporarily takes over the composer, then restores the
   // exact in-progress draft after save or cancel.
   // biome-ignore lint/correctness/useExhaustiveDependencies: target identity is the transition trigger.
@@ -255,6 +260,7 @@ export function MessageComposer({
         ),
       );
       setMentionAutocomplete(null);
+      channelLinks.clear();
       pendingEditFocusRef.current = {
         content: editableBody,
         targetId: editTarget.id,
@@ -268,10 +274,10 @@ export function MessageComposer({
       setOriginalAttachmentByUrl(snapshot.originalAttachmentByUrl);
       setSpoileredAttachmentUrls(snapshot.spoileredAttachmentUrls);
       setMentionAutocomplete(null);
+      channelLinks.clear();
     }
     previousEditTargetIdRef.current = targetId;
   }, [editTarget?.id]);
-
   useLayoutEffect(() => {
     const pendingFocus = pendingEditFocusRef.current;
     const textarea = textareaRef.current;
@@ -289,7 +295,6 @@ export function MessageComposer({
       pendingFocus.content.length,
     );
   }, [draft, editTarget?.id]);
-
   useEffect(() => {
     const resetDragState = () => {
       dragDepthRef.current = 0;
@@ -302,7 +307,6 @@ export function MessageComposer({
       window.removeEventListener("dragend", resetDragState);
     };
   }, []);
-
   async function uploadFiles(selected: File[]) {
     if (!selected.length || pending || uploading) return;
     const uploadChannelId = channel.id;
@@ -562,6 +566,7 @@ export function MessageComposer({
       setOriginalAttachmentByUrl(new Map());
       setMentionRefs([...retainedRefs]);
       setMentionAutocomplete(null);
+      channelLinks.clear();
       deleteDraft(ownerPubkey, parent?.id ? `thread:${parent.id}` : channel.id);
       requestAnimationFrame(() => {
         if (operationContextKeyRef.current === submitContextKey)
@@ -591,12 +596,13 @@ export function MessageComposer({
         )
         .slice(0, 20)
     : [];
-
-  function updateMentionAutocomplete(content: string, selection: number) {
-    const query = findMentionQuery(content, selection);
-    setMentionAutocomplete(query ? { ...query, selectedIndex: 0 } : null);
+  function updateAutocompletes(content: string, selection: number) {
+    const mention = findMentionQuery(content, selection);
+    const hasChannelQuery = channelLinks.update(content, selection);
+    setMentionAutocomplete(
+      mention && !hasChannelQuery ? { ...mention, selectedIndex: 0 } : null,
+    );
   }
-
   function selectMention(candidate: DmCandidate) {
     if (!mentionAutocomplete) return;
     const selection = textareaRef.current?.selectionStart ?? draft.length;
@@ -608,6 +614,7 @@ export function MessageComposer({
     setDraft(next);
     setMentionRefs(nextMentionRefs);
     setMentionAutocomplete(null);
+    channelLinks.clear();
     if (!editTargetRef.current)
       saveDraft(
         ownerPubkey,
@@ -623,7 +630,33 @@ export function MessageComposer({
       textareaRef.current?.setSelectionRange(nextSelection, nextSelection);
     });
   }
-
+  function selectChannelLink(selected: Pick<Channel, "name">) {
+    if (!channelLinks.autocomplete) return;
+    const selection = textareaRef.current?.selectionStart ?? draft.length;
+    const insertText = `#${selected.name} `;
+    const next = `${draft.slice(0, channelLinks.autocomplete.start)}${insertText}${draft.slice(selection)}`;
+    const nextSelection = channelLinks.autocomplete.start + insertText.length;
+    const nextMentionRefs = reconcileMentionRefs(next, mentionRefs);
+    reconcilePersistentAudience(nextMentionRefs);
+    setDraft(next);
+    setMentionRefs(nextMentionRefs);
+    setMentionAutocomplete(null);
+    channelLinks.clear();
+    if (!editTargetRef.current)
+      saveDraft(
+        ownerPubkey,
+        channel.id,
+        parent?.id,
+        next,
+        nextSelection,
+        attachments,
+        nextMentionRefs,
+      );
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+      textareaRef.current?.setSelectionRange(nextSelection, nextSelection);
+    });
+  }
   function applyFormattingShortcut(
     before: string,
     after: string,
@@ -645,6 +678,7 @@ export function MessageComposer({
     setDraft(edit.value);
     setMentionRefs(nextMentionRefs);
     setMentionAutocomplete(null);
+    channelLinks.clear();
     if (!editTargetRef.current)
       saveDraft(
         ownerPubkey,
@@ -663,7 +697,6 @@ export function MessageComposer({
       );
     });
   }
-
   return (
     <form
       className={className}
@@ -718,35 +751,18 @@ export function MessageComposer({
             </Button>
           </div>
         ) : null}
-        {mentionAutocomplete && mentionSuggestions.length ? (
-          <div
-            aria-label="Mention suggestions"
-            className="absolute bottom-full left-2 z-20 mb-2 max-h-64 w-[min(24rem,calc(100vw-3rem))] overflow-y-auto rounded-md border bg-popover p-2 text-popover-foreground shadow-lg"
-            role="listbox"
-          >
-            {mentionSuggestions.map((candidate, index) => (
-              <button
-                aria-label={`Mention ${candidate.displayName}`}
-                aria-selected={index === mentionAutocomplete.selectedIndex}
-                className={`flex w-full items-center gap-2 rounded px-2 py-2 text-left hover:bg-muted ${
-                  index === mentionAutocomplete.selectedIndex ? "bg-muted" : ""
-                }`}
-                key={candidate.pubkey}
-                onClick={() => selectMention(candidate)}
-                onMouseDown={(event) => event.preventDefault()}
-                role="option"
-                type="button"
-              >
-                <span className="min-w-0 flex-1 truncate text-sm">
-                  {candidate.displayName}
-                </span>
-                {candidate.isAgent ? (
-                  <span className="text-xs text-muted-foreground">agent</span>
-                ) : null}
-              </button>
-            ))}
-          </div>
-        ) : null}
+        <ChannelAutocomplete
+          onSelect={selectChannelLink}
+          selectedIndex={channelLinks.autocomplete?.selectedIndex ?? 0}
+          suggestions={channelLinks.suggestions}
+        />
+        <MentionAutocomplete
+          onSelect={selectMention}
+          selectedIndex={mentionAutocomplete?.selectedIndex ?? 0}
+          suggestions={
+            channelLinks.suggestions.length ? [] : mentionSuggestions
+          }
+        />
         {attachments.length ? (
           <ComposerAttachments
             attachments={attachments}
@@ -796,7 +812,7 @@ export function MessageComposer({
               reconcilePersistentAudience(nextMentionRefs);
               setDraft(event.target.value);
               setMentionRefs(nextMentionRefs);
-              updateMentionAutocomplete(
+              updateAutocompletes(
                 event.target.value,
                 event.target.selectionStart,
               );
@@ -856,6 +872,10 @@ export function MessageComposer({
                   return;
                 }
               }
+              const channelResult = channelLinks.handleKeyDown(event);
+              if (channelResult.suggestion)
+                selectChannelLink(channelResult.suggestion);
+              if (channelResult.handled) return;
               if (mentionAutocomplete && mentionSuggestions.length) {
                 if (event.key === "ArrowDown" || event.key === "ArrowUp") {
                   event.preventDefault();
@@ -899,6 +919,7 @@ export function MessageComposer({
                 !event.altKey &&
                 !event.shiftKey &&
                 !mentionAutocomplete &&
+                !channelLinks.autocomplete &&
                 !editTargetRef.current &&
                 draft.length === 0 &&
                 onEditLastOwnMessage?.()
@@ -930,6 +951,7 @@ export function MessageComposer({
               setDraft(value);
               setMentionRefs(nextMentionRefs);
               if (selectedMention) setMentionAutocomplete(null);
+              channelLinks.clear();
               if (!editTargetRef.current)
                 saveDraft(
                   ownerPubkey,

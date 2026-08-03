@@ -532,6 +532,7 @@ export function ChannelsWorkspace({
     markMessagesRead,
     markMessagesUnread,
     messages,
+    onOpenChannel: selectChannel,
     onOpenMessage: openMessage,
     onOpenProfile: selectProfile,
     onReact: reactionMutation.mutate,
@@ -549,6 +550,7 @@ export function ChannelsWorkspace({
         actions={actions}
         agentNames={agentNames}
         channel={selected}
+        channels={channels}
         customEmoji={customEmojiQuery.data?.community ?? []}
         editTarget={
           messageEdit.session?.scope === "thread"
@@ -705,6 +707,7 @@ export function ChannelsWorkspace({
               actions={actions}
               agentNames={agentNames}
               channel={selected}
+              channels={channels}
               customEmoji={customEmojiQuery.data?.community ?? []}
               editScope={messageEdit.session?.scope ?? null}
               editTarget={messageEdit.session?.message ?? null}
@@ -740,6 +743,7 @@ export function ChannelsWorkspace({
                 actions={actions}
                 agentNames={agentNames}
                 channel={selected}
+                channels={channels}
                 customEmoji={customEmojiQuery.data?.community ?? []}
                 loading={messagesQuery.isLoading}
                 matchingMessageIds={channelFind.matchingIds}
@@ -778,6 +782,7 @@ export function ChannelsWorkspace({
               />
               <MessageComposer
                 channel={selected}
+                channels={channels}
                 customEmoji={customEmojiQuery.data?.community ?? []}
                 editTarget={
                   messageEdit.session?.scope === "main"

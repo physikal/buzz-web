@@ -13,6 +13,10 @@ import { finalizeEvent, getPublicKey, verifyEvent } from "nostr-tools/pure";
 import { mergeOwnerProfileMetadata } from "../../src/features/profile/profile-metadata";
 import { buildCustomEmojiTags } from "../../src/features/channels/custom-emoji-tags";
 import { resolveMessageMentions } from "../../src/features/channels/message-mentions";
+import {
+  channelSuggestions,
+  findChannelQuery,
+} from "../../src/features/channels/channel-links";
 
 const testPort = process.env.BUZZ_WEB_TEST_PORT ?? "4173";
 const testOrigin = `http://localhost:${testPort}`;
@@ -99,6 +103,25 @@ test("message mentions resolve only tagged profile aliases", () => {
   expect(resolved.pubkeysByName.get("relay-alias")).toBe(pubkey);
   expect(resolved.pubkeysByName.has("unknown")).toBe(false);
   expect(resolved.agentPubkeysByName.get("relay agent")).toBe(pubkey);
+});
+
+test("channel links autocomplete only non-DM channels at prefix boundaries", () => {
+  const channels = [
+    { id: "general", name: "general", channelType: "stream" as const },
+    {
+      id: "release",
+      name: "release planning",
+      channelType: "forum" as const,
+    },
+    { id: "dm", name: "private", channelType: "dm" as const },
+  ];
+  expect(findChannelQuery("See (#rel", 9, channels)).toEqual({
+    query: "rel",
+    start: 5,
+  });
+  expect(findChannelQuery("See email#rel", 13, channels)).toBeNull();
+  expect(channelSuggestions(channels, "rel")).toEqual([channels[1]]);
+  expect(channelSuggestions(channels, "private")).toEqual([]);
 });
 
 test("owner setup creates a passkey-wrapped signer and enters Channels", async ({
@@ -1852,8 +1875,62 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   });
   await expect(mentionProfile).toBeVisible();
   await mentionProfile.getByRole("button", { name: "Close" }).click();
+  const channelLinkComposer = page.getByLabel("Message #general");
+  await channelLinkComposer.fill("See #web");
+  const channelSuggestionsList = page.getByRole("listbox", {
+    name: "Channel suggestions",
+  });
+  await expect(channelSuggestionsList).toBeVisible();
+  await expect(
+    channelSuggestionsList.getByRole("option", {
+      name: "Insert #web-forum",
+    }),
+  ).toHaveAttribute("aria-selected", "true");
+  await page.setViewportSize({ width: 390, height: 844 });
+  const channelSuggestionsBox = await channelSuggestionsList.boundingBox();
+  expect(channelSuggestionsBox).not.toBeNull();
+  expect(channelSuggestionsBox?.x ?? -1).toBeGreaterThanOrEqual(0);
+  expect(
+    (channelSuggestionsBox?.x ?? 0) + (channelSuggestionsBox?.width ?? 0),
+  ).toBeLessThanOrEqual(390);
+  await page.screenshot({
+    path: "/tmp/buzz-web-channel-autocomplete-mobile.png",
+  });
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await channelLinkComposer.press("Shift+Enter");
+  await expect(channelLinkComposer).toHaveValue("See #web\n");
+  await channelLinkComposer.fill("See #web");
+  await expect(channelSuggestionsList).toBeVisible();
+  await channelLinkComposer.press("Enter");
+  await expect(channelLinkComposer).toHaveValue("See #web-forum ");
+  const channelLinkContent =
+    "See #web-forum and `#web-forum` [#web-forum](https://example.com)";
+  await channelLinkComposer.fill(channelLinkContent);
+  await channelLinkComposer.press("Enter");
+  await expect
+    .poll(() =>
+      submittedEvents.find(
+        (event) => event.kind === 9 && event.content === channelLinkContent,
+      ),
+    )
+    .toBeTruthy();
+  const channelLinkMessage = submittedEvents.find(
+    (event) => event.kind === 9 && event.content === channelLinkContent,
+  );
+  const channelLinkArticle = page.locator(
+    `article[id="message-${channelLinkMessage?.id}"]`,
+  );
+  await expect(channelLinkArticle.locator("[data-channel-link]")).toHaveCount(
+    1,
+  );
+  await channelLinkArticle.screenshot({
+    path: "/tmp/buzz-web-channel-link.png",
+  });
+  await channelLinkArticle
+    .getByRole("button", { name: "Open channel web-forum" })
+    .click();
+  await expect(page.getByRole("heading", { name: "web-forum" })).toBeVisible();
   expect(ownerPubkey).toMatch(/^[0-9a-f]{64}$/);
-  await page.getByRole("button", { name: "web-forum", exact: true }).click();
   await expect(
     page.getByRole("button", { name: "Start a new post..." }),
   ).toBeVisible();

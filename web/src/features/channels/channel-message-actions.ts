@@ -13,6 +13,7 @@ export function createChannelMessageActions({
   markMessagesRead,
   markMessagesUnread,
   messages,
+  onOpenChannel,
   onOpenMessage,
   onOpenProfile,
   onReact,
@@ -32,6 +33,7 @@ export function createChannelMessageActions({
   markMessagesRead: (messages: ChannelMessage[]) => unknown;
   markMessagesUnread: (messageIds: string[]) => unknown;
   messages: ChannelMessage[];
+  onOpenChannel: (channelId: string) => unknown;
   onOpenMessage: (
     channelId: string,
     rootId: string,
@@ -89,6 +91,7 @@ export function createChannelMessageActions({
       void markMessagesUnread(
         messageSubtree(message, messages).map(({ id }) => id),
       ),
+    onOpenChannel: (channelId) => void onOpenChannel(channelId),
     onOpenProfile: (pubkey) => void onOpenProfile(pubkey),
     onReact: (message, emoji, ownEventId, customEmojiUrl) =>
       void onReact({

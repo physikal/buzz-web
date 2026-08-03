@@ -18,6 +18,7 @@ export function ForumView({
   actions,
   agentNames,
   channel,
+  channels,
   customEmoji,
   editScope,
   editTarget,
@@ -40,6 +41,7 @@ export function ForumView({
   actions: MessageActions;
   agentNames: Map<string, string>;
   channel: Channel;
+  channels: Channel[];
   customEmoji: CustomEmoji[];
   editScope: MessageEditScope | null;
   editTarget: ChannelMessage | null;
@@ -76,6 +78,7 @@ export function ForumView({
         actions={actions}
         agentNames={agentNames}
         channel={channel}
+        channels={channels}
         customEmoji={customEmoji}
         editTarget={editScope === "thread" ? editTarget : null}
         followed={false}
@@ -108,6 +111,7 @@ export function ForumView({
           <div className="rounded-md border bg-background">
             <MessageComposer
               channel={channel}
+              channels={channels}
               customEmoji={customEmoji}
               editTarget={editScope === "main" ? editTarget : null}
               mentionCandidates={mentionCandidates}
@@ -160,6 +164,7 @@ export function ForumView({
           actions={actions}
           agentNames={agentNames}
           channel={channel}
+          channels={channels}
           customEmoji={customEmoji}
           loading={loading}
           matchingMessageIds={matchingMessageIds}
