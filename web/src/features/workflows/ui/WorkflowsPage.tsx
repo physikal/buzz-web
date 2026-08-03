@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import {
   Copy,
   Pencil,
@@ -8,7 +9,7 @@ import {
   Workflow as WorkflowIcon,
   X,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { OwnerConnection } from "@/features/agents/ui/OwnerConnection";
@@ -38,7 +39,11 @@ type DialogState =
   | { mode: "edit"; workflow: Workflow }
   | { mode: "duplicate"; workflow: Workflow };
 
-export function WorkflowsPage() {
+export function WorkflowsPage({
+  initialWorkflowId,
+}: {
+  initialWorkflowId?: string;
+} = {}) {
   const [ownerPubkey, setOwnerPubkey] = useState<string | null>(null);
   if (!ownerPubkey) return <OwnerConnection onConnected={setOwnerPubkey} />;
   return (
@@ -47,6 +52,7 @@ export function WorkflowsPage() {
         void lockOwnerVault();
         setOwnerPubkey(null);
       }}
+      initialWorkflowId={initialWorkflowId}
       ownerPubkey={ownerPubkey}
     />
   );
@@ -55,13 +61,33 @@ export function WorkflowsPage() {
 function WorkflowWorkspace({
   ownerPubkey,
   onDisconnect,
+  initialWorkflowId,
 }: {
   ownerPubkey: string;
   onDisconnect: () => void;
+  initialWorkflowId?: string;
 }) {
+  const navigate = useNavigate();
   const [dialog, setDialog] = useState<DialogState>({ mode: "closed" });
   const sidebar = useSidebarVisibility();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(
+    initialWorkflowId ?? null,
+  );
+  useEffect(
+    () => setSelectedId(initialWorkflowId ?? null),
+    [initialWorkflowId],
+  );
+  const selectWorkflow = (workflowId: string) => {
+    setSelectedId(workflowId);
+    void navigate({
+      to: "/workflows/$workflowId",
+      params: { workflowId },
+    });
+  };
+  const closeWorkflow = () => {
+    setSelectedId(null);
+    void navigate({ to: "/workflows" });
+  };
   const [workflowToDelete, setWorkflowToDelete] = useState<Workflow | null>(
     null,
   );
@@ -109,6 +135,7 @@ function WorkflowWorkspace({
           workflowId: result.workflowId,
           secret: result.webhookSecret,
         });
+      else selectWorkflow(result.workflowId);
       toast.success(
         dialog.mode === "edit" ? "Workflow updated" : "Workflow created",
       );
@@ -119,7 +146,7 @@ function WorkflowWorkspace({
   const remove = useMutation({
     mutationFn: deleteWorkflow,
     onSuccess: async (_result, workflow) => {
-      if (selectedId === workflow.id) setSelectedId(null);
+      if (selectedId === workflow.id) closeWorkflow();
       await refresh();
       toast.success("Workflow deleted");
     },
@@ -206,7 +233,7 @@ function WorkflowWorkspace({
                       setDialog({ mode: "duplicate", workflow })
                     }
                     onEdit={() => setDialog({ mode: "edit", workflow })}
-                    onSelect={() => setSelectedId(workflow.id)}
+                    onSelect={() => selectWorkflow(workflow.id)}
                     onTrigger={() => trigger.mutate(workflow)}
                     selected={selected?.id === workflow.id}
                     workflow={workflow}
@@ -219,7 +246,7 @@ function WorkflowWorkspace({
                     channelNames.get(selected.channelId) ?? "Unknown channel"
                   }
                   isOwner={selected.owner === ownerPubkey}
-                  onClose={() => setSelectedId(null)}
+                  onClose={closeWorkflow}
                   onEdit={() => setDialog({ mode: "edit", workflow: selected })}
                   onTrigger={() => trigger.mutate(selected)}
                   workflow={selected}
@@ -277,7 +304,11 @@ function WorkflowWorkspace({
       ) : null}
       {webhook ? (
         <WebhookCredentials
-          onClose={() => setWebhook(null)}
+          onClose={() => {
+            const workflowId = webhook.workflowId;
+            setWebhook(null);
+            selectWorkflow(workflowId);
+          }}
           secret={webhook.secret}
           workflowId={webhook.workflowId}
         />

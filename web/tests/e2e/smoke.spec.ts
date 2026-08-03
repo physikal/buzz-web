@@ -3204,6 +3204,18 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await expect(
     page.getByRole("heading", { name: "Incoming webhook" }).first(),
   ).toBeVisible();
+  const createdWorkflowId = submittedEvents
+    .find((event) => event.kind === 30620)
+    ?.tags.find((tag) => tag[0] === "d")?.[1];
+  expect(createdWorkflowId).toBeTruthy();
+  await expect(page).toHaveURL(new RegExp(`/workflows/${createdWorkflowId}$`));
+  await page.getByRole("button", { name: "Close workflow details" }).click();
+  await expect(page).toHaveURL(/\/workflows$/u);
+  await page
+    .getByRole("button", { name: /Incoming webhook/u })
+    .first()
+    .click();
+  await expect(page).toHaveURL(new RegExp(`/workflows/${createdWorkflowId}$`));
   await page.getByRole("button", { name: "Trigger workflow" }).first().click();
   await expect
     .poll(() => {
