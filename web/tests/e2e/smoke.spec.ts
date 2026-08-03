@@ -4032,8 +4032,15 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   ).toBeVisible();
   await expect(page.getByRole("button", { name: "Back" })).toBeHidden();
   await page.getByText("Owner mention from inbox").first().click();
+  await expect(page).toHaveURL(/\?item=[0-9a-f]{64}$/u);
   await expect(page.getByRole("button", { name: "Back" })).toBeVisible();
   await expect(page.getByText("Owner mention from inbox").last()).toBeVisible();
+  await page.goBack();
+  await expect(page).not.toHaveURL(/\?item=/u);
+  await expect(page.getByRole("button", { name: "Back" })).toBeHidden();
+  await page.goForward();
+  await expect(page).toHaveURL(/\?item=[0-9a-f]{64}$/u);
+  await expect(page.getByRole("button", { name: "Back" })).toBeVisible();
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= window.innerWidth,

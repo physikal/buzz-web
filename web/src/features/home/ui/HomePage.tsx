@@ -63,11 +63,19 @@ type InboxFilter =
   | "reminders"
   | "drafts";
 
-export function HomePage() {
+export function HomePage({
+  initialItemId,
+  onItemChange,
+}: {
+  initialItemId?: string;
+  onItemChange?: (itemId: string | null) => void;
+} = {}) {
   const [ownerPubkey, setOwnerPubkey] = useState<string | null>(null);
   if (!ownerPubkey) return <OwnerConnection onConnected={setOwnerPubkey} />;
   return (
     <HomeWorkspace
+      initialItemId={initialItemId}
+      onItemChange={onItemChange}
       ownerPubkey={ownerPubkey}
       onDisconnect={() => {
         void lockOwnerVault();
@@ -80,15 +88,21 @@ export function HomePage() {
 function HomeWorkspace({
   ownerPubkey,
   onDisconnect,
+  initialItemId,
+  onItemChange,
 }: {
   ownerPubkey: string;
   onDisconnect: () => void;
+  initialItemId?: string;
+  onItemChange?: (itemId: string | null) => void;
 }) {
   const queryClient = useQueryClient();
   const sidebar = useSidebarVisibility();
   const [filter, setFilter] = useState<InboxFilter>("all");
   const [unreadOnly, setUnreadOnly] = useState(false);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(
+    initialItemId ?? null,
+  );
   const [selectedReminderId, setSelectedReminderId] = useState<string | null>(
     null,
   );
@@ -96,6 +110,12 @@ function HomeWorkspace({
   const [drafts, setDrafts] = useState(() => listDrafts(ownerPubkey));
   const [readMarkers, setReadMarkers] = useState<Record<string, number>>({});
   const readManagerRef = useRef<ReadStateManager | null>(null);
+  useEffect(() => setSelectedId(initialItemId ?? null), [initialItemId]);
+  const selectItem = (itemId: string | null) => {
+    if (itemId === selectedId) return;
+    setSelectedId(itemId);
+    onItemChange?.(itemId);
+  };
   const agentsQuery = useQuery({
     queryKey: ["managed-agents", ownerPubkey],
     queryFn: listAgents,
@@ -375,7 +395,7 @@ function HomeWorkspace({
                 id="inbox-filter"
                 onChange={(event) => {
                   setFilter(event.target.value as InboxFilter);
-                  setSelectedId(null);
+                  selectItem(null);
                   setSelectedReminderId(null);
                   setSelectedDraftId(null);
                 }}
@@ -445,7 +465,7 @@ function HomeWorkspace({
                       kindLabel={inboxKindLabel(item, ownedAgentPubkeys)}
                       key={item.id}
                       onSelect={() => {
-                        setSelectedId(item.id);
+                        selectItem(item.id);
                         markRead(item);
                       }}
                       profile={profiles.get(item.pubkey)}
@@ -531,7 +551,7 @@ function HomeWorkspace({
                 : "Activity"
             }
             mobileVisible={Boolean(explicitlySelected)}
-            onBack={() => setSelectedId(null)}
+            onBack={() => selectItem(null)}
             profile={selected ? profiles.get(selected.pubkey) : undefined}
           />
         )}
