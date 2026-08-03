@@ -8,12 +8,16 @@ import {
   Plus,
   X,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { OwnerConnection } from "@/features/agents/ui/OwnerConnection";
+import { listProfiles, openDm } from "@/features/channels/channel-api";
 import { AppPrimarySidebar } from "@/features/navigation/AppPrimarySidebar";
 import { lockOwnerVault } from "@/features/owner-vault/lib/vault-worker-client";
+import { useWorkspacePresence } from "@/features/presence/use-presence";
+import { UserProfileDialog } from "@/features/profile/UserProfileDialog";
+import { useProfileFollow } from "@/features/profile/profile-follow";
 import { truncatePubkey } from "@/shared/lib/pubkey";
 import { isSafeHttpUrl } from "@/shared/lib/url";
 import { useEscapeSurface } from "@/shared/hooks/use-escape-surface";
@@ -24,6 +28,7 @@ import { Input } from "@/shared/ui/input";
 import { SidebarToggleButton } from "@/shared/ui/sidebar-toggle-button";
 import { ProjectPullRequestsPanel } from "./ProjectPullRequestsPanel";
 import { ProjectIssueDetail } from "./ProjectIssueDetail";
+import { ProjectProfileNavigationProvider } from "./ProjectProfileIdentity";
 import { ProjectsIndex } from "./ProjectsIndex";
 import {
   ProjectRepositoryPanel,
@@ -48,11 +53,15 @@ export function ProjectsPage({
   initialCommitOid,
   initialIssueId,
   initialPullRequestId,
+  initialProfilePubkey,
+  onProfileChange,
   projectId,
 }: {
   initialCommitOid?: string;
   initialIssueId?: string;
   initialPullRequestId?: string;
+  initialProfilePubkey?: string;
+  onProfileChange?: (pubkey: string | null) => void;
   projectId?: string;
 }) {
   const [ownerPubkey, setOwnerPubkey] = useState<string | null>(null);
@@ -63,6 +72,8 @@ export function ProjectsPage({
       initialCommitOid={initialCommitOid}
       initialIssueId={initialIssueId}
       initialPullRequestId={initialPullRequestId}
+      initialProfilePubkey={initialProfilePubkey}
+      onProfileChange={onProfileChange}
       projectId={projectId}
       onDisconnect={() => {
         void lockOwnerVault();
@@ -77,6 +88,8 @@ function ProjectsWorkspace({
   initialCommitOid,
   initialIssueId,
   initialPullRequestId,
+  initialProfilePubkey,
+  onProfileChange,
   projectId,
   onDisconnect,
 }: {
@@ -84,19 +97,49 @@ function ProjectsWorkspace({
   initialCommitOid?: string;
   initialIssueId?: string;
   initialPullRequestId?: string;
+  initialProfilePubkey?: string;
+  onProfileChange?: (pubkey: string | null) => void;
   projectId?: string;
   onDisconnect: () => void;
 }) {
   const [createOpen, setCreateOpen] = useState(false);
   const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
+  const [profilePubkey, setProfilePubkey] = useState<string | null>(
+    initialProfilePubkey ?? null,
+  );
+  useEffect(
+    () => setProfilePubkey(initialProfilePubkey ?? null),
+    [initialProfilePubkey],
+  );
+  const selectProfile = (pubkey: string | null) => {
+    if (pubkey === profilePubkey) return;
+    setProfilePubkey(pubkey);
+    onProfileChange?.(pubkey);
+  };
   const sidebar = useSidebarVisibility();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const projectsQuery = useQuery({
     queryKey: ["projects"],
     queryFn: listProjects,
   });
   const projects = projectsQuery.data ?? [];
   const selected = projects.find((project) => project.id === projectId) ?? null;
+  const profileQuery = useQuery({
+    queryKey: ["profiles", profilePubkey ?? ""],
+    queryFn: () => listProfiles(profilePubkey ? [profilePubkey] : []),
+    enabled: Boolean(profilePubkey),
+    staleTime: 60_000,
+  });
+  const profile = profileQuery.data?.find(
+    (candidate) => candidate.pubkey === profilePubkey,
+  );
+  const profilePubkeys = useMemo(
+    () => (profilePubkey ? [profilePubkey] : []),
+    [profilePubkey],
+  );
+  const { presence, userStatuses } = useWorkspacePresence(profilePubkeys);
+  const profileFollow = useProfileFollow(ownerPubkey, profilePubkey);
   const refresh = () =>
     queryClient.invalidateQueries({ queryKey: ["projects"] });
   const createMutation = useMutation({
@@ -118,6 +161,15 @@ function ProjectsWorkspace({
     onError: (error) =>
       toast.error("Could not delete project", { description: error.message }),
   });
+  const profileDmMutation = useMutation({
+    mutationFn: (pubkey: string) => openDm([pubkey]),
+    onSuccess: (channelId) =>
+      navigate({ to: "/channels", search: { channel: channelId } }),
+    onError: (error) =>
+      toast.error("Could not open direct message", {
+        description: error.message,
+      }),
+  });
 
   return (
     <div className="flex min-h-dvh bg-background">
@@ -132,13 +184,17 @@ function ProjectsWorkspace({
         <div className="mx-auto max-w-6xl">
           {projectId ? (
             selected ? (
-              <ProjectDetail
-                initialIssueId={initialIssueId}
-                initialCommitOid={initialCommitOid}
-                initialPullRequestId={initialPullRequestId}
-                ownerPubkey={ownerPubkey}
-                project={selected}
-              />
+              <ProjectProfileNavigationProvider
+                onOpenProfile={(pubkey) => selectProfile(pubkey)}
+              >
+                <ProjectDetail
+                  initialIssueId={initialIssueId}
+                  initialCommitOid={initialCommitOid}
+                  initialPullRequestId={initialPullRequestId}
+                  ownerPubkey={ownerPubkey}
+                  project={selected}
+                />
+              </ProjectProfileNavigationProvider>
             ) : projectsQuery.isLoading ? (
               <p className="text-sm text-muted-foreground">Loading project…</p>
             ) : (
@@ -160,6 +216,20 @@ function ProjectsWorkspace({
           )}
         </div>
       </main>
+      <UserProfileDialog
+        following={profileFollow.following}
+        followPending={profileFollow.pending}
+        onClose={() => selectProfile(null)}
+        onMessage={(pubkey) => profileDmMutation.mutate(pubkey)}
+        onToggleFollow={profileFollow.toggle}
+        ownerPubkey={ownerPubkey}
+        presence={
+          profilePubkey ? (presence.get(profilePubkey) ?? "offline") : "offline"
+        }
+        profile={profile}
+        pubkey={profilePubkey}
+        userStatus={profilePubkey ? userStatuses.get(profilePubkey) : undefined}
+      />
       <DestructiveConfirmDialog
         confirmLabel="Delete project"
         description={`Delete ${projectToDelete?.name ?? "this project"} from Projects for everyone. This can only be done for projects you own and cannot be undone.`}

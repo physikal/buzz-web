@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import type { ReactNode } from "react";
+import { createContext, type ReactNode, useContext } from "react";
 
 import { listProfiles } from "@/features/channels/channel-api";
 import { truncatePubkey } from "@/shared/lib/pubkey";
@@ -10,6 +10,24 @@ function pubkeyHue(pubkey: string) {
   for (const character of pubkey)
     hash = (hash * 31 + character.charCodeAt(0)) | 0;
   return Math.abs(hash) % 360;
+}
+
+const ProjectProfileNavigationContext = createContext<
+  ((pubkey: string) => void) | null
+>(null);
+
+export function ProjectProfileNavigationProvider({
+  children,
+  onOpenProfile,
+}: {
+  children: ReactNode;
+  onOpenProfile: (pubkey: string) => void;
+}) {
+  return (
+    <ProjectProfileNavigationContext.Provider value={onOpenProfile}>
+      {children}
+    </ProjectProfileNavigationContext.Provider>
+  );
 }
 
 export function ProjectProfileIdentity({
@@ -37,11 +55,9 @@ export function ProjectProfileIdentity({
   const avatarUrl = isSafeHttpUrl(profile?.avatarUrl)
     ? profile.avatarUrl
     : null;
-  return (
-    <span
-      className={`inline-flex min-w-0 items-center gap-2 ${className}`}
-      title={normalized}
-    >
+  const onOpenProfile = useContext(ProjectProfileNavigationContext);
+  const content = (
+    <>
       {showAvatar ? (
         avatarUrl ? (
           <img
@@ -64,6 +80,24 @@ export function ProjectProfileIdentity({
       {role ? (
         <span className="shrink-0 text-xs text-muted-foreground">{role}</span>
       ) : null}
+    </>
+  );
+  return onOpenProfile ? (
+    <button
+      aria-label={`Open ${label} profile`}
+      className={`inline-flex min-w-0 items-center gap-2 rounded-sm text-left hover:underline focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring ${className}`}
+      onClick={() => onOpenProfile(normalized)}
+      title={normalized}
+      type="button"
+    >
+      {content}
+    </button>
+  ) : (
+    <span
+      className={`inline-flex min-w-0 items-center gap-2 ${className}`}
+      title={normalized}
+    >
+      {content}
     </span>
   );
 }

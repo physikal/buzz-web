@@ -3168,6 +3168,36 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await expect(
     pullRequestMetaRail.getByRole("button", { name: "Add reviewer" }),
   ).toHaveCount(0);
+  await pullRequestMetaRail
+    .getByRole("button", { name: "Open Relay agent profile" })
+    .click();
+  await expect
+    .poll(() => {
+      const url = new URL(page.url());
+      return {
+        profile: url.searchParams.get("profile"),
+        pullRequest: url.searchParams.get("pullRequest"),
+      };
+    })
+    .toEqual({ profile: catalogPubkey, pullRequest: expect.any(String) });
+  const projectProfile = page.getByRole("dialog", {
+    name: "Relay agent profile",
+  });
+  await expect(projectProfile).toBeVisible();
+  await expect(
+    projectProfile.getByRole("button", { name: "Follow", exact: true }),
+  ).toBeVisible();
+  await expect(
+    projectProfile.getByRole("button", { name: "Message", exact: true }),
+  ).toBeVisible();
+  await projectProfile.getByRole("button", { name: "Close" }).click();
+  await page.goBack();
+  await expect(projectProfile).toBeVisible();
+  await page.goForward();
+  await expect(projectProfile).toBeHidden();
+  await expect(
+    page.getByRole("button", { name: "Back to pull requests" }),
+  ).toBeVisible();
   await expect(page.getByText("feature/web-parity → main")).toBeVisible();
   const sourceChannelLink = page.getByRole("button", {
     name: "Open author-claimed source channel #general",

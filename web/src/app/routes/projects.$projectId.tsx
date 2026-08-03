@@ -16,6 +16,10 @@ export const Route = createFileRoute("/projects/$projectId")({
     ...(typeof search.pullRequest === "string"
       ? { pullRequest: search.pullRequest }
       : {}),
+    ...(typeof search.profile === "string" &&
+    /^[0-9a-f]{64}$/i.test(search.profile)
+      ? { profile: search.profile.toLowerCase() }
+      : {}),
   }),
   component: ProjectRoute,
 });
@@ -23,11 +27,21 @@ export const Route = createFileRoute("/projects/$projectId")({
 function ProjectRoute() {
   const { projectId } = Route.useParams();
   const search = Route.useSearch();
+  const navigate = Route.useNavigate();
   return (
     <ProjectsPage
       initialIssueId={search.issue}
       initialCommitOid={search.commit}
       initialPullRequestId={search.pullRequest}
+      initialProfilePubkey={search.profile}
+      onProfileChange={(profile) =>
+        void navigate({
+          search: (previous) => ({
+            ...previous,
+            profile: profile ?? undefined,
+          }),
+        })
+      }
       projectId={projectId}
     />
   );
