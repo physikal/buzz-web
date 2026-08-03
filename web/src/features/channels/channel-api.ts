@@ -8,6 +8,7 @@ import {
 import { submitEvent } from "@/shared/lib/relay-events";
 import { relayHttpBaseUrl, relayWsUrl } from "@/shared/lib/relay-url";
 import { signNostrEvent } from "@/shared/lib/nostr-signer";
+import { findSpoileredAttachmentUrls } from "./attachment-markdown";
 
 export type ChannelType = "stream" | "forum" | "dm";
 
@@ -32,6 +33,7 @@ export type MediaAttachment = {
   size: number | null;
   dimensions: string | null;
   thumbnailUrl: string | null;
+  spoilered: boolean;
 };
 
 export type MessageReaction = {
@@ -116,8 +118,8 @@ function parseThread(event: NostrEvent) {
   return { parentId: parent, rootId: root ?? parent };
 }
 
-function parseImeta(tags: string[][]): MediaAttachment[] {
-  return tags
+function parseImeta(tags: string[][], content: string): MediaAttachment[] {
+  const attachments = tags
     .filter((tag) => tag[0] === "imeta")
     .map((tag) => {
       const fields = new Map<string, string>();
@@ -129,13 +131,19 @@ function parseImeta(tags: string[][]): MediaAttachment[] {
       return {
         url: fields.get("url") ?? "",
         mimeType: fields.get("m") ?? null,
-        name: fields.get("name") ?? null,
+        name: fields.get("filename") ?? fields.get("name") ?? null,
         size: Number.isFinite(size) ? size : null,
         dimensions: fields.get("dim") ?? null,
         thumbnailUrl: fields.get("thumb") ?? null,
+        spoilered: false,
       };
     })
     .filter((attachment) => attachment.url);
+  const spoileredUrls = findSpoileredAttachmentUrls(content, attachments);
+  return attachments.map((attachment) => ({
+    ...attachment,
+    spoilered: spoileredUrls.has(attachment.url),
+  }));
 }
 
 export async function listChannels(ownerPubkey: string): Promise<Channel[]> {
@@ -395,7 +403,7 @@ function projectMessages(
       edited: Boolean(edit),
       deleted: deletedEventIds.has(event.id),
       reactions,
-      attachments: parseImeta(event.tags),
+      attachments: parseImeta(event.tags, edit?.content ?? event.content),
     };
   });
   calculateDepths(messages);
@@ -761,7 +769,7 @@ export function mediaImetaTag(
     `m ${media.type}`,
     `x ${media.sha256}`,
     `size ${media.size}`,
-    `name ${fileName}`,
+    `filename ${fileName}`,
     ...(media.dimensions ? [`dim ${media.dimensions}`] : []),
     ...(media.thumbnailUrl ? [`thumb ${media.thumbnailUrl}`] : []),
   ];

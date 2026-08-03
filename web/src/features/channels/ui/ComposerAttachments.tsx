@@ -1,4 +1,4 @@
-import { FileText, Pencil, RotateCcw, X } from "lucide-react";
+import { FileText, HatGlasses, Pencil, RotateCcw, X } from "lucide-react";
 import { useState } from "react";
 
 import { useEscapeSurface } from "@/shared/hooks/use-escape-surface";
@@ -13,6 +13,8 @@ export function ComposerAttachments({
   onEdit,
   onRemove,
   onRevert,
+  onToggleSpoiler,
+  spoileredUrls,
 }: {
   attachments: DraftAttachment[];
   disabled: boolean;
@@ -20,12 +22,15 @@ export function ComposerAttachments({
   onEdit: (attachment: DraftAttachment, blob: Blob) => Promise<void>;
   onRemove: (index: number) => void;
   onRevert: (attachment: DraftAttachment) => void;
+  onToggleSpoiler: (url: string) => void;
+  spoileredUrls: ReadonlySet<string>;
 }) {
   return (
     <div className="flex flex-wrap gap-2 border-b p-2">
       {attachments.map((attachment, index) =>
-        attachment.type.startsWith("image/") ? (
-          <ImageAttachment
+        attachment.type.startsWith("image/") ||
+        attachment.type.startsWith("video/") ? (
+          <MediaAttachment
             attachment={attachment}
             canRevert={originalByUrl.has(attachment.url)}
             disabled={disabled}
@@ -33,6 +38,8 @@ export function ComposerAttachments({
             onEdit={onEdit}
             onRemove={() => onRemove(index)}
             onRevert={() => onRevert(attachment)}
+            onToggleSpoiler={() => onToggleSpoiler(attachment.url)}
+            spoilered={spoileredUrls.has(attachment.url)}
           />
         ) : (
           <span
@@ -58,13 +65,15 @@ export function ComposerAttachments({
   );
 }
 
-function ImageAttachment({
+function MediaAttachment({
   attachment,
   canRevert,
   disabled,
   onEdit,
   onRemove,
   onRevert,
+  onToggleSpoiler,
+  spoilered,
 }: {
   attachment: DraftAttachment;
   canRevert: boolean;
@@ -72,11 +81,15 @@ function ImageAttachment({
   onEdit: (attachment: DraftAttachment, blob: Blob) => Promise<void>;
   onRemove: () => void;
   onRevert: () => void;
+  onToggleSpoiler: () => void;
+  spoilered: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editorSaving, setEditorSaving] = useState(false);
-  const label = attachment.filename ?? "image attachment";
+  const isVideo = attachment.type.startsWith("video/");
+  const label =
+    attachment.filename ?? (isVideo ? "video attachment" : "image attachment");
   useEscapeSurface(open, () => {
     if (editing) {
       if (!editorSaving) setEditing(false);
@@ -93,12 +106,27 @@ function ImageAttachment({
           onClick={() => setOpen(true)}
           type="button"
         >
-          <img
-            alt=""
-            className="h-full w-full object-cover"
-            src={attachment.thumb ?? attachment.url}
-          />
+          {isVideo ? (
+            // The compact composer preview has no playback controls.
+            <video
+              className="h-full w-full object-cover"
+              muted
+              preload="metadata"
+              src={attachment.thumb ?? attachment.url}
+            />
+          ) : (
+            <img
+              alt=""
+              className="h-full w-full object-cover"
+              src={attachment.thumb ?? attachment.url}
+            />
+          )}
         </button>
+        {spoilered ? (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background/60 text-foreground/70 backdrop-blur-sm">
+            <HatGlasses className="h-4 w-4" />
+          </div>
+        ) : null}
         <button
           aria-label={`Remove ${label}`}
           className="absolute right-0.5 top-0.5 rounded bg-black/65 p-0.5 text-white"
@@ -135,28 +163,69 @@ function ImageAttachment({
                 onClick={() => setOpen(false)}
                 type="button"
               />
-              <img
-                alt={label}
-                className="relative max-h-[90dvh] max-w-[94vw] rounded-md object-contain"
-                src={attachment.url}
-              />
+              {isVideo ? (
+                // User-uploaded video does not currently carry a WebVTT track.
+                // biome-ignore lint/a11y/useMediaCaption: Render the media instead of hiding it.
+                <video
+                  className={`relative max-h-[90dvh] max-w-[94vw] rounded-md ${
+                    spoilered ? "blur-2xl brightness-75" : ""
+                  }`}
+                  controls
+                  src={attachment.url}
+                />
+              ) : (
+                <img
+                  alt={label}
+                  className={`relative max-h-[90dvh] max-w-[94vw] rounded-md object-contain ${
+                    spoilered ? "blur-2xl brightness-75" : ""
+                  }`}
+                  src={attachment.url}
+                />
+              )}
+              {spoilered ? (
+                <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-white/75">
+                  <HatGlasses className="h-10 w-10" />
+                </div>
+              ) : null}
               <div className="absolute right-4 top-4 flex items-center gap-2">
-                {canRevert ? (
-                  <Button onClick={onRevert} size="sm" variant="secondary">
+                {canRevert && !isVideo ? (
+                  <Button
+                    onClick={onRevert}
+                    size="sm"
+                    type="button"
+                    variant="secondary"
+                  >
                     <RotateCcw /> Revert
                   </Button>
                 ) : null}
                 <Button
-                  onClick={() => setEditing(true)}
+                  aria-label={spoilered ? "Remove spoiler" : "Mark as spoiler"}
+                  aria-pressed={spoilered}
+                  onClick={onToggleSpoiler}
                   size="sm"
+                  type="button"
                   variant="secondary"
                 >
-                  <Pencil /> Draw on image
+                  <HatGlasses />
+                  <span className="hidden sm:inline">
+                    {spoilered ? "Remove spoiler" : "Mark as spoiler"}
+                  </span>
                 </Button>
+                {!isVideo ? (
+                  <Button
+                    onClick={() => setEditing(true)}
+                    size="sm"
+                    type="button"
+                    variant="secondary"
+                  >
+                    <Pencil /> Draw on image
+                  </Button>
+                ) : null}
                 <Button
                   aria-label="Close image preview"
                   onClick={() => setOpen(false)}
                   size="icon"
+                  type="button"
                   variant="secondary"
                 >
                   <X />

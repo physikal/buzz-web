@@ -25,6 +25,7 @@ import {
   type UserProfile,
 } from "@/features/channels/channel-api";
 import { resolveMentionPubkeys } from "@/features/channels/mention-routing";
+import { buildOutgoingAttachmentContent } from "@/features/channels/attachment-markdown";
 import { ReadStateManager } from "@/features/channels/read-state";
 import {
   deleteDraft,
@@ -320,7 +321,11 @@ function HomeWorkspace({
         throw new Error("Open this draft before sending it.");
       await sendChannelMessage({
         channelId: channel.id,
-        content: draft.content,
+        content: buildOutgoingAttachmentContent(
+          draft.content,
+          draft.attachments,
+          new Set(draft.spoileredAttachmentUrls),
+        ),
         mentionPubkeys: resolveMentionPubkeys(
           draft.content,
           draft.mentionRefs,

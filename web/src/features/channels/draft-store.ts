@@ -25,6 +25,7 @@ export type WebDraft = {
   updatedAt: string;
   attachments: DraftAttachment[];
   mentionRefs: DraftMentionRef[];
+  spoileredAttachmentUrls: string[];
 };
 
 type StoredDraft = {
@@ -82,7 +83,16 @@ function validDraft(value: unknown): value is StoredDraft {
       (Array.isArray(draft.mentionRefs) &&
         draft.mentionRefs.every(validMentionRef))) &&
     Array.isArray(draft.spoileredAttachmentUrls) &&
+    draft.spoileredAttachmentUrls.every(validSpoilerUrl) &&
     (draft.status === undefined || draft.status === "active")
+  );
+}
+
+function validSpoilerUrl(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length <= 8_192 &&
+    /^https?:\/\//i.test(value)
   );
 }
 
@@ -169,6 +179,7 @@ export function loadDraftState(
   content: string;
   pendingImeta: DraftAttachment[];
   mentionRefs: DraftMentionRef[];
+  spoileredAttachmentUrls: string[];
 } {
   loadDraft(ownerPubkey, channelId, parentId);
   const stored = readStore(ownerPubkey)[draftKey(channelId, parentId)];
@@ -176,6 +187,7 @@ export function loadDraftState(
     content: stored?.content ?? "",
     pendingImeta: stored?.pendingImeta ?? [],
     mentionRefs: stored?.mentionRefs ?? [],
+    spoileredAttachmentUrls: stored?.spoileredAttachmentUrls ?? [],
   };
 }
 
@@ -187,11 +199,22 @@ export function saveDraft(
   selection: number,
   attachments?: DraftAttachment[],
   mentionRefs?: DraftMentionRef[],
+  spoileredAttachmentUrls?: readonly string[],
 ) {
   const key = draftKey(channelId, parentId);
   const store = readStore(ownerPubkey);
   const pendingImeta = attachments ?? store[key]?.pendingImeta ?? [];
   const selectedMentions = mentionRefs ?? store[key]?.mentionRefs ?? [];
+  const spoilerCandidates =
+    spoileredAttachmentUrls ?? store[key]?.spoileredAttachmentUrls ?? [];
+  const mediaUrls = new Set(pendingImeta.map(({ url }) => url));
+  const selectedSpoilers = [
+    ...new Set(
+      spoilerCandidates.filter(
+        (url) => validSpoilerUrl(url) && mediaUrls.has(url),
+      ),
+    ),
+  ].slice(0, pendingImeta.length);
   if (!content.trim() && !pendingImeta.length) {
     delete store[key];
     writeStore(ownerPubkey, store);
@@ -207,7 +230,7 @@ export function saveDraft(
     updatedAt: now,
     pendingImeta,
     mentionRefs: selectedMentions,
-    spoileredAttachmentUrls: [],
+    spoileredAttachmentUrls: selectedSpoilers,
     status: "active",
   };
   writeStore(ownerPubkey, store);
@@ -230,6 +253,7 @@ export function listDrafts(ownerPubkey: string): WebDraft[] {
       updatedAt: draft.updatedAt,
       attachments: draft.pendingImeta,
       mentionRefs: draft.mentionRefs ?? [],
+      spoileredAttachmentUrls: draft.spoileredAttachmentUrls,
     }))
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
 }

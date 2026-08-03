@@ -5,13 +5,14 @@ import {
   Download,
   Clock,
   Flag,
+  HatGlasses,
   MessageSquareReply,
   Pencil,
   SmilePlus,
   Trash2,
   X,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -20,6 +21,10 @@ import { truncatePubkey } from "@/shared/lib/pubkey";
 import { Button } from "@/shared/ui/button";
 import type { CustomEmoji } from "@/features/settings/custom-emoji-api";
 import type { DmCandidate } from "../dm-candidates";
+import {
+  buildOutgoingAttachmentContent,
+  stripTrailingAttachmentMarkdown,
+} from "../attachment-markdown";
 import { hasNamedMention } from "../mention-routing";
 import { PresenceDot } from "@/features/profile/UserProfileDialog";
 import type { PresenceStatus } from "@/features/presence/presence-api";
@@ -164,7 +169,9 @@ function MessageRow({
   actions: MessageActions;
 }) {
   const [editing, setEditing] = useState(false);
-  const [editContent, setEditContent] = useState(message.content);
+  const [editContent, setEditContent] = useState(() =>
+    stripTrailingAttachmentMarkdown(message.content, message.attachments),
+  );
   const [reactionOpen, setReactionOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const author =
@@ -233,7 +240,22 @@ function MessageRow({
                 setDeleteOpen(true);
                 return;
               }
-              await actions.onEdit(message, editContent);
+              await actions.onEdit(
+                message,
+                buildOutgoingAttachmentContent(
+                  editContent,
+                  message.attachments.map((attachment) => ({
+                    url: attachment.url,
+                    type: attachment.mimeType ?? "application/octet-stream",
+                    filename: attachment.name ?? undefined,
+                  })),
+                  new Set(
+                    message.attachments
+                      .filter((attachment) => attachment.spoilered)
+                      .map((attachment) => attachment.url),
+                  ),
+                ),
+              );
               setEditing(false);
             }}
           >
@@ -277,7 +299,10 @@ function MessageRow({
                 remarkPlugins={[remarkGfm]}
               >
                 {expandCustomEmojiMarkdown(
-                  renderSystemContent(message),
+                  stripTrailingAttachmentMarkdown(
+                    renderSystemContent(message),
+                    message.attachments,
+                  ),
                   customEmoji,
                 )}
               </ReactMarkdown>
@@ -394,7 +419,15 @@ function MessageRow({
             <>
               <Button
                 aria-label="Edit message"
-                onClick={() => setEditing(true)}
+                onClick={() => {
+                  setEditContent(
+                    stripTrailingAttachmentMarkdown(
+                      message.content,
+                      message.attachments,
+                    ),
+                  );
+                  setEditing(true);
+                }}
                 size="icon"
                 variant="ghost"
               >
@@ -473,63 +506,108 @@ function Attachments({ attachments }: { attachments: MediaAttachment[] }) {
   if (!attachments.length) return null;
   return (
     <div className="mt-3 grid max-w-2xl gap-2 sm:grid-cols-2">
-      {attachments.map((attachment) => {
-        if (attachment.mimeType?.startsWith("image/"))
-          return (
-            <a
-              href={attachment.url}
-              key={attachment.url}
-              rel="noreferrer"
-              target="_blank"
-            >
-              <img
-                alt={attachment.name ?? "Message attachment"}
-                className="max-h-80 w-full rounded-md border object-contain"
-                loading="lazy"
-                src={attachment.thumbnailUrl ?? attachment.url}
-              />
-            </a>
-          );
-        if (attachment.mimeType?.startsWith("video/"))
-          return (
-            // User uploads do not currently carry WebVTT caption tracks.
-            // biome-ignore lint/a11y/useMediaCaption: Render the user-provided media instead of hiding it.
-            <video
-              className="max-h-80 w-full rounded-md border"
-              controls
-              key={attachment.url}
-              preload="metadata"
-              src={attachment.url}
-            />
-          );
-        if (attachment.mimeType?.startsWith("audio/"))
-          return (
-            // User uploads do not currently carry WebVTT caption tracks.
-            // biome-ignore lint/a11y/useMediaCaption: Render the user-provided media instead of hiding it.
-            <audio
-              className="w-full"
-              controls
-              key={attachment.url}
-              preload="metadata"
-              src={attachment.url}
-            />
-          );
-        return (
-          <a
-            className="flex items-center gap-3 rounded-md border p-3 text-sm hover:bg-muted"
-            href={attachment.url}
-            key={attachment.url}
-            rel="noreferrer"
-            target="_blank"
-          >
-            <Download className="h-5 w-5" />
-            <span className="min-w-0 flex-1 truncate">
-              {attachment.name ?? "Download attachment"}
-            </span>
-          </a>
-        );
-      })}
+      {attachments.map((attachment) => (
+        <MessageAttachment attachment={attachment} key={attachment.url} />
+      ))}
     </div>
+  );
+}
+
+function MessageAttachment({ attachment }: { attachment: MediaAttachment }) {
+  const [revealed, setRevealed] = useState(!attachment.spoilered);
+  useEffect(() => {
+    setRevealed(!attachment.spoilered);
+  }, [attachment.spoilered]);
+  const mediaLabel = attachment.mimeType?.startsWith("video/")
+    ? "video"
+    : "image";
+
+  if (attachment.mimeType?.startsWith("image/"))
+    return (
+      <div className="relative overflow-hidden rounded-md border">
+        <a
+          aria-label={`Open ${attachment.name ?? "message attachment"}`}
+          href={attachment.url}
+          rel="noreferrer"
+          target="_blank"
+        >
+          <img
+            alt={attachment.name ?? "Message attachment"}
+            className={`max-h-80 w-full object-contain ${revealed ? "" : "blur-2xl brightness-75"}`}
+            loading="lazy"
+            src={attachment.thumbnailUrl ?? attachment.url}
+          />
+        </a>
+        {!revealed ? (
+          <SpoilerReveal
+            label={mediaLabel}
+            onReveal={() => setRevealed(true)}
+          />
+        ) : null}
+      </div>
+    );
+  if (attachment.mimeType?.startsWith("video/"))
+    return (
+      <div className="relative overflow-hidden rounded-md border">
+        {/* User uploads do not currently carry WebVTT caption tracks. */}
+        {/* biome-ignore lint/a11y/useMediaCaption: Render the user-provided media instead of hiding it. */}
+        <video
+          className={`max-h-80 w-full ${revealed ? "" : "blur-2xl brightness-75"}`}
+          controls={revealed}
+          preload="metadata"
+          src={attachment.url}
+        />
+        {!revealed ? (
+          <SpoilerReveal
+            label={mediaLabel}
+            onReveal={() => setRevealed(true)}
+          />
+        ) : null}
+      </div>
+    );
+  if (attachment.mimeType?.startsWith("audio/"))
+    return (
+      // User uploads do not currently carry WebVTT caption tracks.
+      // biome-ignore lint/a11y/useMediaCaption: Render the user-provided media instead of hiding it.
+      <audio
+        className="w-full"
+        controls
+        preload="metadata"
+        src={attachment.url}
+      />
+    );
+  return (
+    <a
+      className="flex items-center gap-3 rounded-md border p-3 text-sm hover:bg-muted"
+      href={attachment.url}
+      rel="noreferrer"
+      target="_blank"
+    >
+      <Download className="h-5 w-5" />
+      <span className="min-w-0 flex-1 truncate">
+        {attachment.name ?? "Download attachment"}
+      </span>
+    </a>
+  );
+}
+
+function SpoilerReveal({
+  label,
+  onReveal,
+}: {
+  label: string;
+  onReveal: () => void;
+}) {
+  return (
+    <button
+      aria-label={`Reveal spoilered ${label}`}
+      className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-background/45 text-sm font-medium text-foreground"
+      onClick={onReveal}
+      type="button"
+    >
+      <HatGlasses className="h-6 w-6" />
+      <span>Reveal spoiler</span>
+    </button>
   );
 }
 

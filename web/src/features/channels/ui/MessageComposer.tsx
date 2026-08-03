@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import type { CustomEmoji } from "@/features/settings/custom-emoji-api";
 import { Button } from "@/shared/ui/button";
 import { hasPrimaryShortcutModifier } from "@/shared/lib/keyboard-shortcuts";
+import { buildOutgoingAttachmentContent } from "../attachment-markdown";
 import {
   mediaImetaTag,
   type Channel,
@@ -87,6 +88,15 @@ export function MessageComposer({
   const [attachments, setAttachments] = useState<DraftAttachment[]>(
     () => loadDraftState(ownerPubkey, channel.id, parent?.id).pendingImeta,
   );
+  const [spoileredAttachmentUrls, setSpoileredAttachmentUrls] = useState<
+    Set<string>
+  >(
+    () =>
+      new Set(
+        loadDraftState(ownerPubkey, channel.id, parent?.id)
+          .spoileredAttachmentUrls,
+      ),
+  );
   const [originalAttachmentByUrl, setOriginalAttachmentByUrl] = useState<
     Map<string, DraftAttachment>
   >(() => new Map());
@@ -104,9 +114,11 @@ export function MessageComposer({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const dragDepthRef = useRef(0);
   const draftRef = useRef(draft);
+  const spoileredAttachmentUrlsRef = useRef(spoileredAttachmentUrls);
   const contextKey = `${channel.id}:${parent?.id ?? "root"}`;
   const contextKeyRef = useRef(contextKey);
   draftRef.current = draft;
+  spoileredAttachmentUrlsRef.current = spoileredAttachmentUrls;
   contextKeyRef.current = contextKey;
   const lastTypingSent = useRef(0);
   const persistentAudience = usePersistentAgentAudience({
@@ -136,6 +148,7 @@ export function MessageComposer({
       hydrate ? persistentPrefix(persistentAudience.refs) : saved.content,
     );
     setAttachments(saved.pendingImeta);
+    setSpoileredAttachmentUrls(new Set(saved.spoileredAttachmentUrls));
     setOriginalAttachmentByUrl(new Map());
     setMentionRefs(hydrate ? [...persistentAudience.refs] : saved.mentionRefs);
     dragDepthRef.current = 0;
@@ -211,6 +224,10 @@ export function MessageComposer({
   }
 
   function replaceAttachment(currentUrl: string, replacement: DraftAttachment) {
+    const nextSpoilers = new Set(spoileredAttachmentUrlsRef.current);
+    if (nextSpoilers.delete(currentUrl)) nextSpoilers.add(replacement.url);
+    spoileredAttachmentUrlsRef.current = nextSpoilers;
+    setSpoileredAttachmentUrls(nextSpoilers);
     setAttachments((current) => {
       const next = current.map((attachment) =>
         attachment.url === currentUrl ? replacement : attachment,
@@ -222,6 +239,8 @@ export function MessageComposer({
         draftRef.current,
         textareaRef.current?.selectionStart ?? draftRef.current.length,
         next,
+        undefined,
+        [...nextSpoilers],
       );
       return next;
     });
@@ -275,6 +294,10 @@ export function MessageComposer({
     setAttachments((current) => {
       const removed = current[index];
       const next = current.filter((_, itemIndex) => itemIndex !== index);
+      const nextSpoilers = new Set(spoileredAttachmentUrlsRef.current);
+      if (removed) nextSpoilers.delete(removed.url);
+      spoileredAttachmentUrlsRef.current = nextSpoilers;
+      setSpoileredAttachmentUrls(nextSpoilers);
       saveDraft(
         ownerPubkey,
         channel.id,
@@ -282,6 +305,8 @@ export function MessageComposer({
         draftRef.current,
         textareaRef.current?.selectionStart ?? draftRef.current.length,
         next,
+        undefined,
+        [...nextSpoilers],
       );
       if (removed) {
         setOriginalAttachmentByUrl((originals) => {
@@ -292,6 +317,31 @@ export function MessageComposer({
       }
       return next;
     });
+  }
+
+  function toggleAttachmentSpoiler(url: string) {
+    const attachment = attachments.find((item) => item.url === url);
+    if (
+      !attachment ||
+      (!attachment.type.startsWith("image/") &&
+        !attachment.type.startsWith("video/"))
+    )
+      return;
+    const next = new Set(spoileredAttachmentUrlsRef.current);
+    if (next.has(url)) next.delete(url);
+    else next.add(url);
+    spoileredAttachmentUrlsRef.current = next;
+    setSpoileredAttachmentUrls(next);
+    saveDraft(
+      ownerPubkey,
+      channel.id,
+      parent?.id,
+      draftRef.current,
+      textareaRef.current?.selectionStart ?? draftRef.current.length,
+      attachments,
+      mentionRefs,
+      [...next],
+    );
   }
 
   async function submit(event: FormEvent) {
@@ -330,7 +380,11 @@ export function MessageComposer({
           isAgent: true,
         }));
       await onSubmit({
-        content: draft,
+        content: buildOutgoingAttachmentContent(
+          draft,
+          attachments,
+          spoileredAttachmentUrls,
+        ),
         mediaTags,
         mentionPubkeys,
       });
@@ -341,6 +395,7 @@ export function MessageComposer({
       });
       setDraft(persistentPrefix(retainedRefs));
       setAttachments([]);
+      setSpoileredAttachmentUrls(new Set());
       setOriginalAttachmentByUrl(new Map());
       setMentionRefs([...retainedRefs]);
       setMentionAutocomplete(null);
@@ -512,7 +567,9 @@ export function MessageComposer({
             onEdit={editAttachment}
             onRemove={removeAttachment}
             onRevert={revertAttachment}
+            onToggleSpoiler={toggleAttachmentSpoiler}
             originalByUrl={originalAttachmentByUrl}
+            spoileredUrls={spoileredAttachmentUrls}
           />
         ) : null}
         <div className="flex items-end gap-1 p-2">

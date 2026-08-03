@@ -1871,6 +1871,10 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     name: "diagram.png preview",
   });
   await expect(imagePreview).toBeVisible();
+  await imagePreview.getByRole("button", { name: "Mark as spoiler" }).click();
+  await expect(
+    imagePreview.getByRole("button", { name: "Remove spoiler" }),
+  ).toHaveAttribute("aria-pressed", "true");
   await imagePreview.getByRole("button", { name: "Draw on image" }).click();
   const drawingCanvas = page.getByLabel("Drawing canvas");
   await expect(drawingCanvas).toBeVisible();
@@ -1917,10 +1921,25 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await page
     .getByRole("button", { name: "Preview diagram-annotated.png" })
     .click();
+  await expect(
+    page.getByRole("button", { name: "Remove spoiler" }),
+  ).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("button", { name: "Revert" }).click();
   await expect(
     page.getByRole("button", { name: "Preview diagram.png" }),
   ).toBeVisible();
+  await page.getByRole("button", { name: "Preview diagram.png" }).click();
+  await expect(
+    page.getByRole("button", { name: "Remove spoiler" }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "web-forum", exact: true }).click();
+  await page.getByRole("button", { name: /^general(?: \d+)?$/u }).click();
+  await page.getByRole("button", { name: "Preview diagram.png" }).click();
+  await expect(
+    page.getByRole("button", { name: "Remove spoiler" }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Add direct messages" }).click();
   const newMessageDialog = page.getByRole("dialog", { name: "New message" });
   await expect(
@@ -2405,6 +2424,72 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await page.getByLabel("Inbox filter").selectOption("drafts");
   await expect(page.getByText("No drafts")).toBeVisible();
   await page.getByRole("link", { name: "Channels" }).click();
+  const spoilerMessage = "Spoiler attachment from web";
+  const spoilerComposer = page.getByLabel("Message #general");
+  await spoilerComposer.fill(spoilerMessage);
+  await spoilerComposer
+    .locator("xpath=ancestor::form")
+    .locator('input[type="file"]')
+    .setInputFiles({
+      name: "spoiler-diagram.png",
+      mimeType: "image/png",
+      buffer: Buffer.from(imageBase64, "base64"),
+    });
+  await page
+    .getByRole("button", { name: "Preview spoiler-diagram.png" })
+    .click();
+  await page.getByRole("button", { name: "Mark as spoiler" }).click();
+  await page.screenshot({ path: "/tmp/buzz-web-composer-spoiler.png" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(
+    page.getByRole("button", { name: "Remove spoiler", exact: true }),
+  ).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({ path: "/tmp/buzz-web-composer-spoiler-mobile.png" });
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.keyboard.press("Escape");
+  await spoilerComposer.press("Enter");
+  await expect
+    .poll(
+      () =>
+        submittedEvents.find(
+          (event) =>
+            event.kind === 9 && event.content.startsWith(spoilerMessage),
+        )?.content,
+    )
+    .toMatch(
+      /^Spoiler attachment from web\n\|\|!\[image\]\(http:\/\/localhost:\d+\/media\/[0-9a-f]{64}\)\|\|$/u,
+    );
+  const spoilerEvent = submittedEvents.find(
+    (event) => event.kind === 9 && event.content.startsWith(spoilerMessage),
+  );
+  const spoilerMediaUrl = spoilerEvent?.content.match(
+    /\((https?:\/\/[^)]+)\)/u,
+  )?.[1];
+  expect(spoilerEvent?.tags).toContainEqual(
+    expect.arrayContaining(["imeta", `url ${spoilerMediaUrl}`]),
+  );
+  expect(spoilerEvent?.tags).toContainEqual(
+    expect.arrayContaining(["imeta", "filename spoiler-diagram.png"]),
+  );
+  const spoilerArticle = page.locator(
+    `article[id="message-${spoilerEvent?.id}"]`,
+  );
+  await expect(spoilerArticle).toBeVisible();
+  await expect(
+    spoilerArticle.getByRole("button", { name: "Reveal spoilered image" }),
+  ).toBeVisible();
+  await expect(spoilerArticle.locator("img")).toHaveCount(1);
+  await spoilerArticle
+    .getByRole("button", { name: "Reveal spoilered image" })
+    .click();
+  await expect(
+    spoilerArticle.getByRole("button", { name: "Reveal spoilered image" }),
+  ).toBeHidden();
   await page
     .getByLabel("Message #general")
     .fill("Send from the web inbox to @Relay");
