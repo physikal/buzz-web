@@ -1713,6 +1713,16 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await expect(page.getByText("Welcome to Buzz Web.")).toBeVisible();
   await expect(page.getByText("Forged relay agent")).toHaveCount(0);
   await expect(page.getByLabel("Message #general")).toBeVisible();
+  const unownedAgentArticle = page.locator(
+    `article[id="message-${welcomeMessageEvent.id}"]`,
+  );
+  await unownedAgentArticle.hover();
+  await expect(
+    unownedAgentArticle.getByRole("button", { name: "Edit message" }),
+  ).toHaveCount(0);
+  await expect(
+    unownedAgentArticle.getByRole("button", { name: "Report message" }),
+  ).toBeVisible();
   expect(ownerPubkey).toMatch(/^[0-9a-f]{64}$/);
   await page.getByRole("button", { name: "web-forum", exact: true }).click();
   await expect(
@@ -1735,10 +1745,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   ).toBeVisible();
   const forumReply = page.getByLabel("Reply in thread");
   await forumReply.fill("A focused forum reply");
-  await forumReply
-    .locator("xpath=ancestor::form")
-    .getByRole("button", { name: "Send message" })
-    .click();
+  await forumReply.press("Enter");
   await expect
     .poll(() =>
       submittedEvents.some(
@@ -1756,8 +1763,8 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     .locator("article")
     .filter({ hasText: "A focused forum reply" });
   await expect(forumReplyArticle).toBeVisible();
-  await forumReplyArticle.hover();
-  await forumReplyArticle.getByRole("button", { name: "Edit message" }).click();
+  await expect(forumReply).toBeFocused();
+  await forumReply.press("ArrowUp");
   const forumThread = page.getByRole("complementary", {
     name: "Forum thread",
   });
@@ -2800,6 +2807,26 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await page.getByRole("link", { name: "Channels" }).click();
   await expect(page.getByRole("heading", { name: "general" })).toBeVisible();
   const restoredComposer = page.getByLabel("Message #general");
+  const arrowEditMessage = `Edit last with ArrowUp ${Date.now()}`;
+  await restoredComposer.fill(arrowEditMessage);
+  await restoredComposer.press("Enter");
+  await expect(page.getByText(arrowEditMessage, { exact: true })).toBeVisible();
+  await expect(restoredComposer).toBeFocused();
+  await restoredComposer.press("ArrowUp");
+  const arrowEditComposer = page.getByRole("textbox", {
+    name: "Edit message",
+    exact: true,
+  });
+  await expect(arrowEditComposer).toHaveValue(arrowEditMessage);
+  await arrowEditComposer.press("Escape");
+  await restoredComposer.fill("ArrowUp preserves a nonempty draft");
+  await restoredComposer.press("ArrowUp");
+  await expect(page.getByText("Editing message", { exact: true })).toHaveCount(
+    0,
+  );
+  await expect(restoredComposer).toHaveValue(
+    "ArrowUp preserves a nonempty draft",
+  );
   await restoredComposer.fill("Draft survives message editing");
   await spoilerArticle.hover();
   await spoilerArticle.getByRole("button", { name: "Edit message" }).click();
@@ -4861,8 +4888,56 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
       );
     })
     .toBe(true);
+  const managedAgentMessage = finalizeEvent(
+    {
+      kind: 9,
+      created_at: Math.floor(Date.now() / 1_000),
+      content: "Managed agent message",
+      tags: [["h", "44444444-4444-4444-8444-444444444444"]],
+    },
+    agentSecret,
+  );
+  submittedEvents.push(managedAgentMessage);
   await page.getByRole("link", { name: "Channels" }).click();
   await expect(page.getByRole("heading", { name: "general" })).toBeVisible();
+  const managedAgentArticle = page.locator(
+    `article[id="message-${managedAgentMessage.id}"]`,
+  );
+  await expect(managedAgentArticle).toBeVisible();
+  await managedAgentArticle.hover();
+  await expect(
+    managedAgentArticle.getByRole("button", { name: "Delete message" }),
+  ).toBeVisible();
+  await managedAgentArticle
+    .getByRole("button", { name: "Edit message" })
+    .click();
+  const managedAgentEditComposer = page.getByRole("textbox", {
+    name: "Edit message",
+    exact: true,
+  });
+  await expect(managedAgentEditComposer).toHaveValue("Managed agent message");
+  await managedAgentEditComposer.fill("Owner corrected managed agent message");
+  await expect(managedAgentEditComposer).toHaveValue(
+    "Owner corrected managed agent message",
+  );
+  await page.getByRole("button", { name: "Save edit" }).click();
+  await expect
+    .poll(() =>
+      submittedEvents.find(
+        (event) =>
+          event.kind === 40003 &&
+          event.tags.some(
+            (tag) => tag[0] === "e" && tag[1] === managedAgentMessage.id,
+          ),
+      ),
+    )
+    .toMatchObject({
+      content: "Owner corrected managed agent message",
+      pubkey: ownerPubkey,
+    });
+  await expect(managedAgentArticle).toContainText(
+    "Owner corrected managed agent message",
+  );
 
   const { credentials } = await cdp.send("WebAuthn.getCredentials", {
     authenticatorId,

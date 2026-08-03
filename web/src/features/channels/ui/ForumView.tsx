@@ -5,6 +5,7 @@ import type { CustomEmoji } from "@/features/settings/custom-emoji-api";
 import { Button } from "@/shared/ui/button";
 import type { Channel, ChannelMessage, UserProfile } from "../channel-api";
 import type { DmCandidate } from "../dm-candidates";
+import { editLastOwnMessage } from "../message-management";
 import type { MessageEditScope } from "../use-message-edit-session";
 import { MessageComposer, type ComposerPayload } from "./MessageComposer";
 import {
@@ -112,6 +113,15 @@ export function ForumView({
               mentionCandidates={mentionCandidates}
               ownerPubkey={ownerPubkey}
               onCancelEdit={onCancelEdit}
+              onEditLastOwnMessage={() =>
+                editLastOwnMessage(
+                  messages.filter(
+                    (message) => !message.parentId && message.kind === 45001,
+                  ),
+                  ownerPubkey,
+                  (message) => actions.onEdit(message, "main"),
+                )
+              }
               onEditSubmit={onEditSubmit}
               pending={pending}
               onSubmit={async (payload) => {

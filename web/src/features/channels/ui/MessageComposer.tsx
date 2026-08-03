@@ -97,6 +97,7 @@ export function MessageComposer({
   onSubmit,
   editTarget = null,
   onCancelEdit,
+  onEditLastOwnMessage,
   onEditSubmit,
 }: {
   className?: string;
@@ -113,6 +114,7 @@ export function MessageComposer({
   onSubmit: (payload: ComposerPayload) => Promise<void>;
   editTarget?: ChannelMessage | null;
   onCancelEdit?: () => void;
+  onEditLastOwnMessage?: () => boolean;
   onEditSubmit?: (
     target: ChannelMessage,
     payload: ComposerPayload,
@@ -154,6 +156,10 @@ export function MessageComposer({
   const editTargetRef = useRef(editTarget);
   const preEditSnapshotRef = useRef<ComposerSnapshot | null>(null);
   const previousEditTargetIdRef = useRef<string | null>(null);
+  const pendingEditFocusRef = useRef<{
+    content: string;
+    targetId: string;
+  } | null>(null);
   const contextKey = `${channel.id}:${parent?.id ?? "root"}`;
   const operationContextKey = `${contextKey}:${editTarget?.id ?? "compose"}`;
   const operationContextKeyRef = useRef(operationContextKey);
@@ -248,13 +254,10 @@ export function MessageComposer({
         ),
       );
       setMentionAutocomplete(null);
-      requestAnimationFrame(() => {
-        textareaRef.current?.focus();
-        textareaRef.current?.setSelectionRange(
-          editableBody.length,
-          editableBody.length,
-        );
-      });
+      pendingEditFocusRef.current = {
+        content: editableBody,
+        targetId: editTarget.id,
+      };
     } else if (!targetId && previousId && preEditSnapshotRef.current) {
       const snapshot = preEditSnapshotRef.current;
       preEditSnapshotRef.current = null;
@@ -267,6 +270,24 @@ export function MessageComposer({
     }
     previousEditTargetIdRef.current = targetId;
   }, [editTarget?.id]);
+
+  useLayoutEffect(() => {
+    const pendingFocus = pendingEditFocusRef.current;
+    const textarea = textareaRef.current;
+    if (
+      !pendingFocus ||
+      pendingFocus.targetId !== editTarget?.id ||
+      draft !== pendingFocus.content ||
+      textarea?.value !== pendingFocus.content
+    )
+      return;
+    pendingEditFocusRef.current = null;
+    textarea.focus();
+    textarea.setSelectionRange(
+      pendingFocus.content.length,
+      pendingFocus.content.length,
+    );
+  }, [draft, editTarget?.id]);
 
   useEffect(() => {
     const resetDragState = () => {
@@ -460,6 +481,7 @@ export function MessageComposer({
   async function submit(event: FormEvent) {
     event.preventDefault();
     const activeEditTarget = editTargetRef.current;
+    const submitContextKey = operationContextKey;
     if (
       (!activeEditTarget && !draft.trim() && !attachments.length) ||
       pending ||
@@ -537,6 +559,10 @@ export function MessageComposer({
       setMentionRefs([...retainedRefs]);
       setMentionAutocomplete(null);
       deleteDraft(ownerPubkey, parent?.id ? `thread:${parent.id}` : channel.id);
+      requestAnimationFrame(() => {
+        if (operationContextKeyRef.current === submitContextKey)
+          textareaRef.current?.focus();
+      });
     } finally {
       setUploading(false);
     }
@@ -860,6 +886,20 @@ export function MessageComposer({
               if (event.key === "Escape" && editTargetRef.current) {
                 event.preventDefault();
                 onCancelEdit?.();
+                return;
+              }
+              if (
+                event.key === "ArrowUp" &&
+                !event.metaKey &&
+                !event.ctrlKey &&
+                !event.altKey &&
+                !event.shiftKey &&
+                !mentionAutocomplete &&
+                !editTargetRef.current &&
+                draft.length === 0 &&
+                onEditLastOwnMessage?.()
+              ) {
+                event.preventDefault();
                 return;
               }
               if (event.key === "Enter" && !event.shiftKey) {

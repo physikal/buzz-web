@@ -73,8 +73,9 @@ import { useThreadFollows } from "../use-thread-follows";
 import { useThreadViewMode } from "../thread-view-mode";
 import { useTypingIndicators } from "../use-typing";
 import { useMessageEditSession } from "../use-message-edit-session";
-import { messageSubtree } from "../message-tree";
 import { createMessageSubmitters } from "../message-edit-submit";
+import { editLastOwnMessage } from "../message-management";
+import { createChannelMessageActions } from "../channel-message-actions";
 import { ChannelSidebar } from "./ChannelSidebar";
 import { ChannelFindBar } from "./ChannelFindBar";
 import { ChannelIcon } from "./ChannelIcon";
@@ -91,11 +92,7 @@ import { CreateChannelDialog } from "./CreateChannelDialog";
 import { CenteredMessage, TypingLine } from "./ChannelStatus";
 import { ForumView } from "./ForumView";
 import { MessageComposer } from "./MessageComposer";
-import {
-  type MessageActions,
-  MessageTimeline,
-  ThreadPanel,
-} from "./MessageTimeline";
+import { MessageTimeline, ThreadPanel } from "./MessageTimeline";
 import { ReportMessageDialog } from "./ReportMessageDialog";
 
 export function ChannelsWorkspace({
@@ -527,38 +524,23 @@ export function ChannelsWorkspace({
     sendMutation.isPending ||
     editMutation.isPending ||
     deleteMessageMutation.isPending;
-  const actions: MessageActions = {
+  const actions = createChannelMessageActions({
+    deleteMessage: deleteMessageMutation.mutateAsync,
     deletePending: deleteMessageMutation.isPending,
-    onReply: (message) =>
-      selected &&
-      openMessage(selected.id, message.rootId ?? message.id, message.id),
-    onEdit: messageEdit.start,
-    onDelete: (message) => {
-      if (!selected) return Promise.resolve();
-      return deleteMessageMutation
-        .mutateAsync({
-          channelId: selected.id,
-          eventId: message.id,
-        })
-        .then(() => undefined);
-    },
+    isMessageUnread,
+    managedAgents: agentsQuery.data ?? [],
+    markMessagesRead,
+    markMessagesUnread,
+    messages,
+    onOpenMessage: openMessage,
+    onOpenProfile: selectProfile,
+    onReact: reactionMutation.mutate,
     onReport: setReportTarget,
     onRemind: setReminderTarget,
-    isUnread: (message) =>
-      selected ? isMessageUnread(selected.id, message) : false,
-    onMarkRead: (message) =>
-      markMessagesRead(messageSubtree(message, messages)),
-    onMarkUnread: (message) =>
-      markMessagesUnread(messageSubtree(message, messages).map(({ id }) => id)),
-    onOpenProfile: selectProfile,
-    onReact: (message, emoji, ownEventId, customEmojiUrl) =>
-      reactionMutation.mutate({
-        eventId: message.id,
-        emoji,
-        ownEventId,
-        customEmojiUrl,
-      }),
-  };
+    onStartEdit: messageEdit.start,
+    ownerPubkey,
+    selectedChannelId: selected?.id ?? null,
+  });
   const threadRoot =
     messages.find((message) => message.id === threadRootId) ?? null;
   const threadPanel =
@@ -805,6 +787,13 @@ export function ChannelsWorkspace({
                 key={`${selected.id}:main`}
                 mentionCandidates={dmCandidates}
                 onCancelEdit={messageEdit.cancel}
+                onEditLastOwnMessage={() =>
+                  editLastOwnMessage(
+                    messages.filter((message) => !message.parentId),
+                    ownerPubkey,
+                    (message) => messageEdit.start(message, "main"),
+                  )
+                }
                 onEditSubmit={submitEdit}
                 ownerPubkey={ownerPubkey}
                 pending={messagePending}

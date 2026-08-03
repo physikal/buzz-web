@@ -24,6 +24,7 @@ import type { DmCandidate } from "../dm-candidates";
 import type { MessageEditScope } from "../use-message-edit-session";
 import { stripTrailingAttachmentMarkdown } from "../attachment-markdown";
 import { hasNamedMention } from "../mention-routing";
+import { editLastOwnMessage } from "../message-management";
 import { PresenceDot } from "@/features/profile/UserProfileDialog";
 import type { PresenceStatus } from "@/features/presence/presence-api";
 import type {
@@ -37,6 +38,7 @@ import { DeleteMessageDialog } from "./DeleteMessageDialog";
 import { MessageMoreActions } from "./MessageMoreActions";
 
 export type MessageActions = {
+  canManage: (message: ChannelMessage) => boolean;
   onReply: (message: ChannelMessage) => void;
   onEdit: (message: ChannelMessage, scope: MessageEditScope) => void;
   onDelete: (message: ChannelMessage) => Promise<void>;
@@ -365,7 +367,7 @@ function MessageRow({
             onMarkUnread={() => actions.onMarkUnread(message)}
             unread={actions.isUnread(message)}
           />
-          {message.pubkey === ownerPubkey ? (
+          {actions.canManage(message) ? (
             <>
               <Button
                 aria-label="Edit message"
@@ -712,6 +714,11 @@ export function ThreadPanel({
         pending={pending}
         onSubmit={onSubmit}
         onCancelEdit={onCancelEdit}
+        onEditLastOwnMessage={() =>
+          editLastOwnMessage([root, ...replies], ownerPubkey, (message) =>
+            actions.onEdit(message, "thread"),
+          )
+        }
         onEditSubmit={onEditSubmit}
         onTyping={onTyping}
       />
