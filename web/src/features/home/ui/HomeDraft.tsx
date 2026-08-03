@@ -1,14 +1,16 @@
 import { Link } from "@tanstack/react-router";
 import { FileText, Pencil, Send, Trash2 } from "lucide-react";
 import { useState } from "react";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import type { Channel } from "@/features/channels/channel-api";
 import type { WebDraft } from "@/features/channels/draft-store";
 import { relativeTime } from "@/shared/lib/relative-time";
+import remarkSpoilers from "@/shared/lib/remark-spoilers";
 import { useEscapeSurface } from "@/shared/hooks/use-escape-surface";
 import { Button } from "@/shared/ui/button";
+import { spoilerComponent } from "@/shared/ui/spoiler";
 
 export function HomeDraftRow({
   draft,
@@ -46,8 +48,19 @@ export function HomeDraftRow({
           {draft.parentId ? "Thread draft" : "Draft"}
         </span>
         <span className="mt-1 line-clamp-2 text-sm text-muted-foreground">
-          {draft.content ||
-            `${draft.attachments.length} attachment${draft.attachments.length === 1 ? "" : "s"}`}
+          <ReactMarkdown
+            components={
+              {
+                a: ({ children }) => <span>{children}</span>,
+                p: ({ children }) => <>{children}</>,
+                spoiler: spoilerComponent(false),
+              } as Components
+            }
+            remarkPlugins={[remarkGfm, remarkSpoilers]}
+          >
+            {draft.content ||
+              `${draft.attachments.length} attachment${draft.attachments.length === 1 ? "" : "s"}`}
+          </ReactMarkdown>
         </span>
       </span>
     </button>
@@ -136,7 +149,15 @@ export function HomeDraftDetail({
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-8 sm:px-10">
         <article className="prose prose-sm mx-auto max-w-3xl dark:prose-invert">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+          <ReactMarkdown
+            components={
+              {
+                a: ({ children }) => <span>{children}</span>,
+                spoiler: spoilerComponent(false),
+              } as Components
+            }
+            remarkPlugins={[remarkGfm, remarkSpoilers]}
+          >
             {draft.content}
           </ReactMarkdown>
           {draft.attachments.length ? (

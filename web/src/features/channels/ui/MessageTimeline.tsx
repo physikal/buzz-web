@@ -17,8 +17,10 @@ import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { relativeTime } from "@/shared/lib/relative-time";
+import remarkSpoilers from "@/shared/lib/remark-spoilers";
 import { truncatePubkey } from "@/shared/lib/pubkey";
 import { Button } from "@/shared/ui/button";
+import { spoilerComponent, SpoilerAwareAnchor } from "@/shared/ui/spoiler";
 import type { CustomEmoji } from "@/features/settings/custom-emoji-api";
 import type { DmCandidate } from "../dm-candidates";
 import type { MessageEditScope } from "../use-message-edit-session";
@@ -207,6 +209,8 @@ function MessageRow({
     [message.content, message.kind],
   );
   const markdownComponents = {
+    spoiler: spoilerComponent(),
+    a: SpoilerAwareAnchor,
     "channel-link": ({ children }: { children?: React.ReactNode }) => (
       <ChannelLinkChip
         channels={channels}
@@ -297,6 +301,7 @@ function MessageRow({
                 components={markdownComponents}
                 remarkPlugins={[
                   remarkGfm,
+                  remarkSpoilers,
                   [remarkMentions, { mentionNames: mentions.names }],
                   [remarkChannelLinks, { channelNames }],
                 ]}

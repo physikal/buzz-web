@@ -21,6 +21,7 @@ import {
   extractSupportedLinkPreviews,
   parseSupportedLinkPreview,
 } from "../../src/features/channels/link-preview";
+import remarkSpoilers from "../../src/shared/lib/remark-spoilers";
 
 const testPort = process.env.BUZZ_WEB_TEST_PORT ?? "4173";
 const testOrigin = `http://localhost:${testPort}`;
@@ -195,6 +196,53 @@ test("link previews use the desktop allowlist and ignore hidden content", () => 
       ).join(" "),
     ),
   ).toHaveLength(8);
+});
+
+test("spoiler parsing matches desktop inline, block, and code behavior", () => {
+  const tree = {
+    type: "root",
+    children: [
+      {
+        type: "paragraph",
+        children: [
+          { type: "text", value: "Keep ||" },
+          {
+            type: "strong",
+            children: [{ type: "text", value: "launch" }],
+          },
+          { type: "text", value: " plan|| private." },
+          { type: "inlineCode", value: "||literal||" },
+        ],
+      },
+      { type: "paragraph", children: [{ type: "text", value: "||" }] },
+      {
+        type: "paragraph",
+        children: [{ type: "text", value: "Block secret" }],
+      },
+      { type: "paragraph", children: [{ type: "text", value: "||" }] },
+      {
+        type: "paragraph",
+        children: [{ type: "text", value: "Unmatched ||delimiter" }],
+      },
+    ],
+  };
+  remarkSpoilers()(tree);
+  const inline = tree.children[0].children[1] as Record<string, unknown>;
+  expect(inline.type).toBe("spoiler");
+  expect(inline.children).toEqual([
+    {
+      type: "strong",
+      children: [{ type: "text", value: "launch" }],
+    },
+    { type: "text", value: " plan" },
+  ]);
+  expect(tree.children[1]).toMatchObject({
+    type: "spoiler",
+    data: { hProperties: { "data-block-spoiler": "" } },
+  });
+  expect(JSON.stringify(tree)).toContain('"value":"||literal||"');
+  expect(JSON.stringify(tree)).toContain('"value":"||"');
+  expect(JSON.stringify(tree)).toContain('"value":"delimiter"');
 });
 
 test("owner setup creates a passkey-wrapped signer and enters Channels", async ({
@@ -1975,6 +2023,70 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await expect(previewCard).toHaveAttribute("target", "_blank");
   await expect(previewCard).toHaveAttribute("rel", "noreferrer");
   await previewArticle.screenshot({ path: "/tmp/buzz-web-link-preview.png" });
+  const spoilerUrl = "https://private.example/launch-plan";
+  const spoilerContent = [
+    `Keep ||[launch plan](${spoilerUrl})|| private.`,
+    "",
+    "||",
+    "",
+    "Block secret",
+    "",
+    "||",
+  ].join("\n");
+  const textSpoilerComposer = page.getByLabel("Message #general");
+  await textSpoilerComposer.fill(spoilerContent);
+  await textSpoilerComposer.press("Enter");
+  await expect
+    .poll(() =>
+      submittedEvents.find(
+        (event) => event.kind === 9 && event.content === spoilerContent,
+      ),
+    )
+    .toBeTruthy();
+  const textSpoilerEvent = submittedEvents.find(
+    (event) => event.kind === 9 && event.content === spoilerContent,
+  );
+  const textSpoilerArticle = page.locator(
+    `article[id="message-${textSpoilerEvent?.id}"]`,
+  );
+  const textSpoiler = textSpoilerArticle.locator("[data-spoiler]").first();
+  const blockSpoiler = textSpoilerArticle.locator(".buzz-spoiler--block");
+  const spoilerLink = textSpoiler.getByRole("link", { name: "launch plan" });
+  await expect(textSpoiler).toHaveAttribute("data-revealed", "false");
+  await expect(blockSpoiler).toHaveAttribute("data-revealed", "false");
+  await expect(blockSpoiler).toContainText("Block secret");
+  await expect(textSpoiler.locator(".buzz-spoiler__content")).toHaveCSS(
+    "opacity",
+    "0",
+  );
+  await expect(textSpoiler.locator(".buzz-spoiler__particles")).toHaveCSS(
+    "opacity",
+    "1",
+  );
+  await expect(spoilerLink).not.toHaveAttribute("href");
+  await expect(spoilerLink).toHaveAttribute("aria-disabled", "true");
+  await textSpoiler.hover();
+  await expect(textSpoiler).toHaveAttribute("data-revealed", "false");
+  await textSpoilerArticle.screenshot({
+    path: "/tmp/buzz-web-text-spoiler-hidden.png",
+  });
+  const popupPromise = page
+    .waitForEvent("popup", { timeout: 250 })
+    .catch(() => null);
+  await spoilerLink.click();
+  expect(await popupPromise).toBeNull();
+  await expect(textSpoiler).toHaveAttribute("data-revealed", "true");
+  await expect(spoilerLink).toHaveAttribute("href", spoilerUrl);
+  await expect(spoilerLink).toHaveAttribute("target", "_blank");
+  await expect(spoilerLink).toHaveAttribute("rel", "noreferrer");
+  await textSpoiler.focus();
+  await textSpoiler.press("Enter");
+  await expect(textSpoiler).toHaveAttribute("data-revealed", "false");
+  await textSpoiler.press("Space");
+  await expect(textSpoiler).toHaveAttribute("data-revealed", "true");
+  await textSpoilerArticle.screenshot({
+    path: "/tmp/buzz-web-text-spoiler.png",
+  });
   const channelLinkComposer = page.getByLabel("Message #general");
   await channelLinkComposer.fill("See #web");
   const channelSuggestionsList = page.getByRole("listbox", {
@@ -2754,14 +2866,21 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await page.getByRole("button", { name: "Delete draft" }).click();
   await expect(page.getByText("No drafts")).toBeVisible();
   await page.getByRole("link", { name: "Channels" }).click();
-  await page.getByLabel("Message #general").fill("Saved browser draft");
+  const savedSpoilerDraft = "Saved ||browser draft||";
+  await page.getByLabel("Message #general").fill(savedSpoilerDraft);
   await page.getByRole("link", { name: "Inbox" }).click();
   await page.getByLabel("Inbox filter").selectOption("drafts");
-  await expect(page.getByText("Saved browser draft").first()).toBeVisible();
+  const draftSpoilers = page.locator("[data-spoiler]");
+  await expect(draftSpoilers).toHaveCount(2);
+  for (const draftSpoiler of await draftSpoilers.all()) {
+    await expect(draftSpoiler).toHaveAttribute("data-revealed", "false");
+    await expect(draftSpoiler).not.toHaveAttribute("role", "button");
+    await expect(draftSpoiler).toHaveCSS("pointer-events", "none");
+  }
   await page.getByRole("link", { name: "Open draft" }).click();
   await expect(page).toHaveURL(/\/channels/);
   await expect(page.getByLabel("Message #general")).toHaveValue(
-    "Saved browser draft",
+    savedSpoilerDraft,
   );
   await page.getByLabel("Message #general").fill("");
   await page.getByRole("link", { name: "Inbox" }).click();

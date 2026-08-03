@@ -9,7 +9,7 @@ import {
   RefreshCcw,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
 
@@ -51,7 +51,9 @@ import {
 } from "@/features/reminders/reminder-api";
 import { truncatePubkey } from "@/shared/lib/pubkey";
 import { relativeTime } from "@/shared/lib/relative-time";
+import remarkSpoilers from "@/shared/lib/remark-spoilers";
 import { Button } from "@/shared/ui/button";
+import { spoilerComponent, SpoilerAwareAnchor } from "@/shared/ui/spoiler";
 import { useSidebarVisibility } from "@/shared/hooks/use-sidebar-visibility";
 import { SidebarToggleButton } from "@/shared/ui/sidebar-toggle-button";
 import {
@@ -705,7 +707,18 @@ function InboxRow({
             : ""}
         </span>
         <span className="mt-1 line-clamp-2 text-sm text-muted-foreground">
-          {item.content || "A workflow is waiting for approval."}
+          <ReactMarkdown
+            components={
+              {
+                a: ({ children }) => <span>{children}</span>,
+                p: ({ children }) => <>{children}</>,
+                spoiler: spoilerComponent(false),
+              } as Components
+            }
+            remarkPlugins={[remarkGfm, remarkSpoilers]}
+          >
+            {item.content || "A workflow is waiting for approval."}
+          </ReactMarkdown>
         </span>
       </span>
       {unread ? (
@@ -805,7 +818,15 @@ function InboxDetail({
             </div>
           </button>
           <div className="prose prose-sm mt-6 max-w-none dark:prose-invert">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            <ReactMarkdown
+              components={
+                {
+                  a: SpoilerAwareAnchor,
+                  spoiler: spoilerComponent(),
+                } as Components
+              }
+              remarkPlugins={[remarkGfm, remarkSpoilers]}
+            >
               {item.content || "A workflow is waiting for your approval."}
             </ReactMarkdown>
           </div>
