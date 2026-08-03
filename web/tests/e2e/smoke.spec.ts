@@ -70,6 +70,47 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
       configurable: true,
       value: TestNotification,
     });
+    const voices = [
+      {
+        default: true,
+        lang: "en-US",
+        localService: true,
+        name: "Test local voice",
+        voiceURI: "test-local",
+      },
+      {
+        default: false,
+        lang: "en-US",
+        localService: false,
+        name: "Test remote voice",
+        voiceURI: "test-remote",
+      },
+    ] as SpeechSynthesisVoice[];
+    class TestSpeechSynthesisUtterance {
+      voice: SpeechSynthesisVoice | null = null;
+      constructor(readonly text: string) {}
+      addEventListener() {}
+    }
+    const spoken: string[] = [];
+    Object.defineProperty(window, "SpeechSynthesisUtterance", {
+      configurable: true,
+      value: TestSpeechSynthesisUtterance,
+    });
+    Object.defineProperty(window, "speechSynthesis", {
+      configurable: true,
+      value: {
+        addEventListener() {},
+        cancel() {},
+        getVoices: () => voices,
+        removeEventListener() {},
+        speak: (utterance: TestSpeechSynthesisUtterance) =>
+          spoken.push(utterance.text),
+      },
+    });
+    Object.defineProperty(window, "__buzzTestSpoken", {
+      configurable: true,
+      value: spoken,
+    });
   });
   const cdp = await page.context().newCDPSession(page);
   await cdp.send("WebAuthn.enable");
@@ -2285,6 +2326,35 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     new RegExp(`/channels\\?channel=.*&message=${liveMention.id}`),
   );
   await page.getByRole("link", { name: "Settings" }).click();
+  await page.getByRole("button", { name: "Voice" }).click();
+  await expect(page).toHaveURL(/\/settings\?section=voice$/u);
+  await expect(page.getByRole("heading", { name: "Voice" })).toBeVisible();
+  await expect(page.getByLabel("System voice")).toHaveValue("test-local");
+  await expect(
+    page.getByLabel("System voice").getByRole("option", {
+      name: /Test remote voice/u,
+    }),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: "Preview voice" }).click();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window as typeof window & { __buzzTestSpoken?: string[] })
+            .__buzzTestSpoken,
+      ),
+    )
+    .toContain("Hello! This is how I'll read agent responses.");
+  await page.getByRole("checkbox", { name: "Agent text to speech" }).uncheck();
+  await expect
+    .poll(() =>
+      page.evaluate((pubkey) => {
+        const raw = localStorage.getItem(`buzz-web:tts-settings:${pubkey}`);
+        return raw ? JSON.parse(raw) : null;
+      }, ownerPubkey),
+    )
+    .toMatchObject({ enabled: false });
+  await page.getByRole("checkbox", { name: "Agent text to speech" }).check();
   await page.getByRole("button", { name: "Appearance" }).click();
   await expect(page).toHaveURL(/\/settings\?section=appearance$/u);
   await expect(page.getByRole("heading", { name: "Appearance" })).toBeVisible();

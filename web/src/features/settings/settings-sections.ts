@@ -2,6 +2,7 @@ export type SettingsSection =
   | "profile"
   | "notifications"
   | "appearance"
+  | "voice"
   | "shortcuts"
   | "agents"
   | "channel-templates"
@@ -14,6 +15,7 @@ export const SETTINGS_SECTION_VALUES: readonly SettingsSection[] = [
   "profile",
   "notifications",
   "appearance",
+  "voice",
   "shortcuts",
   "agents",
   "channel-templates",

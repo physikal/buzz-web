@@ -9,6 +9,7 @@ import {
   FileStack,
   Keyboard,
   MonitorCog,
+  Volume2,
   ShieldAlert,
   Smile,
   Ticket,
@@ -34,6 +35,7 @@ import { KeyboardShortcutsPanel } from "./KeyboardShortcutsPanel";
 import { ModerationPanel } from "./ModerationPanel";
 import { AppearancePanel } from "./AppearancePanel";
 import { NotificationsPanel } from "./NotificationsPanel";
+import { VoicePanel } from "./VoicePanel";
 import type { SettingsSection } from "../settings-sections";
 import {
   getOwnerProfile,
@@ -48,6 +50,7 @@ const SETTINGS_ROWS: Array<[SettingsSection, string, React.ReactNode]> = [
   ["profile", "Profile", <UserRound key="profile" />],
   ["notifications", "Notifications", <Bell key="notifications" />],
   ["appearance", "Appearance", <MonitorCog key="appearance" />],
+  ["voice", "Voice", <Volume2 key="voice" />],
   ["shortcuts", "Shortcuts", <Keyboard key="shortcuts" />],
   ["agents", "Agents", <Bot key="agents" />],
   ["channel-templates", "Templates", <FileStack key="templates" />],
@@ -153,6 +156,9 @@ function SettingsWorkspace({
             <NotificationsPanel ownerPubkey={ownerPubkey} />
           ) : null}
           {section === "appearance" ? <AppearancePanel /> : null}
+          {section === "voice" ? (
+            <VoicePanel ownerPubkey={ownerPubkey} />
+          ) : null}
           {section === "shortcuts" ? <KeyboardShortcutsPanel /> : null}
           {section === "agents" ? (
             <div className="space-y-12">

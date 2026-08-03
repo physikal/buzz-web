@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { NostrEvent } from "@/shared/lib/nostr-client";
 import { BrowserHuddleAudio, type HuddleAudioUpdate } from "./huddle-audio";
+import { useBrowserTts } from "./use-browser-tts";
 import {
   addAgentToHuddle,
   createHuddle,
@@ -31,9 +32,11 @@ export type JoinedHuddle = {
 export function useHuddle({
   channelId,
   channelName,
+  ownerPubkey,
 }: {
   channelId: string | null;
   channelName: string | null;
+  ownerPubkey: string;
 }) {
   const [active, setActive] = useState<ActiveHuddle | null>(null);
   const [joined, setJoined] = useState<JoinedHuddle | null>(null);
@@ -55,6 +58,10 @@ export function useHuddle({
   const audioRef = useRef<BrowserHuddleAudio | null>(null);
   const reactionTimersRef = useRef(new Map<string, number>());
   const joinedHuddleId = joined?.ephemeralChannelId ?? null;
+  const tts = useBrowserTts({
+    ephemeralChannelId: joinedHuddleId,
+    ownerPubkey,
+  });
 
   const burstReaction = useCallback((reaction: HuddleReaction) => {
     if (reactionTimersRef.current.has(reaction.id)) return;
@@ -387,6 +394,8 @@ export function useHuddle({
     selectedOutputDeviceId,
     inputGain,
     reactions,
+    ttsEnabled: tts.ttsEnabled,
+    ttsAvailable: tts.ttsAvailable,
     error,
     clearError: () => setError(null),
     start,
@@ -397,6 +406,7 @@ export function useHuddle({
     setInputGain,
     setInputDevice,
     setOutputDevice,
+    setTtsEnabled: tts.setTtsEnabled,
     react,
     addAgent,
   };

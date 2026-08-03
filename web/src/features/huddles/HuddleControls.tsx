@@ -6,6 +6,8 @@ import {
   PhoneOff,
   Settings2,
   SmilePlus,
+  Volume2,
+  VolumeX,
   X,
 } from "lucide-react";
 import { useState } from "react";
@@ -170,6 +172,25 @@ export function HuddleBar({
         variant={huddle.muted ? "destructive" : "outline"}
       >
         {huddle.muted ? <MicOff /> : <Mic />}
+      </Button>
+      <Button
+        aria-label={
+          huddle.ttsEnabled
+            ? "Mute agent text to speech"
+            : "Enable agent text to speech"
+        }
+        aria-pressed={huddle.ttsEnabled}
+        disabled={!huddle.ttsAvailable}
+        onClick={() => huddle.setTtsEnabled(!huddle.ttsEnabled)}
+        size="icon"
+        title={
+          huddle.ttsAvailable
+            ? "Agent text to speech"
+            : "No on-device speech voice is available"
+        }
+        variant="outline"
+      >
+        {huddle.ttsEnabled ? <Volume2 /> : <VolumeX />}
       </Button>
       <div className="relative">
         <Button

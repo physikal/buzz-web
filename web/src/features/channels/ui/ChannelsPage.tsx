@@ -201,6 +201,7 @@ export function ChannelsWorkspace({
   const huddle = useHuddle({
     channelId: selected?.id ?? null,
     channelName: selected?.name ?? null,
+    ownerPubkey,
   });
   const templateSetupDefinition = templateSetup
     ? templatesQuery.data?.find((item) => item.id === templateSetup.templateId)
@@ -534,7 +535,6 @@ export function ChannelsWorkspace({
     },
     onError: mutationError("Search failed"),
   });
-
   const searchResults: SearchResult[] = (searchMutation.data ?? []).map(
     (event) => toMessageSearchResult(event, channels, agentNames, profiles),
   );
