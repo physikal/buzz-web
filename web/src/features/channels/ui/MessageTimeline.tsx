@@ -21,10 +21,8 @@ import { truncatePubkey } from "@/shared/lib/pubkey";
 import { Button } from "@/shared/ui/button";
 import type { CustomEmoji } from "@/features/settings/custom-emoji-api";
 import type { DmCandidate } from "../dm-candidates";
-import {
-  buildOutgoingAttachmentContent,
-  stripTrailingAttachmentMarkdown,
-} from "../attachment-markdown";
+import type { MessageEditScope } from "../use-message-edit-session";
+import { stripTrailingAttachmentMarkdown } from "../attachment-markdown";
 import { hasNamedMention } from "../mention-routing";
 import { PresenceDot } from "@/features/profile/UserProfileDialog";
 import type { PresenceStatus } from "@/features/presence/presence-api";
@@ -40,7 +38,7 @@ import { MessageMoreActions } from "./MessageMoreActions";
 
 export type MessageActions = {
   onReply: (message: ChannelMessage) => void;
-  onEdit: (message: ChannelMessage, content: string) => Promise<void>;
+  onEdit: (message: ChannelMessage, scope: MessageEditScope) => void;
   onDelete: (message: ChannelMessage) => Promise<void>;
   deletePending: boolean;
   onReport: (message: ChannelMessage) => void;
@@ -135,6 +133,7 @@ export function MessageTimeline({
           profile={profiles.get(message.pubkey)}
           presence={presence.get(message.pubkey) ?? "offline"}
           replyCount={repliesByRoot.get(message.id) ?? 0}
+          scope="main"
         />
       ))}
     </div>
@@ -154,6 +153,7 @@ function MessageRow({
   matched,
   customEmoji,
   actions,
+  scope,
 }: {
   channelId: string;
   message: ChannelMessage;
@@ -167,11 +167,8 @@ function MessageRow({
   matched: boolean;
   customEmoji: CustomEmoji[];
   actions: MessageActions;
+  scope: MessageEditScope;
 }) {
-  const [editing, setEditing] = useState(false);
-  const [editContent, setEditContent] = useState(() =>
-    stripTrailingAttachmentMarkdown(message.content, message.attachments),
-  );
   const [reactionOpen, setReactionOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const author =
@@ -231,53 +228,6 @@ function MessageRow({
           <p className="mt-1 text-sm italic text-muted-foreground">
             This message was deleted.
           </p>
-        ) : editing ? (
-          <form
-            className="mt-2"
-            onSubmit={async (event) => {
-              event.preventDefault();
-              if (!editContent.trim()) {
-                setDeleteOpen(true);
-                return;
-              }
-              await actions.onEdit(
-                message,
-                buildOutgoingAttachmentContent(
-                  editContent,
-                  message.attachments.map((attachment) => ({
-                    url: attachment.url,
-                    type: attachment.mimeType ?? "application/octet-stream",
-                    filename: attachment.name ?? undefined,
-                  })),
-                  new Set(
-                    message.attachments
-                      .filter((attachment) => attachment.spoilered)
-                      .map((attachment) => attachment.url),
-                  ),
-                ),
-              );
-              setEditing(false);
-            }}
-          >
-            <textarea
-              className="min-h-20 w-full rounded-md border bg-background p-2 text-sm"
-              value={editContent}
-              onChange={(event) => setEditContent(event.target.value)}
-            />
-            <div className="mt-2 flex gap-2">
-              <Button size="sm" type="submit">
-                Save
-              </Button>
-              <Button
-                onClick={() => setEditing(false)}
-                size="sm"
-                type="button"
-                variant="ghost"
-              >
-                Cancel
-              </Button>
-            </div>
-          </form>
         ) : (
           <>
             <div className="prose prose-sm mt-1 max-w-none break-words text-foreground dark:prose-invert prose-p:my-1 prose-pre:max-w-full prose-pre:overflow-x-auto">
@@ -419,15 +369,7 @@ function MessageRow({
             <>
               <Button
                 aria-label="Edit message"
-                onClick={() => {
-                  setEditContent(
-                    stripTrailingAttachmentMarkdown(
-                      message.content,
-                      message.attachments,
-                    ),
-                  );
-                  setEditing(true);
-                }}
+                onClick={() => actions.onEdit(message, scope)}
                 size="icon"
                 variant="ghost"
               >
@@ -461,7 +403,6 @@ function MessageRow({
             .onDelete(message)
             .then(() => {
               setDeleteOpen(false);
-              setEditing(false);
             })
             .catch(() => {});
         }}
@@ -619,12 +560,15 @@ export function ThreadPanel({
   profiles,
   presence,
   agentNames,
+  editTarget,
   pending,
   actions,
   customEmoji,
   mentionCandidates,
   typingPubkeys,
   onClose,
+  onCancelEdit,
+  onEditSubmit,
   followed,
   onFollow,
   onUnfollow,
@@ -642,12 +586,18 @@ export function ThreadPanel({
   profiles: Map<string, UserProfile>;
   presence: Map<string, PresenceStatus>;
   agentNames: Map<string, string>;
+  editTarget: ChannelMessage | null;
   pending: boolean;
   actions: MessageActions;
   customEmoji: CustomEmoji[];
   mentionCandidates: DmCandidate[];
   typingPubkeys: string[];
   onClose: () => void;
+  onCancelEdit: () => void;
+  onEditSubmit: (
+    target: ChannelMessage,
+    payload: ComposerPayload,
+  ) => Promise<void>;
   followed: boolean;
   onFollow: () => void;
   onUnfollow: () => void;
@@ -746,6 +696,7 @@ export function ThreadPanel({
             profile={profiles.get(message.pubkey)}
             presence={presence.get(message.pubkey) ?? "offline"}
             replyCount={0}
+            scope="thread"
           />
         ))}
       </div>
@@ -753,12 +704,15 @@ export function ThreadPanel({
       <MessageComposer
         channel={channel}
         customEmoji={customEmoji}
+        editTarget={editTarget}
         initialAgentRefs={initialAgentRefs}
         mentionCandidates={mentionCandidates}
         ownerPubkey={ownerPubkey}
         parent={root}
         pending={pending}
         onSubmit={onSubmit}
+        onCancelEdit={onCancelEdit}
+        onEditSubmit={onEditSubmit}
         onTyping={onTyping}
       />
     </aside>

@@ -1,8 +1,9 @@
-import { Send, UploadCloud } from "lucide-react";
+import { Pencil, Send, UploadCloud, X } from "lucide-react";
 import {
   type DragEvent,
   type FormEvent,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -11,11 +12,15 @@ import { toast } from "sonner";
 import type { CustomEmoji } from "@/features/settings/custom-emoji-api";
 import { Button } from "@/shared/ui/button";
 import { hasPrimaryShortcutModifier } from "@/shared/lib/keyboard-shortcuts";
-import { buildOutgoingAttachmentContent } from "../attachment-markdown";
+import {
+  buildOutgoingAttachmentContent,
+  stripTrailingAttachmentMarkdown,
+} from "../attachment-markdown";
 import {
   mediaImetaTag,
   type Channel,
   type ChannelMessage,
+  type MediaAttachment,
   uploadMedia,
 } from "../channel-api";
 import { wrapComposerSelection } from "../composer-edit";
@@ -30,6 +35,7 @@ import { usePersistentAgentAudience } from "../persistent-agent-audience";
 import type { DmCandidate } from "../dm-candidates";
 import {
   findMentionQuery,
+  hasNamedMention,
   reconcileMentionRefs,
   resolveMentionPubkeys,
 } from "../mention-routing";
@@ -51,6 +57,27 @@ function persistentPrefix(refs: readonly DraftMentionRef[]) {
 
 const EMPTY_INITIAL_AGENT_REFS: readonly DraftMentionRef[] = [];
 
+type ComposerSnapshot = {
+  attachments: DraftAttachment[];
+  draft: string;
+  mentionRefs: DraftMentionRef[];
+  originalAttachmentByUrl: Map<string, DraftAttachment>;
+  spoileredAttachmentUrls: Set<string>;
+};
+
+function editableAttachment(attachment: MediaAttachment): DraftAttachment {
+  return {
+    url: attachment.url,
+    sha256: attachment.sha256 ?? "",
+    size: attachment.size ?? 0,
+    type: attachment.mimeType ?? "application/octet-stream",
+    uploaded: 0,
+    ...(attachment.dimensions ? { dim: attachment.dimensions } : {}),
+    ...(attachment.thumbnailUrl ? { thumb: attachment.thumbnailUrl } : {}),
+    ...(attachment.name ? { filename: attachment.name } : {}),
+  };
+}
+
 function isFileDrag(event: DragEvent<HTMLElement>) {
   return Array.from(event.dataTransfer.types).includes("Files");
 }
@@ -68,6 +95,9 @@ export function MessageComposer({
   submitLabel = "Send message",
   onTyping,
   onSubmit,
+  editTarget = null,
+  onCancelEdit,
+  onEditSubmit,
 }: {
   className?: string;
   channel: Channel;
@@ -81,6 +111,12 @@ export function MessageComposer({
   submitLabel?: string;
   onTyping?: () => void;
   onSubmit: (payload: ComposerPayload) => Promise<void>;
+  editTarget?: ChannelMessage | null;
+  onCancelEdit?: () => void;
+  onEditSubmit?: (
+    target: ChannelMessage,
+    payload: ComposerPayload,
+  ) => Promise<void>;
 }) {
   const [draft, setDraft] = useState(
     () => loadDraftState(ownerPubkey, channel.id, parent?.id).content,
@@ -115,11 +151,16 @@ export function MessageComposer({
   const dragDepthRef = useRef(0);
   const draftRef = useRef(draft);
   const spoileredAttachmentUrlsRef = useRef(spoileredAttachmentUrls);
+  const editTargetRef = useRef(editTarget);
+  const preEditSnapshotRef = useRef<ComposerSnapshot | null>(null);
+  const previousEditTargetIdRef = useRef<string | null>(null);
   const contextKey = `${channel.id}:${parent?.id ?? "root"}`;
-  const contextKeyRef = useRef(contextKey);
+  const operationContextKey = `${contextKey}:${editTarget?.id ?? "compose"}`;
+  const operationContextKeyRef = useRef(operationContextKey);
   draftRef.current = draft;
   spoileredAttachmentUrlsRef.current = spoileredAttachmentUrls;
-  contextKeyRef.current = contextKey;
+  editTargetRef.current = editTarget;
+  operationContextKeyRef.current = operationContextKey;
   const lastTypingSent = useRef(0);
   const persistentAudience = usePersistentAgentAudience({
     ownerPubkey,
@@ -129,6 +170,7 @@ export function MessageComposer({
   });
 
   function reconcilePersistentAudience(nextRefs: DraftMentionRef[]) {
+    if (editTargetRef.current) return;
     if (!persistentAudience.enabled) return;
     const present = new Set(nextRefs.map((ref) => ref.pubkey));
     const retained = persistentAudience.refs.filter((ref) =>
@@ -139,6 +181,7 @@ export function MessageComposer({
   }
 
   useEffect(() => {
+    if (editTargetRef.current) return;
     const saved = loadDraftState(ownerPubkey, channel.id, parent?.id);
     const hydrate =
       persistentAudience.enabled &&
@@ -162,6 +205,69 @@ export function MessageComposer({
     persistentAudience.refs,
   ]);
 
+  // Desktop edit mode temporarily takes over the composer, then restores the
+  // exact in-progress draft after save or cancel.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: target identity is the transition trigger.
+  useLayoutEffect(() => {
+    const targetId = editTarget?.id ?? null;
+    const previousId = previousEditTargetIdRef.current;
+    if (targetId && targetId !== previousId && editTarget) {
+      if (!preEditSnapshotRef.current) {
+        preEditSnapshotRef.current = {
+          attachments: [...attachments],
+          draft,
+          mentionRefs: [...mentionRefs],
+          originalAttachmentByUrl: new Map(originalAttachmentByUrl),
+          spoileredAttachmentUrls: new Set(spoileredAttachmentUrls),
+        };
+      }
+      const editableBody = stripTrailingAttachmentMarkdown(
+        editTarget.content,
+        editTarget.attachments,
+      );
+      const editableAttachments =
+        editTarget.attachments.map(editableAttachment);
+      const editableMentions = mentionCandidates
+        .filter((candidate) =>
+          hasNamedMention(editableBody, candidate.displayName),
+        )
+        .map((candidate) => ({
+          displayName: candidate.displayName,
+          pubkey: candidate.pubkey,
+          isAgent: candidate.isAgent,
+        }));
+      setDraft(editableBody);
+      setAttachments(editableAttachments);
+      setMentionRefs(editableMentions);
+      setOriginalAttachmentByUrl(new Map());
+      setSpoileredAttachmentUrls(
+        new Set(
+          editTarget.attachments
+            .filter((attachment) => attachment.spoilered)
+            .map((attachment) => attachment.url),
+        ),
+      );
+      setMentionAutocomplete(null);
+      requestAnimationFrame(() => {
+        textareaRef.current?.focus();
+        textareaRef.current?.setSelectionRange(
+          editableBody.length,
+          editableBody.length,
+        );
+      });
+    } else if (!targetId && previousId && preEditSnapshotRef.current) {
+      const snapshot = preEditSnapshotRef.current;
+      preEditSnapshotRef.current = null;
+      setDraft(snapshot.draft);
+      setAttachments(snapshot.attachments);
+      setMentionRefs(snapshot.mentionRefs);
+      setOriginalAttachmentByUrl(snapshot.originalAttachmentByUrl);
+      setSpoileredAttachmentUrls(snapshot.spoileredAttachmentUrls);
+      setMentionAutocomplete(null);
+    }
+    previousEditTargetIdRef.current = targetId;
+  }, [editTarget?.id]);
+
   useEffect(() => {
     const resetDragState = () => {
       dragDepthRef.current = 0;
@@ -179,7 +285,8 @@ export function MessageComposer({
     if (!selected.length || pending || uploading) return;
     const uploadChannelId = channel.id;
     const uploadParentId = parent?.id;
-    const uploadContextKey = contextKey;
+    const uploadContextKey = operationContextKey;
+    const uploadEditTargetId = editTargetRef.current?.id ?? null;
     setUploading(true);
     try {
       const uploaded = await Promise.all(
@@ -197,21 +304,24 @@ export function MessageComposer({
           };
         }),
       );
-      const saved = loadDraftState(
-        ownerPubkey,
-        uploadChannelId,
-        uploadParentId,
-      );
-      const next = [...saved.pendingImeta, ...uploaded];
-      saveDraft(
-        ownerPubkey,
-        uploadChannelId,
-        uploadParentId,
-        saved.content,
-        saved.content.length,
-        next,
-      );
-      if (contextKeyRef.current === uploadContextKey) {
+      if (operationContextKeyRef.current !== uploadContextKey) return;
+      if (uploadEditTargetId) {
+        setAttachments((current) => [...current, ...uploaded]);
+      } else {
+        const saved = loadDraftState(
+          ownerPubkey,
+          uploadChannelId,
+          uploadParentId,
+        );
+        const next = [...saved.pendingImeta, ...uploaded];
+        saveDraft(
+          ownerPubkey,
+          uploadChannelId,
+          uploadParentId,
+          saved.content,
+          saved.content.length,
+          next,
+        );
         setAttachments(next);
       }
     } catch (error) {
@@ -232,23 +342,24 @@ export function MessageComposer({
       const next = current.map((attachment) =>
         attachment.url === currentUrl ? replacement : attachment,
       );
-      saveDraft(
-        ownerPubkey,
-        channel.id,
-        parent?.id,
-        draftRef.current,
-        textareaRef.current?.selectionStart ?? draftRef.current.length,
-        next,
-        undefined,
-        [...nextSpoilers],
-      );
+      if (!editTargetRef.current)
+        saveDraft(
+          ownerPubkey,
+          channel.id,
+          parent?.id,
+          draftRef.current,
+          textareaRef.current?.selectionStart ?? draftRef.current.length,
+          next,
+          undefined,
+          [...nextSpoilers],
+        );
       return next;
     });
   }
 
   async function editAttachment(attachment: DraftAttachment, blob: Blob) {
     if (pending || uploading) return;
-    const editContextKey = contextKey;
+    const editContextKey = operationContextKey;
     setUploading(true);
     try {
       const baseName =
@@ -266,7 +377,7 @@ export function MessageComposer({
         thumb: media.thumbnailUrl,
         filename: `${baseName}-annotated.png`,
       };
-      if (contextKeyRef.current !== editContextKey) return;
+      if (operationContextKeyRef.current !== editContextKey) return;
       setOriginalAttachmentByUrl((current) => {
         const next = new Map(current);
         next.set(replacement.url, current.get(attachment.url) ?? attachment);
@@ -298,16 +409,17 @@ export function MessageComposer({
       if (removed) nextSpoilers.delete(removed.url);
       spoileredAttachmentUrlsRef.current = nextSpoilers;
       setSpoileredAttachmentUrls(nextSpoilers);
-      saveDraft(
-        ownerPubkey,
-        channel.id,
-        parent?.id,
-        draftRef.current,
-        textareaRef.current?.selectionStart ?? draftRef.current.length,
-        next,
-        undefined,
-        [...nextSpoilers],
-      );
+      if (!editTargetRef.current)
+        saveDraft(
+          ownerPubkey,
+          channel.id,
+          parent?.id,
+          draftRef.current,
+          textareaRef.current?.selectionStart ?? draftRef.current.length,
+          next,
+          undefined,
+          [...nextSpoilers],
+        );
       if (removed) {
         setOriginalAttachmentByUrl((originals) => {
           const updated = new Map(originals);
@@ -332,21 +444,28 @@ export function MessageComposer({
     else next.add(url);
     spoileredAttachmentUrlsRef.current = next;
     setSpoileredAttachmentUrls(next);
-    saveDraft(
-      ownerPubkey,
-      channel.id,
-      parent?.id,
-      draftRef.current,
-      textareaRef.current?.selectionStart ?? draftRef.current.length,
-      attachments,
-      mentionRefs,
-      [...next],
-    );
+    if (!editTargetRef.current)
+      saveDraft(
+        ownerPubkey,
+        channel.id,
+        parent?.id,
+        draftRef.current,
+        textareaRef.current?.selectionStart ?? draftRef.current.length,
+        attachments,
+        mentionRefs,
+        [...next],
+      );
   }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if ((!draft.trim() && !attachments.length) || pending || uploading) return;
+    const activeEditTarget = editTargetRef.current;
+    if (
+      (!activeEditTarget && !draft.trim() && !attachments.length) ||
+      pending ||
+      uploading
+    )
+      return;
     setUploading(true);
     try {
       const mediaTags = attachments.map((attachment) =>
@@ -367,6 +486,28 @@ export function MessageComposer({
         mentionRefs,
         mentionCandidates,
       );
+      const content = buildOutgoingAttachmentContent(
+        draft,
+        attachments,
+        spoileredAttachmentUrls,
+      );
+      if (activeEditTarget && onEditSubmit) {
+        const originalBody = stripTrailingAttachmentMarkdown(
+          activeEditTarget.content,
+          activeEditTarget.attachments,
+        );
+        const originalMentions = new Set(
+          resolveMentionPubkeys(originalBody, [], mentionCandidates),
+        );
+        await onEditSubmit(activeEditTarget, {
+          content,
+          mediaTags,
+          mentionPubkeys: mentionPubkeys.filter(
+            (pubkey) => pubkey !== ownerPubkey && !originalMentions.has(pubkey),
+          ),
+        });
+        return;
+      }
       const audienceGeneration = persistentAudience.generation;
       const audienceRevision = persistentAudience.revision;
       const explicitAgentRefs = mentionCandidates
@@ -380,11 +521,7 @@ export function MessageComposer({
           isAgent: true,
         }));
       await onSubmit({
-        content: buildOutgoingAttachmentContent(
-          draft,
-          attachments,
-          spoileredAttachmentUrls,
-        ),
+        content,
         mediaTags,
         mentionPubkeys,
       });
@@ -405,15 +542,16 @@ export function MessageComposer({
     }
   }
 
-  const placeholder =
-    placeholderOverride ??
-    (parent
-      ? "Reply in thread"
-      : channel.channelType === "forum"
-        ? "Create a new post"
-        : channel.channelType === "dm"
-          ? `Message ${channel.name}`
-          : `Message #${channel.name}`);
+  const placeholder = editTarget
+    ? "Edit message"
+    : (placeholderOverride ??
+      (parent
+        ? "Reply in thread"
+        : channel.channelType === "forum"
+          ? "Create a new post"
+          : channel.channelType === "dm"
+            ? `Message ${channel.name}`
+            : `Message #${channel.name}`));
   const mentionSuggestions = mentionAutocomplete
     ? mentionCandidates
         .filter((candidate) =>
@@ -440,15 +578,16 @@ export function MessageComposer({
     setDraft(next);
     setMentionRefs(nextMentionRefs);
     setMentionAutocomplete(null);
-    saveDraft(
-      ownerPubkey,
-      channel.id,
-      parent?.id,
-      next,
-      nextSelection,
-      attachments,
-      nextMentionRefs,
-    );
+    if (!editTargetRef.current)
+      saveDraft(
+        ownerPubkey,
+        channel.id,
+        parent?.id,
+        next,
+        nextSelection,
+        attachments,
+        nextMentionRefs,
+      );
     requestAnimationFrame(() => {
       textareaRef.current?.focus();
       textareaRef.current?.setSelectionRange(nextSelection, nextSelection);
@@ -476,15 +615,16 @@ export function MessageComposer({
     setDraft(edit.value);
     setMentionRefs(nextMentionRefs);
     setMentionAutocomplete(null);
-    saveDraft(
-      ownerPubkey,
-      channel.id,
-      parent?.id,
-      edit.value,
-      edit.selectionEnd,
-      attachments,
-      nextMentionRefs,
-    );
+    if (!editTargetRef.current)
+      saveDraft(
+        ownerPubkey,
+        channel.id,
+        parent?.id,
+        edit.value,
+        edit.selectionEnd,
+        attachments,
+        nextMentionRefs,
+      );
     requestAnimationFrame(() => {
       textareaRef.current?.focus();
       textareaRef.current?.setSelectionRange(
@@ -531,6 +671,23 @@ export function MessageComposer({
         </div>
       ) : null}
       <div className="relative mx-auto max-w-4xl rounded-md border bg-background shadow-xs focus-within:ring-1 focus-within:ring-ring">
+        {editTarget ? (
+          <div className="flex min-h-10 items-center gap-2 border-b bg-muted/55 px-3 text-sm">
+            <Pencil className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 flex-1 truncate font-medium">
+              Editing message
+            </span>
+            <Button
+              aria-label="Cancel edit"
+              onClick={onCancelEdit}
+              size="icon"
+              type="button"
+              variant="ghost"
+            >
+              <X />
+            </Button>
+          </div>
+        ) : null}
         {mentionAutocomplete && mentionSuggestions.length ? (
           <div
             aria-label="Mention suggestions"
@@ -613,21 +770,22 @@ export function MessageComposer({
                 event.target.value,
                 event.target.selectionStart,
               );
-              saveDraft(
-                ownerPubkey,
-                channel.id,
-                parent?.id,
-                event.target.value,
-                event.target.selectionStart,
-                attachments,
-                nextMentionRefs,
-              );
+              if (!editTargetRef.current)
+                saveDraft(
+                  ownerPubkey,
+                  channel.id,
+                  parent?.id,
+                  event.target.value,
+                  event.target.selectionStart,
+                  attachments,
+                  nextMentionRefs,
+                );
               if (
                 event.target.value.trim() &&
                 Date.now() - lastTypingSent.current >= 3_000
               ) {
                 lastTypingSent.current = Date.now();
-                onTyping?.();
+                if (!editTargetRef.current) onTyping?.();
               }
             }}
             onKeyDown={(event) => {
@@ -699,6 +857,11 @@ export function MessageComposer({
                   return;
                 }
               }
+              if (event.key === "Escape" && editTargetRef.current) {
+                event.preventDefault();
+                onCancelEdit?.();
+                return;
+              }
               if (event.key === "Enter" && !event.shiftKey) {
                 event.preventDefault();
                 event.currentTarget.form?.requestSubmit();
@@ -723,23 +886,27 @@ export function MessageComposer({
               setDraft(value);
               setMentionRefs(nextMentionRefs);
               if (selectedMention) setMentionAutocomplete(null);
-              saveDraft(
-                ownerPubkey,
-                channel.id,
-                parent?.id,
-                value,
-                selection,
-                attachments,
-                nextMentionRefs,
-              );
+              if (!editTargetRef.current)
+                saveDraft(
+                  ownerPubkey,
+                  channel.id,
+                  parent?.id,
+                  value,
+                  selection,
+                  attachments,
+                  nextMentionRefs,
+                );
             }}
             textareaRef={textareaRef}
             value={draft}
           />
           <Button
-            aria-label={submitLabel}
+            aria-label={editTarget ? "Save edit" : submitLabel}
             disabled={
-              (!draft.trim() && !attachments.length) || pending || uploading
+              (!editTarget && !draft.trim() && !attachments.length) ||
+              pending ||
+              uploading ||
+              Boolean(editTarget && !onEditSubmit)
             }
             size="icon"
             type="submit"

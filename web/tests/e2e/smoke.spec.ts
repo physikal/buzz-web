@@ -1052,6 +1052,24 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
             ))
               socket.send(JSON.stringify(["EVENT", subscriptionId, event]));
           }
+          if (filters.includes("40003")) {
+            const channelIds = new Set(
+              requestFilters.flatMap((filter) => filter["#h"] ?? []),
+            );
+            const targetIds = new Set(
+              requestFilters.flatMap((filter) => filter["#e"] ?? []),
+            );
+            for (const event of submittedEvents.filter(
+              (candidate) =>
+                [5, 7, 9005, 40003].includes(candidate.kind) &&
+                candidate.tags.some(
+                  (tag) =>
+                    (tag[0] === "h" && channelIds.has(tag[1])) ||
+                    (tag[0] === "e" && targetIds.has(tag[1])),
+                ),
+            ))
+              socket.send(JSON.stringify(["EVENT", subscriptionId, event]));
+          }
           if (filters.includes("13534")) {
             socket.send(
               JSON.stringify([
@@ -1734,9 +1752,22 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
       ),
     )
     .toBe(true);
-  await expect(
-    page.locator("article").filter({ hasText: "A focused forum reply" }),
-  ).toBeVisible();
+  const forumReplyArticle = page
+    .locator("article")
+    .filter({ hasText: "A focused forum reply" });
+  await expect(forumReplyArticle).toBeVisible();
+  await forumReplyArticle.hover();
+  await forumReplyArticle.getByRole("button", { name: "Edit message" }).click();
+  const forumThread = page.getByRole("complementary", {
+    name: "Forum thread",
+  });
+  const forumEditComposer = forumThread.getByRole("textbox", {
+    name: "Edit message",
+    exact: true,
+  });
+  await expect(forumEditComposer).toHaveValue("A focused forum reply");
+  await forumEditComposer.press("Escape");
+  await expect(forumReply).toHaveValue("");
   await page.screenshot({ path: "/tmp/buzz-web-forum-thread.png" });
   await page.setViewportSize({ width: 390, height: 844 });
   expect(
@@ -2768,27 +2799,214 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await expect(shortcutSearch).toBeHidden();
   await page.getByRole("link", { name: "Channels" }).click();
   await expect(page.getByRole("heading", { name: "general" })).toBeVisible();
+  const restoredComposer = page.getByLabel("Message #general");
+  await restoredComposer.fill("Draft survives message editing");
+  await spoilerArticle.hover();
+  await spoilerArticle.getByRole("button", { name: "Edit message" }).click();
+  const editComposer = page.getByRole("textbox", {
+    name: "Edit message",
+    exact: true,
+  });
+  await expect(
+    page.getByText("Editing message", { exact: true }),
+  ).toBeVisible();
+  await expect(editComposer).toHaveValue(spoilerMessage);
+  await expect(
+    page.getByRole("button", { name: "Preview spoiler-diagram.png" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Cancel edit" }).click();
+  await expect(restoredComposer).toHaveValue("Draft survives message editing");
+  await spoilerArticle.hover();
+  await spoilerArticle.getByRole("button", { name: "Edit message" }).click();
+  await page
+    .getByRole("button", { name: "Remove spoiler-diagram.png" })
+    .click();
+  await editComposer
+    .locator("xpath=ancestor::form")
+    .locator('input[type="file"]')
+    .setInputFiles({
+      name: "edit-replacement.png",
+      mimeType: "image/png",
+      buffer: Buffer.from(imageBase64, "base64"),
+    });
+  await page
+    .getByRole("button", { name: "Preview edit-replacement.png" })
+    .click();
+  await page.getByRole("button", { name: "Mark as spoiler" }).click();
+  await page.getByRole("button", { name: "Draw on image" }).click();
+  const editDrawingCanvas = page.getByLabel("Drawing canvas");
+  const editDrawingBounds = await editDrawingCanvas.boundingBox();
+  expect(editDrawingBounds).not.toBeNull();
+  if (editDrawingBounds) {
+    await page.mouse.move(
+      editDrawingBounds.x + editDrawingBounds.width * 0.2,
+      editDrawingBounds.y + editDrawingBounds.height * 0.5,
+    );
+    await page.mouse.down();
+    await page.mouse.move(
+      editDrawingBounds.x + editDrawingBounds.width * 0.8,
+      editDrawingBounds.y + editDrawingBounds.height * 0.5,
+      { steps: 6 },
+    );
+    await page.mouse.up();
+  }
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(
+    page.getByRole("button", {
+      name: "Preview edit-replacement-annotated.png",
+    }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Preview edit-replacement-annotated.png" })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Remove spoiler", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: "Revert" }).click();
+  await expect(
+    page.getByRole("button", { name: "Preview edit-replacement.png" }),
+  ).toBeVisible();
+  await editComposer.fill("Edited attachment @Relay agent");
+  await page.screenshot({ path: "/tmp/buzz-web-message-edit.png" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(
+    page.getByText("Editing message", { exact: true }),
+  ).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({ path: "/tmp/buzz-web-message-edit-mobile.png" });
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.getByRole("button", { name: "Save edit" }).click();
+  await expect
+    .poll(() =>
+      submittedEvents
+        .filter(
+          (event) =>
+            event.kind === 40003 &&
+            event.tags.some(
+              (tag) => tag[0] === "e" && tag[1] === spoilerEvent?.id,
+            ),
+        )
+        .at(-1),
+    )
+    .toMatchObject({
+      content: expect.stringMatching(
+        /^Edited attachment @Relay agent\n\|\|!\[image\]\(http:\/\/localhost:\d+\/media\/[0-9a-f]{64}\)\|\|$/u,
+      ),
+      tags: expect.arrayContaining([
+        ["h", "44444444-4444-4444-8444-444444444444"],
+        ["e", spoilerEvent?.id],
+        ["p", catalogPubkey],
+        expect.arrayContaining(["imeta", "filename edit-replacement.png"]),
+      ]),
+    });
+  await expect(restoredComposer).toHaveValue("Draft survives message editing");
+  await expect(spoilerArticle).toContainText("Edited attachment @Relay agent");
+  await expect(spoilerArticle.locator("img")).toHaveCount(1);
+  await expect(
+    spoilerArticle.getByRole("button", { name: "Reveal spoilered image" }),
+  ).toBeVisible();
+  await spoilerArticle.hover();
+  await spoilerArticle.getByRole("button", { name: "Edit message" }).click();
+  await page
+    .getByRole("button", { name: "Remove edit-replacement.png" })
+    .click();
+  await editComposer.fill("Edited without attachment");
+  await page.getByRole("button", { name: "Save edit" }).click();
+  await expect
+    .poll(() =>
+      submittedEvents.some(
+        (event) =>
+          event.kind === 40003 &&
+          event.content === "Edited without attachment" &&
+          event.tags.some(
+            (tag) => tag[0] === "e" && tag[1] === spoilerEvent?.id,
+          ),
+      ),
+    )
+    .toBe(true);
+  const attachmentWipeEdit = submittedEvents
+    .filter(
+      (event) =>
+        event.kind === 40003 &&
+        event.tags.some((tag) => tag[0] === "e" && tag[1] === spoilerEvent?.id),
+    )
+    .at(-1);
+  expect(attachmentWipeEdit?.content).toBe("Edited without attachment");
+  expect(attachmentWipeEdit?.tags.some((tag) => tag[0] === "imeta")).toBe(
+    false,
+  );
+  await expect(spoilerArticle).toContainText("Edited without attachment");
+  await expect(spoilerArticle.locator("img")).toHaveCount(0);
+  await expect(restoredComposer).toHaveValue("Draft survives message editing");
+  await restoredComposer.fill("");
+  const emptyEditDeleteContent = "Delete through an empty edit";
+  await restoredComposer.fill(emptyEditDeleteContent);
+  await restoredComposer.press("Enter");
+  await expect
+    .poll(
+      () =>
+        submittedEvents.find(
+          (event) =>
+            event.kind === 9 && event.content === emptyEditDeleteContent,
+        )?.id,
+    )
+    .toMatch(/^[0-9a-f]{64}$/u);
+  const emptyEditDeleteEvent = submittedEvents.find(
+    (event) => event.kind === 9 && event.content === emptyEditDeleteContent,
+  );
+  const emptyEditDeleteArticle = page.locator(
+    `article[id="message-${emptyEditDeleteEvent?.id}"]`,
+  );
+  await expect(emptyEditDeleteArticle).toBeVisible();
+  await emptyEditDeleteArticle.hover();
+  await emptyEditDeleteArticle
+    .getByRole("button", { name: "Edit message" })
+    .click();
+  const emptyEditDeleteComposer = page.getByRole("textbox", {
+    name: "Edit message",
+    exact: true,
+  });
+  await expect(emptyEditDeleteComposer).toHaveValue(emptyEditDeleteContent);
+  await emptyEditDeleteComposer.fill("");
+  await page.getByRole("button", { name: "Save edit" }).click();
+  await expect
+    .poll(() =>
+      submittedEvents.some(
+        (event) =>
+          event.kind === 9005 &&
+          event.tags.some(
+            (tag) => tag[0] === "e" && tag[1] === emptyEditDeleteEvent?.id,
+          ),
+      ),
+    )
+    .toBe(true);
+  await expect(emptyEditDeleteArticle).toContainText(
+    "This message was deleted.",
+  );
   const sentDraftMessage = page.locator(
     `article[id="message-${sentDraft?.id}"]`,
   );
   await expect(sentDraftMessage).toBeVisible();
   await sentDraftMessage.hover();
   await sentDraftMessage.getByRole("button", { name: "Edit message" }).click();
-  const messageEditor = sentDraftMessage.locator("textarea");
-  await messageEditor.fill("");
-  await sentDraftMessage.getByRole("button", { name: "Save" }).click();
-  const deleteMessageDialog = page.getByRole("dialog", {
-    name: "Delete message",
+  const messageEditor = page.getByRole("textbox", {
+    name: "Edit message",
+    exact: true,
   });
-  await expect(deleteMessageDialog).toBeVisible();
+  await messageEditor.fill("");
   await page.keyboard.press("Escape");
-  await expect(deleteMessageDialog).toBeHidden();
-  await expect(messageEditor).toBeVisible();
-  await sentDraftMessage.getByRole("button", { name: "Cancel" }).click();
+  await expect(messageEditor).toBeHidden();
   await sentDraftMessage.hover();
   await sentDraftMessage
     .getByRole("button", { name: "Delete message" })
     .click();
+  const deleteMessageDialog = page.getByRole("dialog", {
+    name: "Delete message",
+  });
   await expect(deleteMessageDialog).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(deleteMessageDialog).toBeHidden();

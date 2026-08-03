@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import type { PresenceStatus } from "@/features/presence/presence-api";
 import type { CustomEmoji } from "@/features/settings/custom-emoji-api";
 import { Button } from "@/shared/ui/button";
 import type { Channel, ChannelMessage, UserProfile } from "../channel-api";
 import type { DmCandidate } from "../dm-candidates";
+import type { MessageEditScope } from "../use-message-edit-session";
 import { MessageComposer, type ComposerPayload } from "./MessageComposer";
 import {
   type MessageActions,
@@ -17,11 +18,15 @@ export function ForumView({
   agentNames,
   channel,
   customEmoji,
+  editScope,
+  editTarget,
   loading,
   matchingMessageIds,
   mentionCandidates,
   messages,
   onCloseThread,
+  onCancelEdit,
+  onEditSubmit,
   onSubmitPost,
   onSubmitReply,
   ownerPubkey,
@@ -35,11 +40,18 @@ export function ForumView({
   agentNames: Map<string, string>;
   channel: Channel;
   customEmoji: CustomEmoji[];
+  editScope: MessageEditScope | null;
+  editTarget: ChannelMessage | null;
   loading: boolean;
   matchingMessageIds?: ReadonlySet<string>;
   mentionCandidates: DmCandidate[];
   messages: ChannelMessage[];
   onCloseThread: () => void;
+  onCancelEdit: () => void;
+  onEditSubmit: (
+    target: ChannelMessage,
+    payload: ComposerPayload,
+  ) => Promise<void>;
   onSubmitPost: (payload: ComposerPayload) => Promise<void>;
   onSubmitReply: (
     root: ChannelMessage,
@@ -53,6 +65,9 @@ export function ForumView({
   threadRoot: ChannelMessage | null;
 }) {
   const [composerOpen, setComposerOpen] = useState(false);
+  useEffect(() => {
+    if (editScope === "main" && editTarget) setComposerOpen(true);
+  }, [editScope, editTarget]);
 
   if (threadRoot) {
     return (
@@ -61,12 +76,15 @@ export function ForumView({
         agentNames={agentNames}
         channel={channel}
         customEmoji={customEmoji}
+        editTarget={editScope === "thread" ? editTarget : null}
         followed={false}
         forum
         matchingMessageIds={matchingMessageIds}
         mentionCandidates={mentionCandidates}
         messages={messages}
         onClose={onCloseThread}
+        onCancelEdit={onCancelEdit}
+        onEditSubmit={onEditSubmit}
         onFollow={() => undefined}
         onSubmit={(payload) => onSubmitReply(threadRoot, payload)}
         onTyping={() => undefined}
@@ -90,8 +108,11 @@ export function ForumView({
             <MessageComposer
               channel={channel}
               customEmoji={customEmoji}
+              editTarget={editScope === "main" ? editTarget : null}
               mentionCandidates={mentionCandidates}
               ownerPubkey={ownerPubkey}
+              onCancelEdit={onCancelEdit}
+              onEditSubmit={onEditSubmit}
               pending={pending}
               onSubmit={async (payload) => {
                 await onSubmitPost(payload);

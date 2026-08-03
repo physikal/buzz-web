@@ -72,7 +72,9 @@ import { useChannelSections } from "../use-channel-sections";
 import { useThreadFollows } from "../use-thread-follows";
 import { useThreadViewMode } from "../thread-view-mode";
 import { useTypingIndicators } from "../use-typing";
+import { useMessageEditSession } from "../use-message-edit-session";
 import { messageSubtree } from "../message-tree";
+import { createMessageSubmitters } from "../message-edit-submit";
 import { ChannelSidebar } from "./ChannelSidebar";
 import { ChannelFindBar } from "./ChannelFindBar";
 import { ChannelIcon } from "./ChannelIcon";
@@ -88,7 +90,7 @@ import {
 import { CreateChannelDialog } from "./CreateChannelDialog";
 import { CenteredMessage, TypingLine } from "./ChannelStatus";
 import { ForumView } from "./ForumView";
-import { MessageComposer, type ComposerPayload } from "./MessageComposer";
+import { MessageComposer } from "./MessageComposer";
 import {
   type MessageActions,
   MessageTimeline,
@@ -215,6 +217,7 @@ export function ChannelsWorkspace({
     channels.find((channel) => channel.id === selectedId) ??
     channels[0] ??
     null;
+  const messageEdit = useMessageEditSession(selected?.id ?? null);
   useActiveNotificationChannel(selected?.id ?? null);
   const huddle = useHuddle({
     channelId: selected?.id ?? null,
@@ -512,29 +515,24 @@ export function ChannelsWorkspace({
     (event) => toMessageSearchResult(event, channels, agentNames, profiles),
   );
 
-  async function submitRoot(payload: ComposerPayload) {
-    if (!selected) return;
-    await sendMutation.mutateAsync({
-      channelId: selected.id,
-      content: payload.content,
-      mentionPubkeys: payload.mentionPubkeys,
-      forumPost: selected.channelType === "forum",
-      mediaTags: payload.mediaTags,
-    });
-  }
+  const { submitEdit, submitRoot } = createMessageSubmitters({
+    activeTargetId: messageEdit.session?.message.id ?? null,
+    cancelEdit: messageEdit.cancel,
+    channel: selected,
+    onDelete: deleteMessageMutation.mutateAsync,
+    onEdit: editMutation.mutateAsync,
+    onSend: sendMutation.mutateAsync,
+  });
+  const messagePending =
+    sendMutation.isPending ||
+    editMutation.isPending ||
+    deleteMessageMutation.isPending;
   const actions: MessageActions = {
     deletePending: deleteMessageMutation.isPending,
     onReply: (message) =>
       selected &&
       openMessage(selected.id, message.rootId ?? message.id, message.id),
-    onEdit: async (message, content) => {
-      if (!selected) return;
-      await editMutation.mutateAsync({
-        channelId: selected.id,
-        eventId: message.id,
-        content,
-      });
-    },
+    onEdit: messageEdit.start,
     onDelete: (message) => {
       if (!selected) return Promise.resolve();
       return deleteMessageMutation
@@ -570,10 +568,17 @@ export function ChannelsWorkspace({
         agentNames={agentNames}
         channel={selected}
         customEmoji={customEmojiQuery.data?.community ?? []}
+        editTarget={
+          messageEdit.session?.scope === "thread"
+            ? messageEdit.session.message
+            : null
+        }
         layout={threadViewMode}
         mentionCandidates={dmCandidates}
         messages={messages}
         onClose={() => closeThread(selected.id)}
+        onCancelEdit={messageEdit.cancel}
+        onEditSubmit={submitEdit}
         followed={followedRootIds.has(threadRoot.id)}
         onFollow={() => followThread(threadRoot.id)}
         onUnfollow={() => unfollowThread(threadRoot.id)}
@@ -581,7 +586,7 @@ export function ChannelsWorkspace({
           void sendTypingIndicator(selected.id, threadRoot.id, threadRoot.id)
         }
         ownerPubkey={ownerPubkey}
-        pending={sendMutation.isPending}
+        pending={messagePending}
         matchingMessageIds={channelFind.matchingIds}
         presence={presence}
         profiles={profiles}
@@ -719,12 +724,16 @@ export function ChannelsWorkspace({
               agentNames={agentNames}
               channel={selected}
               customEmoji={customEmojiQuery.data?.community ?? []}
+              editScope={messageEdit.session?.scope ?? null}
+              editTarget={messageEdit.session?.message ?? null}
               key={selected.id}
               loading={messagesQuery.isLoading}
               matchingMessageIds={channelFind.matchingIds}
               mentionCandidates={dmCandidates}
               messages={messages}
               onCloseThread={() => closeThread(selected.id)}
+              onCancelEdit={messageEdit.cancel}
+              onEditSubmit={submitEdit}
               onSubmitPost={submitRoot}
               onSubmitReply={async (root, payload) => {
                 await sendMutation.mutateAsync({
@@ -737,7 +746,7 @@ export function ChannelsWorkspace({
                 });
               }}
               ownerPubkey={ownerPubkey}
-              pending={sendMutation.isPending}
+              pending={messagePending}
               presence={presence}
               profiles={profiles}
               selectedMessageId={highlightedId}
@@ -788,9 +797,17 @@ export function ChannelsWorkspace({
               <MessageComposer
                 channel={selected}
                 customEmoji={customEmojiQuery.data?.community ?? []}
+                editTarget={
+                  messageEdit.session?.scope === "main"
+                    ? messageEdit.session.message
+                    : null
+                }
+                key={`${selected.id}:main`}
                 mentionCandidates={dmCandidates}
+                onCancelEdit={messageEdit.cancel}
+                onEditSubmit={submitEdit}
                 ownerPubkey={ownerPubkey}
-                pending={sendMutation.isPending}
+                pending={messagePending}
                 onSubmit={submitRoot}
                 onTyping={() => void sendTypingIndicator(selected.id)}
               />

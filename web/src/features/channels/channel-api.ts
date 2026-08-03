@@ -9,6 +9,7 @@ import { submitEvent } from "@/shared/lib/relay-events";
 import { relayHttpBaseUrl, relayWsUrl } from "@/shared/lib/relay-url";
 import { signNostrEvent } from "@/shared/lib/nostr-signer";
 import { findSpoileredAttachmentUrls } from "./attachment-markdown";
+import { applyEditTagOverlay } from "./edit-tag-overlay";
 
 export type ChannelType = "stream" | "forum" | "dm";
 
@@ -33,6 +34,7 @@ export type MediaAttachment = {
   size: number | null;
   dimensions: string | null;
   thumbnailUrl: string | null;
+  sha256: string | null;
   spoilered: boolean;
 };
 
@@ -135,6 +137,7 @@ function parseImeta(tags: string[][], content: string): MediaAttachment[] {
         size: Number.isFinite(size) ? size : null,
         dimensions: fields.get("dim") ?? null,
         thumbnailUrl: fields.get("thumb") ?? null,
+        sha256: fields.get("x") ?? null,
         spoilered: false,
       };
     })
@@ -381,6 +384,8 @@ function projectMessages(
   const messages = contentEvents.map((event): ChannelMessage => {
     const thread = parseThread(event);
     const edit = edits.get(event.id);
+    const effectiveTags = applyEditTagOverlay(event.tags, edit?.tags);
+    const effectiveContent = edit?.content ?? event.content;
     const reactions = [...(reactionGroups.get(event.id)?.entries() ?? [])].map(
       ([emoji, events]) => ({
         emoji,
@@ -394,16 +399,16 @@ function projectMessages(
     return {
       id: event.id,
       pubkey: event.pubkey,
-      content: edit?.content ?? event.content,
+      content: effectiveContent,
       createdAt: event.created_at,
       kind: event.kind,
-      tags: edit?.tags ?? event.tags,
+      tags: effectiveTags,
       ...thread,
       depth: 0,
       edited: Boolean(edit),
       deleted: deletedEventIds.has(event.id),
       reactions,
-      attachments: parseImeta(event.tags, edit?.content ?? event.content),
+      attachments: parseImeta(effectiveTags, effectiveContent),
     };
   });
   calculateDepths(messages);
@@ -492,15 +497,25 @@ export async function editMessage(input: {
   channelId: string;
   eventId: string;
   content: string;
+  mediaTags: string[][];
+  mentionPubkeys?: string[];
 }): Promise<void> {
   const content = input.content.trim();
-  if (!content) throw new Error("A message cannot be empty.");
+  if (!content && !input.mediaTags.length)
+    throw new Error("A message cannot be empty.");
+  if (new TextEncoder().encode(content).length > 64 * 1024)
+    throw new Error("Message is too long.");
   await submitEvent({
     kind: 40003,
     content,
     tags: [
       ["h", input.channelId],
       ["e", input.eventId],
+      ...[...new Set(input.mentionPubkeys ?? [])].map((pubkey) => [
+        "p",
+        pubkey,
+      ]),
+      ...input.mediaTags,
     ],
   });
 }
@@ -767,8 +782,8 @@ export function mediaImetaTag(
     "imeta",
     `url ${media.url}`,
     `m ${media.type}`,
-    `x ${media.sha256}`,
-    `size ${media.size}`,
+    ...(media.sha256 ? [`x ${media.sha256}`] : []),
+    ...(media.size > 0 ? [`size ${media.size}`] : []),
     `filename ${fileName}`,
     ...(media.dimensions ? [`dim ${media.dimensions}`] : []),
     ...(media.thumbnailUrl ? [`thumb ${media.thumbnailUrl}`] : []),
