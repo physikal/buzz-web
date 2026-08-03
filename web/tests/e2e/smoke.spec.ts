@@ -1960,7 +1960,8 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await expect(
     page
       .getByRole("dialog", { name: "Relay agent profile" })
-      .getByText("relay-agent@example.com"),
+      .getByText("relay-agent@example.com")
+      .first(),
   ).toBeVisible();
   await expect(page.getByText("Posts build updates")).toBeVisible();
   await expect(page.getByText("Reviewing builds")).toBeVisible();
@@ -1977,6 +1978,12 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   const channelProfile = page.getByRole("dialog", {
     name: "Relay agent profile",
   });
+  await expect(
+    channelProfile.getByRole("tab", { name: "Runtime" }),
+  ).toHaveCount(0);
+  await expect(
+    channelProfile.getByRole("tab", { name: "Memories" }),
+  ).toHaveCount(0);
   await channelProfile.getByRole("button", { name: "Follow" }).click();
   await expect
     .poll(() => submittedEvents.filter((event) => event.kind === 3).length)
@@ -3827,6 +3834,80 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
       agentProfile.getByRole("button", { name: action, exact: true }),
     ).toBeVisible();
   }
+  await expect(agentProfile.getByRole("tab", { name: "Info" })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  await agentProfile.getByRole("tab", { name: "Runtime" }).click();
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get("profileTab"))
+    .toBe("runtime");
+  await expect(
+    agentProfile.getByRole("tab", { name: "Runtime" }),
+  ).toHaveAttribute("aria-selected", "true");
+  await expect(agentProfile.getByText("Buzz Agent")).toBeVisible();
+  await expect(agentProfile.getByText("Only the owner")).toBeVisible();
+  await page.screenshot({ path: "/tmp/buzz-web-agent-profile-runtime.png" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: "/tmp/buzz-web-agent-profile-runtime-mobile.png",
+  });
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goBack();
+  await expect(agentProfile.getByRole("tab", { name: "Info" })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  await page.goForward();
+  await expect(
+    agentProfile.getByRole("tab", { name: "Runtime" }),
+  ).toHaveAttribute("aria-selected", "true");
+  await agentProfile.getByRole("button", { name: "Instructions" }).click();
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get("profileView"))
+    .toBe("instructions");
+  await expect(
+    agentProfile.getByText("Inspect imported changes."),
+  ).toBeVisible();
+  await agentProfile.getByRole("button", { name: "Back to profile" }).click();
+  await expect
+    .poll(() => new URL(page.url()).searchParams.has("profileView"))
+    .toBe(false);
+  await expect(
+    agentProfile.getByRole("tab", { name: "Runtime" }),
+  ).toHaveAttribute("aria-selected", "true");
+  await agentProfile.getByRole("button", { name: "Harness Log" }).click();
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get("profileView"))
+    .toBe("diagnostics");
+  await expect(agentProfile.getByText("ACP session ready")).toBeVisible();
+  await expect(
+    agentProfile.getByText("Older output was discarded"),
+  ).toBeVisible();
+  await agentProfile.getByRole("button", { name: "Back to profile" }).click();
+  await agentProfile.getByRole("tab", { name: "Channels" }).click();
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get("profileTab"))
+    .toBe("channels");
+  await expect(
+    agentProfile.getByRole("button", { name: "Add to channel" }),
+  ).toBeVisible();
+  await agentProfile.getByRole("tab", { name: "Memories" }).click();
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get("profileTab"))
+    .toBe("memories");
+  await expect(
+    agentProfile.getByText("Review carefully and preserve user intent."),
+  ).toBeVisible();
+  await agentProfile.getByRole("tab", { name: "Info" }).click();
+  await expect
+    .poll(() => new URL(page.url()).searchParams.has("profileTab"))
+    .toBe(false);
   await agentProfile.getByRole("button", { name: "Close" }).click();
   await expect
     .poll(() => new URL(page.url()).searchParams.has("profile"))

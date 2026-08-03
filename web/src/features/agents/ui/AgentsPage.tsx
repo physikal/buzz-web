@@ -10,6 +10,10 @@ import { lockOwnerVault } from "@/features/owner-vault/lib/vault-worker-client";
 import { useWorkspacePresence } from "@/features/presence/use-presence";
 import { UserProfileDialog } from "@/features/profile/UserProfileDialog";
 import { useProfileFollow } from "@/features/profile/profile-follow";
+import type {
+  ProfilePanelTab,
+  ProfilePanelView,
+} from "@/features/profile/profile-panel-state";
 import { getAgentDefaults } from "../agent-defaults-api";
 import {
   createAgent,
@@ -43,6 +47,7 @@ import { TeamsSection } from "./TeamsSection";
 import type { AgentPersona } from "../persona-api";
 import { exportManagedAgentSnapshot } from "../agent-snapshot";
 import { AgentSnapshotExportDialog } from "./AgentSnapshotExportDialog";
+import { listAgentChannels } from "../agent-channels";
 
 const PREVIEW_AGENTS: ManagedAgent[] = [
   {
@@ -116,10 +121,18 @@ const PREVIEW_CHANNELS = [
 
 export function AgentsPage({
   initialProfilePubkey,
+  initialProfileTab,
+  initialProfileView,
   onProfileChange,
+  onProfileTabChange,
+  onProfileViewChange,
 }: {
   initialProfilePubkey?: string;
+  initialProfileTab?: ProfilePanelTab;
+  initialProfileView?: ProfilePanelView;
   onProfileChange?: (pubkey: string | null) => void;
+  onProfileTabChange?: (tab: ProfilePanelTab) => void;
+  onProfileViewChange?: (view: ProfilePanelView) => void;
 } = {}) {
   const previewMode = import.meta.env.DEV
     ? new URLSearchParams(window.location.search).get("preview")
@@ -147,7 +160,11 @@ export function AgentsPage({
     <AgentsWorkspace
       ownerPubkey={ownerPubkey}
       initialProfilePubkey={initialProfilePubkey}
+      initialProfileTab={initialProfileTab}
+      initialProfileView={initialProfileView}
       onProfileChange={onProfileChange}
+      onProfileTabChange={onProfileTabChange}
+      onProfileViewChange={onProfileViewChange}
       preview={preview}
       createOpen={createOpen}
       onCreateOpenChange={setCreateOpen}
@@ -162,7 +179,11 @@ export function AgentsPage({
 function AgentsWorkspace({
   ownerPubkey,
   initialProfilePubkey,
+  initialProfileTab,
+  initialProfileView,
   onProfileChange,
+  onProfileTabChange,
+  onProfileViewChange,
   preview,
   createOpen,
   onCreateOpenChange,
@@ -170,7 +191,11 @@ function AgentsWorkspace({
 }: {
   ownerPubkey: string;
   initialProfilePubkey?: string;
+  initialProfileTab?: ProfilePanelTab;
+  initialProfileView?: ProfilePanelView;
   onProfileChange?: (pubkey: string | null) => void;
+  onProfileTabChange?: (tab: ProfilePanelTab) => void;
+  onProfileViewChange?: (view: ProfilePanelView) => void;
   preview: boolean;
   createOpen: boolean;
   onCreateOpenChange: (open: boolean) => void;
@@ -218,6 +243,19 @@ function AgentsWorkspace({
     queryFn: () => (preview ? Promise.resolve(PREVIEW_AGENTS) : listAgents()),
     staleTime: Number.POSITIVE_INFINITY,
     retry: false,
+  });
+  const agents = agentsQuery.data ?? [];
+  const profileAgent = agents.find(
+    (agent) => agent.agent_pubkey === profilePubkey,
+  );
+  const profileChannelsQuery = useQuery({
+    queryKey: ["agent-channels", profileAgent?.agent_pubkey ?? ""],
+    queryFn: () =>
+      preview
+        ? Promise.resolve(PREVIEW_CHANNELS)
+        : listAgentChannels(profileAgent?.agent_pubkey ?? ""),
+    enabled: profileAgent !== undefined,
+    staleTime: 30_000,
   });
   const profileQuery = useQuery({
     queryKey: ["profiles", profilePubkey ?? ""],
@@ -354,10 +392,6 @@ function AgentsWorkspace({
     );
   }
 
-  const agents = agentsQuery.data ?? [];
-  const profileAgent = agents.find(
-    (agent) => agent.agent_pubkey === profilePubkey,
-  );
   const profileAgentRunning = Boolean(
     profileAgent &&
       ["pending", "starting", "running", "stopping"].includes(
@@ -570,6 +604,8 @@ function AgentsWorkspace({
         agentActionPending={stateMutation.isPending}
         agentName={profileAgent?.name}
         agentRunning={profileAgentRunning}
+        agentChannels={profileChannelsQuery.data}
+        agentChannelsLoading={profileChannelsQuery.isLoading}
         following={profileFollow.following}
         followPending={profileFollow.pending}
         onClose={() => selectProfile(null)}
@@ -581,7 +617,19 @@ function AgentsWorkspace({
               }
             : undefined
         }
+        managedAgent={profileAgent}
+        onAddToChannel={
+          profileAgent ? () => setAgentToAddToChannel(profileAgent) : undefined
+        }
         onMessage={(pubkey) => profileDmMutation.mutate(pubkey)}
+        onOpenActivity={
+          profileAgent ? () => setAgentActivity(profileAgent) : undefined
+        }
+        onOpenChannel={(channelId) => {
+          selectProfile(null);
+          void navigate({ to: "/channels", search: { channel: channelId } });
+        }}
+        onTabChange={onProfileTabChange}
         onToggleAgentState={
           profileAgent
             ? () => {
@@ -596,13 +644,16 @@ function AgentsWorkspace({
             : undefined
         }
         onToggleFollow={profileFollow.toggle}
+        onViewChange={onProfileViewChange}
         ownerPubkey={ownerPubkey}
         presence={
           profilePubkey ? (presence.get(profilePubkey) ?? "offline") : "offline"
         }
         profile={profile}
         pubkey={profilePubkey}
+        tab={initialProfileTab}
         userStatus={profilePubkey ? userStatuses.get(profilePubkey) : undefined}
+        view={initialProfileView}
       />
       <DestructiveConfirmDialog
         confirmLabel="Delete agent"

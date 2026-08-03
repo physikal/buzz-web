@@ -17,27 +17,7 @@ export function AgentLogDialog({
   agent: ManagedAgent | null;
   onClose: () => void;
 }) {
-  const [log, setLog] = useState<AgentRuntimeLog | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   useEscapeSurface(Boolean(agent), onClose);
-
-  async function refresh() {
-    if (!agent) return;
-    setLoading(true);
-    setError(null);
-    try {
-      setLog(await getAgentRuntimeLog(agent.id));
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not load log");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  // Refresh when a different agent is selected.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: agent identity is the request key
-  useEffect(() => void refresh(), [agent?.id]);
   if (!agent) return null;
 
   return (
@@ -60,59 +40,87 @@ export function AgentLogDialog({
               Recent redacted output from the centralized agent host.
             </p>
           </div>
-          <div className="flex gap-1">
-            <Button
-              aria-label="Copy log"
-              disabled={!log?.output}
-              onClick={() => {
-                void navigator.clipboard.writeText(log?.output ?? "");
-                toast.success("Log copied");
-              }}
-              size="icon"
-              title="Copy log"
-              variant="ghost"
-            >
-              <Clipboard />
-            </Button>
-            <Button
-              aria-label="Refresh log"
-              disabled={loading}
-              onClick={() => void refresh()}
-              size="icon"
-              title="Refresh log"
-              variant="ghost"
-            >
-              <RefreshCw className={loading ? "animate-spin" : undefined} />
-            </Button>
-            <Button
-              aria-label="Close"
-              onClick={onClose}
-              size="icon"
-              variant="ghost"
-            >
-              <X />
-            </Button>
-          </div>
+          <Button
+            aria-label="Close"
+            onClick={onClose}
+            size="icon"
+            variant="ghost"
+          >
+            <X />
+          </Button>
         </header>
         <div className="min-h-0 flex-1 overflow-auto p-6">
-          {error ? (
-            <p className="rounded-md border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
-              {error}
-            </p>
-          ) : (
-            <pre className="min-h-48 whitespace-pre-wrap break-words rounded-md bg-muted/50 p-4 font-mono text-xs">
-              {loading && !log
-                ? "Loading harness output…"
-                : log?.output || "No log output yet."}
-            </pre>
-          )}
-          {log?.truncated ? (
-            <p className="mt-2 text-xs text-muted-foreground">
-              Older output was discarded when the in-memory limit was reached.
-            </p>
-          ) : null}
+          <AgentLogPanel agent={agent} />
         </div>
       </div>
+    </div>
+  );
+}
+
+export function AgentLogPanel({ agent }: { agent: ManagedAgent }) {
+  const [log, setLog] = useState<AgentRuntimeLog | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function refresh() {
+    setLoading(true);
+    setError(null);
+    try {
+      setLog(await getAgentRuntimeLog(agent.id));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not load log");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Refresh when a different agent is selected.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: agent identity is the request key
+  useEffect(() => void refresh(), [agent.id]);
+
+  return (
+    <div className="space-y-3">
+      <div className="flex justify-end gap-1">
+        <Button
+          aria-label="Copy log"
+          disabled={!log?.output}
+          onClick={() => {
+            void navigator.clipboard.writeText(log?.output ?? "");
+            toast.success("Log copied");
+          }}
+          size="icon"
+          title="Copy log"
+          variant="ghost"
+        >
+          <Clipboard />
+        </Button>
+        <Button
+          aria-label="Refresh log"
+          disabled={loading}
+          onClick={() => void refresh()}
+          size="icon"
+          title="Refresh log"
+          variant="ghost"
+        >
+          <RefreshCw className={loading ? "animate-spin" : undefined} />
+        </Button>
+      </div>
+      {error ? (
+        <p className="rounded-md border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
+          {error}
+        </p>
+      ) : (
+        <pre className="min-h-48 whitespace-pre-wrap break-words rounded-md bg-muted/50 p-4 font-mono text-xs">
+          {loading && !log
+            ? "Loading harness output…"
+            : log?.output || "No log output yet."}
+        </pre>
+      )}
+      {log?.truncated ? (
+        <p className="text-xs text-muted-foreground">
+          Older output was discarded when the in-memory limit was reached.
+        </p>
+      ) : null}
     </div>
   );
 }
