@@ -245,20 +245,23 @@ export async function deleteProject(project: Project): Promise<void> {
 
 export async function listProjectIssues(
   project: Project,
+  prefetchedEvents?: NostrEvent[],
 ): Promise<ProjectIssue[]> {
-  const events = await queryEvents(
-    relayWsUrl(),
-    [
-      { kinds: [1621], "#a": [project.repoAddress], limit: 500 },
-      {
-        kinds: [1630, 1631, 1632, 1633],
-        "#a": [project.repoAddress],
-        limit: 1000,
-      },
-      { kinds: [1], "#a": [project.repoAddress], limit: 1000 },
-    ],
-    { requireNip07: true },
-  );
+  const events =
+    prefetchedEvents ??
+    (await queryEvents(
+      relayWsUrl(),
+      [
+        { kinds: [1621], "#a": [project.repoAddress], limit: 500 },
+        {
+          kinds: [1630, 1631, 1632, 1633],
+          "#a": [project.repoAddress],
+          limit: 1000,
+        },
+        { kinds: [1], "#a": [project.repoAddress], limit: 1000 },
+      ],
+      { requireNip07: true },
+    ));
   const statusEvents = events.filter((event) => event.kind >= 1630);
   return events
     .filter((event) => event.kind === 1621)
@@ -318,9 +321,9 @@ export async function listProjectIssues(
 export async function createProjectIssue(
   project: Project,
   input: { title: string; content: string; labels: string[] },
-): Promise<void> {
+): Promise<string> {
   if (!input.title.trim()) throw new Error("Issue title is required.");
-  await submitEvent({
+  const { event } = await submitEvent({
     kind: 1621,
     content: input.content.trim(),
     tags: [
@@ -332,6 +335,7 @@ export async function createProjectIssue(
         .filter((item) => item[1]),
     ],
   });
+  return event.id;
 }
 
 export async function setProjectIssueStatus(
@@ -374,21 +378,24 @@ export async function createProjectIssueComment(
 
 export async function listProjectPullRequests(
   project: Project,
+  prefetchedEvents?: NostrEvent[],
 ): Promise<ProjectPullRequest[]> {
-  const events = await queryEvents(
-    relayWsUrl(),
-    [
-      { kinds: [1618], "#a": [project.repoAddress], limit: 500 },
-      { kinds: [1619], "#a": [project.repoAddress], limit: 1000 },
-      {
-        kinds: [1630, 1631, 1632, 1633],
-        "#a": [project.repoAddress],
-        limit: 1000,
-      },
-      { kinds: [1], "#a": [project.repoAddress], limit: 1000 },
-    ],
-    { requireNip07: true },
-  );
+  const events =
+    prefetchedEvents ??
+    (await queryEvents(
+      relayWsUrl(),
+      [
+        { kinds: [1618], "#a": [project.repoAddress], limit: 500 },
+        { kinds: [1619], "#a": [project.repoAddress], limit: 1000 },
+        {
+          kinds: [1630, 1631, 1632, 1633],
+          "#a": [project.repoAddress],
+          limit: 1000,
+        },
+        { kinds: [1], "#a": [project.repoAddress], limit: 1000 },
+      ],
+      { requireNip07: true },
+    ));
   const updates = events.filter((event) => event.kind === 1619);
   const statuses = events.filter(
     (event) => event.kind >= 1630 && event.kind <= 1633,

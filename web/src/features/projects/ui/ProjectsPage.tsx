@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import {
   Bot,
   BookMarked,
@@ -11,7 +11,6 @@ import {
   MessageSquare,
   Plus,
   Settings,
-  Trash2,
   X,
   Zap,
 } from "lucide-react";
@@ -29,6 +28,7 @@ import { DestructiveConfirmDialog } from "@/shared/ui/destructive-confirm-dialog
 import { Input } from "@/shared/ui/input";
 import { SidebarToggleButton } from "@/shared/ui/sidebar-toggle-button";
 import { ProjectPullRequestsPanel } from "./ProjectPullRequestsPanel";
+import { ProjectsIndex } from "./ProjectsIndex";
 import {
   ProjectRepositoryPanel,
   type ProjectRepositoryView,
@@ -45,12 +45,22 @@ import {
   setProjectIssueStatus,
 } from "../project-api";
 
-export function ProjectsPage({ projectId }: { projectId?: string }) {
+export function ProjectsPage({
+  initialIssueId,
+  initialPullRequestId,
+  projectId,
+}: {
+  initialIssueId?: string;
+  initialPullRequestId?: string;
+  projectId?: string;
+}) {
   const [ownerPubkey, setOwnerPubkey] = useState<string | null>(null);
   if (!ownerPubkey) return <OwnerConnection onConnected={setOwnerPubkey} />;
   return (
     <ProjectsWorkspace
       ownerPubkey={ownerPubkey}
+      initialIssueId={initialIssueId}
+      initialPullRequestId={initialPullRequestId}
       projectId={projectId}
       onDisconnect={() => {
         void lockOwnerVault();
@@ -62,10 +72,14 @@ export function ProjectsPage({ projectId }: { projectId?: string }) {
 
 function ProjectsWorkspace({
   ownerPubkey,
+  initialIssueId,
+  initialPullRequestId,
   projectId,
   onDisconnect,
 }: {
   ownerPubkey: string;
+  initialIssueId?: string;
+  initialPullRequestId?: string;
   projectId?: string;
   onDisconnect: () => void;
 }) {
@@ -110,7 +124,12 @@ function ProjectsWorkspace({
         <div className="mx-auto max-w-6xl">
           {projectId ? (
             selected ? (
-              <ProjectDetail ownerPubkey={ownerPubkey} project={selected} />
+              <ProjectDetail
+                initialIssueId={initialIssueId}
+                initialPullRequestId={initialPullRequestId}
+                ownerPubkey={ownerPubkey}
+                project={selected}
+              />
             ) : projectsQuery.isLoading ? (
               <p className="text-sm text-muted-foreground">Loading project…</p>
             ) : (
@@ -119,72 +138,16 @@ function ProjectsWorkspace({
               </p>
             )
           ) : (
-            <>
-              <header className="flex items-start justify-between gap-4">
-                <SidebarToggleButton />
-                <div>
-                  <h1 className="text-2xl font-semibold">Projects</h1>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Repositories, issues, and shared engineering work.
-                  </p>
-                </div>
-                <Button onClick={() => setCreateOpen(true)}>
-                  <Plus /> New project
-                </Button>
-              </header>
-              {projectsQuery.isLoading ? (
-                <p className="mt-8 text-sm text-muted-foreground">
-                  Loading projects…
-                </p>
-              ) : projects.length ? (
-                <div className="mt-7 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {projects.map((project) => (
-                    <article
-                      className="group rounded-md border p-4"
-                      key={project.id}
-                    >
-                      <div className="flex items-start gap-3">
-                        <FolderKanban className="mt-0.5 h-5 w-5 text-muted-foreground" />
-                        <Link
-                          className="min-w-0 flex-1"
-                          params={{ projectId: project.id }}
-                          to="/projects/$projectId"
-                        >
-                          <h2 className="truncate font-semibold hover:underline">
-                            {project.name}
-                          </h2>
-                          <p className="mt-1 line-clamp-2 min-h-10 text-sm text-muted-foreground">
-                            {project.description || "No description"}
-                          </p>
-                        </Link>
-                        {project.owner === ownerPubkey ? (
-                          <Button
-                            aria-label={`Delete ${project.name}`}
-                            className="opacity-0 group-hover:opacity-100"
-                            disabled={deleteMutation.isPending}
-                            onClick={() => setProjectToDelete(project)}
-                            size="icon"
-                            variant="ghost"
-                          >
-                            <Trash2 />
-                          </Button>
-                        ) : null}
-                      </div>
-                      <p className="mt-4 font-mono text-xs text-muted-foreground">
-                        {truncatePubkey(project.owner)} / {project.dtag}
-                      </p>
-                    </article>
-                  ))}
-                </div>
-              ) : (
-                <div className="mt-8 rounded-md border border-dashed p-10 text-center">
-                  <FolderKanban className="mx-auto h-7 w-7 text-muted-foreground" />
-                  <p className="mt-3 text-sm text-muted-foreground">
-                    No projects have been announced yet.
-                  </p>
-                </div>
-              )}
-            </>
+            <ProjectsIndex
+              ownerPubkey={ownerPubkey}
+              pendingDelete={deleteMutation.isPending}
+              projects={projects}
+              projectsError={projectsQuery.error}
+              projectsLoading={projectsQuery.isLoading}
+              onCreateProject={() => setCreateOpen(true)}
+              onDelete={setProjectToDelete}
+              onRetryProjects={() => void projectsQuery.refetch()}
+            />
           )}
         </div>
       </main>
@@ -215,18 +178,31 @@ function ProjectsWorkspace({
 }
 
 function ProjectDetail({
+  initialIssueId,
+  initialPullRequestId,
   project,
   ownerPubkey,
 }: {
+  initialIssueId?: string;
+  initialPullRequestId?: string;
   project: Project;
   ownerPubkey: string;
 }) {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [issueOpen, setIssueOpen] = useState(false);
-  const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
+  const [selectedIssueId, setSelectedIssueId] = useState<string | null>(
+    initialIssueId ?? null,
+  );
   const [projectView, setProjectView] = useState<
     ProjectRepositoryView | "issues" | "pull-requests"
-  >("overview");
+  >(
+    initialIssueId
+      ? "issues"
+      : initialPullRequestId
+        ? "pull-requests"
+        : "overview",
+  );
   const issuesQuery = useQuery({
     queryKey: ["project-issues", project.repoAddress],
     queryFn: () => listProjectIssues(project),
@@ -268,7 +244,15 @@ function ProjectDetail({
         ownerPubkey={ownerPubkey}
         project={project}
         statusPending={statusMutation.isPending}
-        onBack={() => setSelectedIssueId(null)}
+        onBack={() => {
+          setSelectedIssueId(null);
+          void navigate({
+            params: { projectId: project.id },
+            search: {},
+            to: "/projects/$projectId",
+            replace: true,
+          });
+        }}
         onStatusChange={(status) =>
           statusMutation.mutate({ id: selectedIssue.id, status })
         }
@@ -373,7 +357,15 @@ function ProjectDetail({
                       <h3 className="font-medium">
                         <button
                           className="text-left hover:underline"
-                          onClick={() => setSelectedIssueId(issue.id)}
+                          onClick={() => {
+                            setSelectedIssueId(issue.id);
+                            void navigate({
+                              params: { projectId: project.id },
+                              search: { issue: issue.id },
+                              to: "/projects/$projectId",
+                              replace: true,
+                            });
+                          }}
                           type="button"
                         >
                           {issue.title}
@@ -419,6 +411,7 @@ function ProjectDetail({
           </>
         ) : (
           <ProjectPullRequestsPanel
+            initialSelectedId={initialPullRequestId}
             ownerPubkey={ownerPubkey}
             project={project}
           />
@@ -428,7 +421,7 @@ function ProjectDetail({
         open={issueOpen}
         pending={createIssue.isPending}
         onClose={() => setIssueOpen(false)}
-        onSubmit={(input) => createIssue.mutateAsync(input)}
+        onSubmit={(input) => createIssue.mutateAsync(input).then(() => {})}
       />
     </>
   );

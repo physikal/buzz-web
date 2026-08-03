@@ -22,20 +22,24 @@ export function CreatePullRequestDialog({
   open,
   pending,
   project,
+  projectOptions,
   refs,
   refsError,
   refsLoading,
   onClose,
+  onProjectChange,
   onSubmit,
 }: {
   existingPullRequests: ProjectPullRequest[];
   open: boolean;
   pending: boolean;
   project: Project;
+  projectOptions?: Project[];
   refs: RepoRefs | undefined;
   refsError: Error | null;
   refsLoading: boolean;
   onClose: () => void;
+  onProjectChange?: (projectId: string) => void;
   onSubmit: (input: CreatePullRequestInput) => Promise<void>;
 }) {
   const [title, setTitle] = useState("");
@@ -128,6 +132,27 @@ export function CreatePullRequestDialog({
             }
           }}
         >
+          {projectOptions && onProjectChange ? (
+            <label
+              className="block text-sm font-medium"
+              htmlFor="pull-request-project"
+            >
+              Repository
+              <select
+                className="mt-2 h-9 w-full rounded-md border bg-background px-3 text-sm"
+                disabled={pending}
+                id="pull-request-project"
+                onChange={(event) => onProjectChange(event.target.value)}
+                value={project.id}
+              >
+                {projectOptions.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
           <div className="grid gap-3 sm:grid-cols-2">
             <BranchField
               disabled={pending || refsLoading}

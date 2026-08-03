@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import {
   GitCommitHorizontal,
   GitPullRequest,
@@ -32,14 +33,19 @@ import { ProjectPullRequestFilesChangedPanel } from "./ProjectPullRequestFilesCh
 import { PullRequestReviewControls } from "./PullRequestReviewControls";
 
 export function ProjectPullRequestsPanel({
+  initialSelectedId,
   ownerPubkey,
   project,
 }: {
+  initialSelectedId?: string;
   ownerPubkey: string;
   project: Project;
 }) {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(
+    initialSelectedId ?? null,
+  );
   const [createOpen, setCreateOpen] = useState(false);
   const queryKey = ["project-pull-requests", project.repoAddress];
   const query = useQuery({
@@ -59,7 +65,7 @@ export function ProjectPullRequestsPanel({
         }),
       ]);
       setCreateOpen(false);
-      setSelectedId(pullRequestId);
+      selectPullRequest(pullRequestId);
       toast.success("Pull request created");
     },
     onError: (error) =>
@@ -68,6 +74,15 @@ export function ProjectPullRequestsPanel({
       }),
   });
   const selected = (query.data ?? []).find((item) => item.id === selectedId);
+  function selectPullRequest(id: string | null) {
+    setSelectedId(id);
+    void navigate({
+      params: { projectId: project.id },
+      search: id ? { pullRequest: id } : {},
+      to: "/projects/$projectId",
+      replace: true,
+    });
+  }
   if (selected) {
     return (
       <PullRequestDetail
@@ -79,7 +94,7 @@ export function ProjectPullRequestsPanel({
             ? (refsQuery.data?.branchCommits[selected.branchName] ?? null)
             : null
         }
-        onBack={() => setSelectedId(null)}
+        onBack={() => selectPullRequest(null)}
         onUpdated={refresh}
       />
     );
@@ -110,7 +125,7 @@ export function ProjectPullRequestsPanel({
                   <h3 className="font-medium">
                     <button
                       className="text-left hover:underline"
-                      onClick={() => setSelectedId(item.id)}
+                      onClick={() => selectPullRequest(item.id)}
                       type="button"
                     >
                       {item.title}

@@ -38,7 +38,7 @@ test("repositories page remains available from its desktop route", async ({
 test("owner setup creates a passkey-wrapped signer and enters Channels", async ({
   page,
 }) => {
-  test.setTimeout(90_000);
+  test.setTimeout(150_000);
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
   const cdp = await page.context().newCDPSession(page);
   await cdp.send("WebAuthn.enable");
@@ -1074,6 +1074,25 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
               signer,
             );
             socket.send(JSON.stringify(["EVENT", subscriptionId, pullRequest]));
+            socket.send(
+              JSON.stringify([
+                "EVENT",
+                subscriptionId,
+                finalizeEvent(
+                  {
+                    kind: 1618,
+                    created_at: projectPullRequestCreatedAt + 1,
+                    content: "This item belongs to another repository.",
+                    tags: [
+                      ["a", `30617:${catalogPubkey}:other-project`],
+                      ["subject", "Cross-project injection"],
+                      ["c", "ef".repeat(20)],
+                    ],
+                  },
+                  signer,
+                ),
+              ]),
+            );
             socket.send(
               JSON.stringify([
                 "EVENT",
@@ -2319,10 +2338,62 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     .toBe(true);
   await page.getByRole("link", { name: "Projects" }).click();
   await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
+  await expect(page.getByText("Activity", { exact: true })).toBeVisible();
+  await expect(page.getByText("Cross-project injection")).toHaveCount(0);
+  await page.screenshot({ path: "/tmp/buzz-web-projects-overview.png" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({ path: "/tmp/buzz-web-projects-overview-mobile.png" });
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.getByTestId("projects-create-menu").click();
+  await expect(
+    page.getByRole("menuitem", { name: "Repository" }),
+  ).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Issue" })).toBeVisible();
+  await expect(
+    page.getByRole("menuitem", { name: "Pull Request" }),
+  ).toBeVisible();
+  await page.getByRole("menuitem", { name: "Issue" }).click();
+  const globalIssueDialog = page.getByRole("dialog", { name: "New issue" });
+  await expect(globalIssueDialog.getByLabel("Repository")).toHaveValue(
+    `${catalogPubkey}:relay-project`,
+  );
+  await globalIssueDialog.getByLabel("Title").fill("Global project issue");
+  await globalIssueDialog
+    .getByLabel("Description")
+    .fill("Created from the desktop-style project menu.");
+  await globalIssueDialog.getByRole("button", { name: "Create issue" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Global project issue" }),
+  ).toBeVisible();
+  await page.getByRole("link", { name: "Projects" }).click();
+  await page.getByTestId("projects-create-menu").click();
+  await page.getByRole("menuitem", { name: "Pull Request" }).click();
+  const globalPullRequestDialog = page.getByRole("dialog", {
+    name: "Open a pull request",
+  });
+  await expect(globalPullRequestDialog.getByLabel("Repository")).toHaveValue(
+    `${catalogPubkey}:relay-project`,
+  );
+  await page.keyboard.press("Escape");
+  await expect(globalPullRequestDialog).toBeHidden();
+  await page
+    .getByRole("button", { name: "Pull Requests", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Browser parity pull request" }),
+  ).toBeVisible();
+  await expect(page.getByText("Cross-project injection")).toHaveCount(0);
+  await page.getByRole("button", { name: "Repositories" }).click();
   await expect(
     page.getByRole("heading", { name: "Relay project" }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "New project" }).click();
+  await page.getByTestId("projects-create-menu").click();
+  await page.getByRole("menuitem", { name: "Repository" }).click();
   await page.getByLabel("Name").fill("Web parity");
   await page.getByLabel("Description").fill("Created from the browser");
   await page.getByRole("button", { name: "Create project" }).click();

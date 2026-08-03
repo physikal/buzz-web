@@ -7,10 +7,23 @@ const ProjectsPage = lazy(async () => {
 });
 
 export const Route = createFileRoute("/projects/$projectId")({
+  validateSearch: (search: Record<string, unknown>) => ({
+    ...(typeof search.issue === "string" ? { issue: search.issue } : {}),
+    ...(typeof search.pullRequest === "string"
+      ? { pullRequest: search.pullRequest }
+      : {}),
+  }),
   component: ProjectRoute,
 });
 
 function ProjectRoute() {
   const { projectId } = Route.useParams();
-  return <ProjectsPage projectId={projectId} />;
+  const search = Route.useSearch();
+  return (
+    <ProjectsPage
+      initialIssueId={search.issue}
+      initialPullRequestId={search.pullRequest}
+      projectId={projectId}
+    />
+  );
 }
