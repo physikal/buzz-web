@@ -25,6 +25,7 @@ import type { MessageEditScope } from "../use-message-edit-session";
 import { stripTrailingAttachmentMarkdown } from "../attachment-markdown";
 import { hasNamedMention } from "../mention-routing";
 import { editLastOwnMessage } from "../message-management";
+import { extractSupportedLinkPreviews } from "../link-preview";
 import {
   type ResolvedMessageMentions,
   resolveMessageMentions,
@@ -42,6 +43,7 @@ import type {
 import { MessageComposer, type ComposerPayload } from "./MessageComposer";
 import { DeleteMessageDialog } from "./DeleteMessageDialog";
 import { MessageMoreActions } from "./MessageMoreActions";
+import { LinkPreviewCards } from "./LinkPreviewCards";
 
 export type MessageActions = {
   canManage: (message: ChannelMessage) => boolean;
@@ -197,6 +199,13 @@ function MessageRow({
         .map((candidate) => candidate.name),
     [channels],
   );
+  const linkPreviews = useMemo(
+    () =>
+      message.kind === 40099
+        ? []
+        : extractSupportedLinkPreviews(message.content),
+    [message.content, message.kind],
+  );
   const markdownComponents = {
     "channel-link": ({ children }: { children?: React.ReactNode }) => (
       <ChannelLinkChip
@@ -302,6 +311,7 @@ function MessageRow({
               </ReactMarkdown>
             </div>
             <Attachments attachments={message.attachments} />
+            <LinkPreviewCards previews={linkPreviews} />
           </>
         )}
         {!message.deleted && message.reactions.length ? (

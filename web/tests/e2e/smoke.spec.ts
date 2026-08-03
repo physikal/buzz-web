@@ -17,6 +17,10 @@ import {
   channelSuggestions,
   findChannelQuery,
 } from "../../src/features/channels/channel-links";
+import {
+  extractSupportedLinkPreviews,
+  parseSupportedLinkPreview,
+} from "../../src/features/channels/link-preview";
 
 const testPort = process.env.BUZZ_WEB_TEST_PORT ?? "4173";
 const testOrigin = `http://localhost:${testPort}`;
@@ -122,6 +126,75 @@ test("channel links autocomplete only non-DM channels at prefix boundaries", () 
   expect(findChannelQuery("See email#rel", 13, channels)).toBeNull();
   expect(channelSuggestions(channels, "rel")).toEqual([channels[1]]);
   expect(channelSuggestions(channels, "private")).toEqual([]);
+});
+
+test("link previews use the desktop allowlist and ignore hidden content", () => {
+  expect(
+    parseSupportedLinkPreview("javascript:github.com/block/buzz"),
+  ).toBeNull();
+  expect(
+    [
+      "https://github.com/block/buzz",
+      "https://github.com/block/buzz/issues/4",
+      "https://linear.app/buzz/issue/WEB-7/card",
+      "https://drive.google.com/file/d/file-id/view",
+      "https://drive.google.com/drive/folders/folder-id",
+      "https://docs.google.com/document/d/doc-id/edit",
+      "https://docs.google.com/spreadsheets/d/sheet-id/edit",
+      "https://docs.google.com/presentation/d/slides-id/edit",
+    ].map((href) => parseSupportedLinkPreview(href)?.kind),
+  ).toEqual([
+    "github-repository",
+    "github-issue",
+    "linear-issue",
+    "google-drive-file",
+    "google-drive-folder",
+    "google-docs-document",
+    "google-sheets-spreadsheet",
+    "google-slides-presentation",
+  ]);
+  const previews = extractSupportedLinkPreviews(
+    [
+      "`https://github.com/block/hidden/pull/1`",
+      "```",
+      "https://github.com/block/hidden/pull/2",
+      "```",
+      "    https://github.com/block/hidden/pull/3",
+      "||https://linear.app/acme/issue/SEC-9/hidden||",
+      "||",
+      "https://github.com/block/hidden/pull/4",
+      "||",
+      "![sheet](https://docs.google.com/spreadsheets/d/hidden/edit)",
+      "[Launch plan](https://docs.google.com/document/d/document-id/edit)",
+      "https://github.com/block/buzz/pull/42",
+      "https://github.com/block/buzz/pull/42",
+      "https://gitlab.com/block/buzz",
+    ].join("\n"),
+  );
+  expect(previews).toEqual([
+    {
+      kind: "google-docs-document",
+      href: "https://docs.google.com/document/d/document-id/edit",
+      provider: "Google Docs",
+      title: "Launch plan",
+      typeLabel: "document",
+    },
+    {
+      kind: "github-pull-request",
+      href: "https://github.com/block/buzz/pull/42",
+      provider: "GitHub",
+      title: "block/buzz #42",
+      typeLabel: "PR",
+    },
+  ]);
+  expect(
+    extractSupportedLinkPreviews(
+      Array.from(
+        { length: 10 },
+        (_, index) => `https://github.com/block/buzz/pull/${index + 1}`,
+      ).join(" "),
+    ),
+  ).toHaveLength(8);
 });
 
 test("owner setup creates a passkey-wrapped signer and enters Channels", async ({
@@ -1875,6 +1948,33 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   });
   await expect(mentionProfile).toBeVisible();
   await mentionProfile.getByRole("button", { name: "Close" }).click();
+  const previewUrl = "https://github.com/block/sprout/pull/1334";
+  const previewComposer = page.getByLabel("Message #general");
+  await previewComposer.fill(previewUrl);
+  await previewComposer.press("Enter");
+  await expect
+    .poll(() =>
+      submittedEvents.find(
+        (event) => event.kind === 9 && event.content === previewUrl,
+      ),
+    )
+    .toBeTruthy();
+  const previewMessage = submittedEvents.find(
+    (event) => event.kind === 9 && event.content === previewUrl,
+  );
+  const previewArticle = page.locator(
+    `article[id="message-${previewMessage?.id}"]`,
+  );
+  await expect(
+    previewArticle.getByRole("link", { exact: true, name: previewUrl }),
+  ).toBeVisible();
+  const previewCard = previewArticle.locator(
+    '[data-link-preview="github-pull-request"]',
+  );
+  await expect(previewCard).toHaveAttribute("href", previewUrl);
+  await expect(previewCard).toHaveAttribute("target", "_blank");
+  await expect(previewCard).toHaveAttribute("rel", "noreferrer");
+  await previewArticle.screenshot({ path: "/tmp/buzz-web-link-preview.png" });
   const channelLinkComposer = page.getByLabel("Message #general");
   await channelLinkComposer.fill("See #web");
   const channelSuggestionsList = page.getByRole("listbox", {
