@@ -3570,6 +3570,18 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     .first()
     .click();
   await expect(page).toHaveURL(new RegExp(`/workflows/${createdWorkflowId}$`));
+  const workflowDetail = page.getByTestId("workflow-detail-panel");
+  await expect(workflowDetail).toContainText("active");
+  await expect(workflowDetail).toContainText("Webhook");
+  await expect(workflowDetail).toContainText("No runs yet.");
+  await expect(workflowDetail).not.toContainText(
+    "Run traces are not currently exposed by the relay.",
+  );
+  await page.screenshot({ path: "/tmp/buzz-web-workflow-detail.png" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(workflowDetail).toBeVisible();
+  await page.screenshot({ path: "/tmp/buzz-web-workflow-detail-mobile.png" });
+  await page.setViewportSize({ width: 1280, height: 720 });
   await page.getByRole("button", { name: "Trigger workflow" }).first().click();
   await expect
     .poll(() => {

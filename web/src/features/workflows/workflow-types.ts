@@ -73,6 +73,29 @@ export const ACTION_LABELS: Record<WorkflowAction, string> = {
   set_channel_topic: "Set channel topic",
 };
 
+export function workflowTriggerSummary(definition: WorkflowDefinition): string {
+  const trigger = definition.trigger;
+  const label = TRIGGER_LABELS[trigger.on];
+  switch (trigger.on) {
+    case "message_posted":
+    case "diff_posted":
+      return trigger.filter?.trim()
+        ? `${label} · ${trigger.filter.trim()}`
+        : label;
+    case "reaction_added":
+      return trigger.emoji?.trim()
+        ? `${label} · ${trigger.emoji.trim()}`
+        : label;
+    case "schedule":
+      if (trigger.cron?.trim()) return `${label} · ${trigger.cron.trim()}`;
+      if (trigger.interval?.trim())
+        return `${label} · ${trigger.interval.trim()}`;
+      return label;
+    default:
+      return label;
+  }
+}
+
 export function blankWorkflow(): WorkflowDefinition {
   return {
     name: "",

@@ -20,6 +20,7 @@ import { useEscapeSurface } from "@/shared/hooks/use-escape-surface";
 import { useSidebarVisibility } from "@/shared/hooks/use-sidebar-visibility";
 import { relayHttpBaseUrl } from "@/shared/lib/relay-url";
 import { Button } from "@/shared/ui/button";
+import { Badge } from "@/shared/ui/badge";
 import { DestructiveConfirmDialog } from "@/shared/ui/destructive-confirm-dialog";
 import { SidebarToggleButton } from "@/shared/ui/sidebar-toggle-button";
 import {
@@ -30,7 +31,7 @@ import {
   type Workflow,
   workflowToYaml,
 } from "../workflow-api";
-import { TRIGGER_LABELS } from "../workflow-types";
+import { TRIGGER_LABELS, workflowTriggerSummary } from "../workflow-types";
 import { WorkflowEditor } from "./WorkflowEditor";
 
 type DialogState =
@@ -249,6 +250,9 @@ function WorkflowWorkspace({
                   onClose={closeWorkflow}
                   onEdit={() => setDialog({ mode: "edit", workflow: selected })}
                   onTrigger={() => trigger.mutate(selected)}
+                  triggering={
+                    trigger.isPending && trigger.variables.id === selected.id
+                  }
                   workflow={selected}
                 />
               ) : null}
@@ -414,6 +418,7 @@ function WorkflowDetail({
   onClose,
   onEdit,
   onTrigger,
+  triggering,
 }: {
   workflow: Workflow;
   channelName: string;
@@ -421,14 +426,53 @@ function WorkflowDetail({
   onClose: () => void;
   onEdit: () => void;
   onTrigger: () => void;
+  triggering: boolean;
 }) {
+  const description = workflow.definition.description?.trim();
+  const status = workflow.definition.enabled === false ? "disabled" : "active";
+
   return (
-    <aside className="self-start rounded-md border">
+    <aside
+      className="self-start overflow-hidden rounded-md border bg-background"
+      data-testid="workflow-detail-panel"
+    >
       <header className="flex items-start gap-2 border-b p-4">
         <div className="min-w-0 flex-1">
-          <h2 className="font-semibold">{workflow.definition.name}</h2>
-          <p className="mt-1 text-xs text-muted-foreground">#{channelName}</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="font-semibold">{workflow.definition.name}</h2>
+            <Badge
+              className={
+                status === "active"
+                  ? "border-transparent bg-emerald-500/15 text-emerald-700"
+                  : undefined
+              }
+              variant={status === "active" ? "outline" : "secondary"}
+            >
+              {status}
+            </Badge>
+          </div>
+          {description ? (
+            <p className="mt-1 text-xs text-muted-foreground">{description}</p>
+          ) : null}
+          <p className="mt-1 text-xs text-muted-foreground">
+            #{channelName} · {workflowTriggerSummary(workflow.definition)}
+          </p>
         </div>
+        {isOwner ? (
+          <Button onClick={onEdit} size="sm" variant="outline">
+            <Pencil /> Edit
+          </Button>
+        ) : null}
+        {isOwner ? (
+          <Button
+            disabled={workflow.definition.enabled === false || triggering}
+            onClick={onTrigger}
+            size="sm"
+            variant="outline"
+          >
+            <Play /> {triggering ? "Triggering..." : "Trigger"}
+          </Button>
+        ) : null}
         <Button
           aria-label="Close workflow details"
           onClick={onClose}
@@ -439,37 +483,19 @@ function WorkflowDetail({
         </Button>
       </header>
       <div className="space-y-5 p-4">
-        <div className="flex gap-2">
-          {isOwner ? (
-            <Button
-              disabled={workflow.definition.enabled === false}
-              onClick={onTrigger}
-              size="sm"
-            >
-              <Play /> Trigger
-            </Button>
-          ) : null}
-          {isOwner ? (
-            <Button onClick={onEdit} size="sm" variant="outline">
-              <Pencil /> Edit
-            </Button>
-          ) : null}
-        </div>
         <section>
           <h3 className="text-xs font-semibold uppercase text-muted-foreground">
             Definition
           </h3>
           <pre className="mt-2 max-h-96 overflow-auto rounded-md bg-muted p-3 font-mono text-xs">
-            {workflow.yaml}
+            {JSON.stringify(workflow.definition, null, 2)}
           </pre>
         </section>
         <section>
           <h3 className="text-xs font-semibold uppercase text-muted-foreground">
             Run history
           </h3>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Run traces are not currently exposed by the relay.
-          </p>
+          <p className="mt-2 text-sm text-muted-foreground">No runs yet.</p>
         </section>
       </div>
     </aside>
