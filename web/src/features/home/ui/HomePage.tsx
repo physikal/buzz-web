@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import {
   BellRing,
   CheckCheck,
@@ -19,6 +19,7 @@ import {
   ensureStarterChannels,
   listProfiles,
   mediaImetaTag,
+  openDm,
   sendChannelMessage,
   type Channel,
   type UserProfile,
@@ -32,6 +33,9 @@ import {
 } from "@/features/channels/draft-store";
 import { lockOwnerVault } from "@/features/owner-vault/lib/vault-worker-client";
 import { AppPrimarySidebar } from "@/features/navigation/AppPrimarySidebar";
+import { useWorkspacePresence } from "@/features/presence/use-presence";
+import { UserProfileDialog } from "@/features/profile/UserProfileDialog";
+import { useProfileFollow } from "@/features/profile/profile-follow";
 import { readNotificationSettings } from "@/features/settings/notification-settings";
 import {
   cancelReminder,
@@ -65,17 +69,23 @@ type InboxFilter =
 
 export function HomePage({
   initialItemId,
+  initialProfilePubkey,
   onItemChange,
+  onProfileChange,
 }: {
   initialItemId?: string;
+  initialProfilePubkey?: string;
   onItemChange?: (itemId: string | null) => void;
+  onProfileChange?: (pubkey: string | null) => void;
 } = {}) {
   const [ownerPubkey, setOwnerPubkey] = useState<string | null>(null);
   if (!ownerPubkey) return <OwnerConnection onConnected={setOwnerPubkey} />;
   return (
     <HomeWorkspace
       initialItemId={initialItemId}
+      initialProfilePubkey={initialProfilePubkey}
       onItemChange={onItemChange}
+      onProfileChange={onProfileChange}
       ownerPubkey={ownerPubkey}
       onDisconnect={() => {
         void lockOwnerVault();
@@ -89,19 +99,27 @@ function HomeWorkspace({
   ownerPubkey,
   onDisconnect,
   initialItemId,
+  initialProfilePubkey,
   onItemChange,
+  onProfileChange,
 }: {
   ownerPubkey: string;
   onDisconnect: () => void;
   initialItemId?: string;
+  initialProfilePubkey?: string;
   onItemChange?: (itemId: string | null) => void;
+  onProfileChange?: (pubkey: string | null) => void;
 }) {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const sidebar = useSidebarVisibility();
   const [filter, setFilter] = useState<InboxFilter>("all");
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(
     initialItemId ?? null,
+  );
+  const [profilePubkey, setProfilePubkey] = useState<string | null>(
+    initialProfilePubkey ?? null,
   );
   const [selectedReminderId, setSelectedReminderId] = useState<string | null>(
     null,
@@ -111,10 +129,19 @@ function HomeWorkspace({
   const [readMarkers, setReadMarkers] = useState<Record<string, number>>({});
   const readManagerRef = useRef<ReadStateManager | null>(null);
   useEffect(() => setSelectedId(initialItemId ?? null), [initialItemId]);
+  useEffect(
+    () => setProfilePubkey(initialProfilePubkey ?? null),
+    [initialProfilePubkey],
+  );
   const selectItem = (itemId: string | null) => {
     if (itemId === selectedId) return;
     setSelectedId(itemId);
     onItemChange?.(itemId);
+  };
+  const selectProfile = (pubkey: string | null) => {
+    if (pubkey === profilePubkey) return;
+    setProfilePubkey(pubkey);
+    onProfileChange?.(pubkey);
   };
   const agentsQuery = useQuery({
     queryKey: ["managed-agents", ownerPubkey],
@@ -147,7 +174,10 @@ function HomeWorkspace({
     retry: false,
   });
   const authorKey = [
-    ...new Set((inboxQuery.data ?? []).map((item) => item.pubkey)),
+    ...new Set([
+      ...(inboxQuery.data ?? []).map((item) => item.pubkey),
+      ...(profilePubkey ? [profilePubkey] : []),
+    ]),
   ]
     .sort()
     .join(",");
@@ -164,6 +194,12 @@ function HomeWorkspace({
       ),
     [profilesQuery.data],
   );
+  const profilePubkeys = useMemo(
+    () => (profilePubkey ? [profilePubkey] : []),
+    [profilePubkey],
+  );
+  const { presence, userStatuses } = useWorkspacePresence(profilePubkeys);
+  const profileFollow = useProfileFollow(ownerPubkey, profilePubkey);
   const channels = channelsQuery.data ?? [];
   const items = inboxQuery.data ?? [];
   const reminders = (remindersQuery.data ?? []).filter(
@@ -296,6 +332,15 @@ function HomeWorkspace({
     },
     onError: (error) =>
       toast.error("Could not send draft", { description: error.message }),
+  });
+  const profileDmMutation = useMutation({
+    mutationFn: (pubkey: string) => openDm([pubkey]),
+    onSuccess: (channelId) =>
+      navigate({ to: "/channels", search: { channel: channelId } }),
+    onError: (error) =>
+      toast.error("Could not open direct message", {
+        description: error.message,
+      }),
   });
 
   useEffect(() => {
@@ -552,10 +597,32 @@ function HomeWorkspace({
             }
             mobileVisible={Boolean(explicitlySelected)}
             onBack={() => selectItem(null)}
+            onOpenProfile={(pubkey) => selectProfile(pubkey)}
             profile={selected ? profiles.get(selected.pubkey) : undefined}
           />
         )}
       </main>
+      <UserProfileDialog
+        agentName={
+          profilePubkey
+            ? agentsQuery.data?.find(
+                (agent) => agent.agent_pubkey === profilePubkey,
+              )?.name
+            : undefined
+        }
+        following={profileFollow.following}
+        followPending={profileFollow.pending}
+        onClose={() => selectProfile(null)}
+        onMessage={(pubkey) => profileDmMutation.mutate(pubkey)}
+        onToggleFollow={profileFollow.toggle}
+        ownerPubkey={ownerPubkey}
+        presence={
+          profilePubkey ? (presence.get(profilePubkey) ?? "offline") : "offline"
+        }
+        profile={profilePubkey ? profiles.get(profilePubkey) : undefined}
+        pubkey={profilePubkey}
+        userStatus={profilePubkey ? userStatuses.get(profilePubkey) : undefined}
+      />
     </div>
   );
 }
@@ -624,6 +691,7 @@ function InboxDetail({
   onBack,
   mobileVisible,
   kindLabel,
+  onOpenProfile,
 }: {
   item: InboxItem | null;
   profile?: UserProfile;
@@ -631,6 +699,7 @@ function InboxDetail({
   onBack: () => void;
   mobileVisible: boolean;
   kindLabel: string;
+  onOpenProfile: (pubkey: string) => void;
 }) {
   if (!item)
     return (
@@ -679,7 +748,12 @@ function InboxDetail({
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-8 sm:px-10">
         <article className="mx-auto max-w-3xl">
-          <div className="flex items-center gap-3 border-b pb-5">
+          <button
+            aria-label={`Open ${profile?.displayName || truncatePubkey(item.pubkey)} profile`}
+            className="flex w-full items-center gap-3 border-b pb-5 text-left hover:bg-muted/30 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={() => onOpenProfile(item.pubkey)}
+            type="button"
+          >
             <Avatar profile={profile} pubkey={item.pubkey} />
             <div className="min-w-0 flex-1">
               <p className="truncate font-semibold">
@@ -692,7 +766,7 @@ function InboxDetail({
                 }).format(new Date(item.createdAt * 1_000))}
               </time>
             </div>
-          </div>
+          </button>
           <div className="prose prose-sm mt-6 max-w-none dark:prose-invert">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>
               {item.content || "A workflow is waiting for your approval."}

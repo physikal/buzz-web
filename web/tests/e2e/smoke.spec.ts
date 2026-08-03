@@ -2235,6 +2235,33 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await expect(
     page.getByText("Owner mention from inbox").first(),
   ).toBeVisible();
+  await page
+    .getByRole("button")
+    .filter({ hasText: "Owner mention from inbox" })
+    .first()
+    .click();
+  await page.getByRole("button", { name: "Open Relay agent profile" }).click();
+  await expect
+    .poll(() => {
+      const url = new URL(page.url());
+      return {
+        item: url.searchParams.get("item"),
+        profile: url.searchParams.get("profile"),
+      };
+    })
+    .toEqual({ item: expect.any(String), profile: catalogPubkey });
+  const inboxProfile = page.getByRole("dialog", {
+    name: "Relay agent profile",
+  });
+  await expect(inboxProfile).toBeVisible();
+  await inboxProfile.getByRole("button", { name: "Close" }).click();
+  await page.goBack();
+  await expect(inboxProfile).toBeVisible();
+  await page.goForward();
+  await expect(inboxProfile).toBeHidden();
+  await expect(
+    page.getByText("Owner mention from inbox").first(),
+  ).toBeVisible();
   await page.getByLabel("Inbox filter").selectOption("agent_activity");
   await expect(page.getByText("No agent updates found")).toBeVisible();
   await page.getByLabel("Inbox filter").selectOption("drafts");
@@ -3491,7 +3518,9 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     )
     .toBe(true);
   await expect(
-    page.getByText(agentReviewerLabel, { exact: true }),
+    page.getByRole("button", {
+      name: `Open ${agentReviewerLabel} profile`,
+    }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Back to pull requests" }).click();
   await page.getByRole("link", { name: "Workflows" }).click();
