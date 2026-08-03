@@ -4,34 +4,26 @@ import {
   ArrowLeft,
   Bell,
   Bot,
-  BookMarked,
   Camera,
   CalendarClock,
   FileStack,
-  FolderKanban,
-  GitFork,
-  Inbox,
   Keyboard,
-  LogOut,
-  MessageSquare,
   MonitorCog,
   ShieldAlert,
   Smile,
   Ticket,
   UserRound,
-  Zap,
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
-import buzzAppIcon from "@/assets/app-icon@3x.png";
 import { OwnerConnection } from "@/features/agents/ui/OwnerConnection";
 import { ChannelTemplatesPanel } from "@/features/channel-templates/ui/ChannelTemplatesPanel";
+import { AppPrimarySidebar } from "@/features/navigation/AppPrimarySidebar";
 import { lockOwnerVault } from "@/features/owner-vault/lib/vault-worker-client";
 import { OwnerBackupPanel } from "@/features/owner-vault/ui/OwnerBackupPanel";
 import { OwnerPasskeysPanel } from "@/features/owner-vault/ui/OwnerPasskeysPanel";
 import { RemindersPanel } from "@/features/reminders/ui/RemindersPanel";
-import { truncatePubkey } from "@/shared/lib/pubkey";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { CommunityMembersPanel } from "./CommunityMembersPanel";
@@ -41,15 +33,14 @@ import { CustomEmojiPanel } from "./CustomEmojiPanel";
 import { KeyboardShortcutsPanel } from "./KeyboardShortcutsPanel";
 import { ModerationPanel } from "./ModerationPanel";
 import { AppearancePanel } from "./AppearancePanel";
+import { NotificationsPanel } from "./NotificationsPanel";
 import {
   getOwnerProfile,
   getUserStatus,
   type ProfileInput,
-  readNotificationSettings,
   updateOwnerProfile,
   setUserStatus,
   uploadAvatar,
-  writeNotificationSettings,
 } from "../settings-api";
 
 type Section =
@@ -101,34 +92,12 @@ function SettingsWorkspace({
   const [section, setSection] = useState<Section>("profile");
   return (
     <div className="flex min-h-dvh bg-background">
-      <aside className="hidden w-60 shrink-0 border-r bg-sidebar p-3 lg:flex lg:flex-col">
-        <div className="flex items-center gap-2 px-2 py-2">
-          <div
-            className="h-8 w-8 overflow-hidden bg-black"
-            style={{ borderRadius: "22.37%" }}
-          >
-            <img alt="" className="h-full w-full" src={buzzAppIcon} />
-          </div>
-          <span className="font-semibold">Buzz</span>
-        </div>
-        <nav className="mt-4 space-y-1 text-sm">
-          <Nav href="/" icon={<Inbox />} label="Inbox" />
-          <Nav href="/repos" icon={<BookMarked />} label="Repositories" />
-          <Nav href="/channels" icon={<MessageSquare />} label="Channels" />
-          <Nav href="/pulse" icon={<Zap />} label="Pulse" />
-          <Nav href="/projects" icon={<FolderKanban />} label="Projects" />
-          <Nav href="/workflows" icon={<GitFork />} label="Workflows" />
-          <Nav href="/agents" icon={<Bot />} label="Agents" />
-        </nav>
-        <button
-          className="mt-auto flex items-center gap-2 border-t px-2 py-3 text-xs text-muted-foreground"
-          onClick={onDisconnect}
-          type="button"
-        >
-          <LogOut className="h-4 w-4" />
-          {truncatePubkey(ownerPubkey)}
-        </button>
-      </aside>
+      <AppPrimarySidebar
+        active="settings"
+        onDisconnect={onDisconnect}
+        ownerPubkey={ownerPubkey}
+        visibleFrom="lg"
+      />
       <aside className="hidden w-52 shrink-0 border-r p-3 md:block">
         <h1 className="px-2 py-3 text-lg font-semibold">Settings</h1>
         <SettingsNav active={section} onSelect={setSection} />
@@ -172,7 +141,9 @@ function SettingsWorkspace({
           {section === "profile" ? (
             <ProfilePanel ownerPubkey={ownerPubkey} />
           ) : null}
-          {section === "notifications" ? <NotificationsPanel /> : null}
+          {section === "notifications" ? (
+            <NotificationsPanel ownerPubkey={ownerPubkey} />
+          ) : null}
           {section === "appearance" ? <AppearancePanel /> : null}
           {section === "shortcuts" ? <KeyboardShortcutsPanel /> : null}
           {section === "agents" ? (
@@ -467,104 +438,6 @@ function UserStatusEditor({
   );
 }
 
-function NotificationsPanel() {
-  const [settings, setSettings] = useState(readNotificationSettings);
-  async function toggleEnabled(enabled: boolean) {
-    if (enabled) {
-      if (!("Notification" in window)) {
-        toast.error("This browser does not support notifications.");
-        return;
-      }
-      const permission = await Notification.requestPermission();
-      if (permission !== "granted") {
-        toast.error("Browser notification permission was not granted.");
-        return;
-      }
-    }
-    const next = { ...settings, enabled };
-    setSettings(next);
-    writeNotificationSettings(next);
-  }
-  return (
-    <Panel
-      title="Notifications"
-      description="Choose when Buzz alerts you outside the active conversation."
-    >
-      <div className="divide-y rounded-md border">
-        <ToggleRow
-          checked={settings.enabled}
-          label="Browser alerts"
-          description="Show native notifications for new workspace messages."
-          onChange={(value) => void toggleEnabled(value)}
-        />
-        <ToggleRow
-          checked={settings.notifyWhileViewing}
-          disabled={!settings.enabled}
-          label="Notify while viewing"
-          description="Alert even when the conversation is open."
-          onChange={(value) => {
-            const next = { ...settings, notifyWhileViewing: value };
-            setSettings(next);
-            writeNotificationSettings(next);
-          }}
-        />
-        <ToggleRow
-          checked={settings.reminderAlerts}
-          disabled={!settings.enabled}
-          label="Reminder alerts"
-          description="Alert when a private reminder becomes due."
-          onChange={(value) => {
-            const next = { ...settings, reminderAlerts: value };
-            setSettings(next);
-            writeNotificationSettings(next);
-          }}
-        />
-        <ToggleRow
-          checked={settings.sound}
-          disabled={!settings.enabled}
-          label="Sound"
-          description="Allow the browser to play notification sounds."
-          onChange={(value) => {
-            const next = { ...settings, sound: value };
-            setSettings(next);
-            writeNotificationSettings(next);
-          }}
-        />
-      </div>
-    </Panel>
-  );
-}
-
-function ToggleRow({
-  checked,
-  disabled,
-  label,
-  description,
-  onChange,
-}: {
-  checked: boolean;
-  disabled?: boolean;
-  label: string;
-  description: string;
-  onChange: (value: boolean) => void;
-}) {
-  return (
-    <label className="flex items-center justify-between gap-4 p-4">
-      <span>
-        <span className="block text-sm font-medium">{label}</span>
-        <span className="block text-sm text-muted-foreground">
-          {description}
-        </span>
-      </span>
-      <input
-        checked={checked}
-        disabled={disabled}
-        type="checkbox"
-        onChange={(event) => onChange(event.target.checked)}
-      />
-    </label>
-  );
-}
 function Panel({
   title,
   description,
@@ -582,32 +455,5 @@ function Panel({
       </header>
       {children}
     </section>
-  );
-}
-function Nav({
-  href,
-  icon,
-  label,
-}: {
-  href:
-    | "/"
-    | "/repos"
-    | "/channels"
-    | "/pulse"
-    | "/projects"
-    | "/workflows"
-    | "/agents"
-    | "/settings";
-  icon: React.ReactNode;
-  label: string;
-}) {
-  return (
-    <Link
-      className="flex items-center gap-2 rounded-md px-2 py-2 text-muted-foreground hover:bg-accent"
-      to={href}
-    >
-      <span className="[&_svg]:h-4 [&_svg]:w-4">{icon}</span>
-      {label}
-    </Link>
   );
 }

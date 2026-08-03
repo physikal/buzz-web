@@ -73,6 +73,7 @@ import { ChannelSidebar } from "./ChannelSidebar";
 import { ChannelFindBar } from "./ChannelFindBar";
 import { ChannelIcon } from "./ChannelIcon";
 import { ChannelsPrimarySidebar } from "./ChannelsPrimarySidebar";
+import { useActiveNotificationChannel } from "./ChannelNotifier";
 import {
   ChannelBrowserDialog,
   ChannelSettingsDialog,
@@ -185,12 +186,13 @@ export function ChannelsWorkspace({
   const { starredChannelIds, setStarred } = useChannelStars(ownerPubkey);
   const { sortModeFor, setSortMode } = useChannelSort(ownerPubkey);
   const channelSections = useChannelSections(ownerPubkey);
-  const { followedRootIds, mutedRootIds, followThread, unfollowThread } =
+  const { followedRootIds, followThread, unfollowThread } =
     useThreadFollows(ownerPubkey);
   const selected =
     channels.find((channel) => channel.id === selectedId) ??
     channels[0] ??
     null;
+  useActiveNotificationChannel(selected?.id ?? null);
   const selectChannel = useCallback((channelId: string) => {
     setSelectedId(channelId);
     setThreadRootId(null);
@@ -250,8 +252,6 @@ export function ChannelsWorkspace({
     channels,
     selectedChannelId: selected?.id ?? null,
     onChannelEvent: handleLiveChannelEvent,
-    mutedChannelIds,
-    mutedRootIds,
   });
 
   const channelIds = useMemo(

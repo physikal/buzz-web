@@ -1,25 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
-import {
-  Bot,
-  BookMarked,
-  FolderKanban,
-  GitFork,
-  Inbox,
-  LogOut,
-  MessageSquare,
-  Plus,
-  RefreshCw,
-  Settings,
-  Zap,
-} from "lucide-react";
+import { Plus, RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
-import buzzAppIcon from "@/assets/app-icon@3x.png";
+import { AppPrimarySidebar } from "@/features/navigation/AppPrimarySidebar";
 import { lockOwnerVault } from "@/features/owner-vault/lib/vault-worker-client";
 import { getAgentDefaults } from "../agent-defaults-api";
-import { truncatePubkey } from "@/shared/lib/pubkey";
 import {
   createAgent,
   deleteAgent,
@@ -325,53 +311,11 @@ function AgentsWorkspace({
   return (
     <div className="flex min-h-dvh bg-background">
       {sidebar.open ? (
-        <aside className="hidden w-60 shrink-0 border-r border-sidebar-border bg-sidebar p-3 sm:flex sm:flex-col">
-          <div className="flex items-center gap-2 px-2 py-2">
-            <div
-              className="h-8 w-8 overflow-hidden bg-black"
-              style={{ borderRadius: "22.37%" }}
-            >
-              <img alt="" className="h-full w-full" src={buzzAppIcon} />
-            </div>
-            <span className="font-semibold">Buzz</span>
-          </div>
-          <nav className="mt-4 space-y-1 text-sm">
-            <Link to="/" className="block">
-              <SidebarItem icon={<Inbox />} label="Inbox" />
-            </Link>
-            <Link to="/repos" className="block">
-              <SidebarItem icon={<BookMarked />} label="Repositories" />
-            </Link>
-            <Link to="/channels" className="block">
-              <SidebarItem icon={<MessageSquare />} label="Channels" />
-            </Link>
-            <Link to="/pulse" className="block">
-              <SidebarItem icon={<Zap />} label="Pulse" />
-            </Link>
-            <Link to="/projects" className="block">
-              <SidebarItem icon={<FolderKanban />} label="Projects" />
-            </Link>
-            <Link to="/workflows" className="block">
-              <SidebarItem icon={<GitFork />} label="Workflows" />
-            </Link>
-            <SidebarItem active icon={<Bot />} label="Agents" />
-            <Link to="/settings" className="block">
-              <SidebarItem icon={<Settings />} label="Settings" />
-            </Link>
-          </nav>
-          <div className="mt-auto border-t border-sidebar-border pt-3">
-            <button
-              className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-xs text-muted-foreground hover:bg-sidebar-accent"
-              onClick={onDisconnect}
-              type="button"
-            >
-              <LogOut className="h-4 w-4" />
-              <span className="min-w-0 flex-1 truncate">
-                {truncatePubkey(ownerPubkey)}
-              </span>
-            </button>
-          </div>
-        </aside>
+        <AppPrimarySidebar
+          active="agents"
+          onDisconnect={onDisconnect}
+          ownerPubkey={ownerPubkey}
+        />
       ) : null}
 
       <main className="min-w-0 flex-1 overflow-y-auto px-4 py-7 sm:px-6 sm:py-8">
@@ -607,25 +551,6 @@ function personaDefaults(
     respondTo: persona.respondTo ?? "owner-only",
     respondToAllowlist: persona.respondToAllowlist,
   };
-}
-
-function SidebarItem({
-  icon,
-  label,
-  active,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  active?: boolean;
-}) {
-  return (
-    <div
-      className={`flex items-center gap-2 rounded-md px-2 py-2 ${active ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground" : "text-muted-foreground"}`}
-    >
-      <span className="[&_svg]:h-4 [&_svg]:w-4">{icon}</span>
-      {label}
-    </div>
-  );
 }
 
 function AgentGridSkeleton() {

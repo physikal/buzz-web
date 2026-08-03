@@ -2,24 +2,17 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import {
   BellRing,
-  BookMarked,
-  Bot,
   CheckCheck,
   FolderKanban,
-  GitFork,
   Inbox,
-  LogOut,
   MessageSquare,
   RefreshCcw,
-  Settings,
-  Zap,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
 
-import buzzAppIcon from "@/assets/app-icon@3x.png";
 import { listAgents } from "@/features/agents/agent-api";
 import { OwnerConnection } from "@/features/agents/ui/OwnerConnection";
 import {
@@ -38,6 +31,8 @@ import {
   subscribeDrafts,
 } from "@/features/channels/draft-store";
 import { lockOwnerVault } from "@/features/owner-vault/lib/vault-worker-client";
+import { AppPrimarySidebar } from "@/features/navigation/AppPrimarySidebar";
+import { readNotificationSettings } from "@/features/settings/notification-settings";
 import {
   cancelReminder,
   completeReminder,
@@ -191,6 +186,14 @@ function HomeWorkspace({
     visibleItems.find((item) => item.id === selectedId) ?? null;
   const selected = explicitlySelected ?? visibleItems[0] ?? null;
   const dueReminderCount = reminders.filter(isDue).length;
+  const inboxBadgeCount = readNotificationSettings(ownerPubkey).homeBadgeEnabled
+    ? items.filter(
+        (item) =>
+          isUnread(item) &&
+          (item.category === "needs_action" ||
+            item.tags.some((tag) => tag[0] === "p" && tag[1] === ownerPubkey)),
+      ).length + dueReminderCount
+    : 0;
   const displayedCount = isDrafts
     ? drafts.length
     : isReminders
@@ -320,7 +323,13 @@ function HomeWorkspace({
   return (
     <div className="flex h-dvh min-h-0 bg-background">
       {sidebar.open ? (
-        <HomeSidebar onDisconnect={onDisconnect} ownerPubkey={ownerPubkey} />
+        <AppPrimarySidebar
+          active="inbox"
+          badgeCount={inboxBadgeCount}
+          onDisconnect={onDisconnect}
+          ownerPubkey={ownerPubkey}
+          visibleFrom="md"
+        />
       ) : null}
       <main className="flex min-w-0 flex-1">
         <section
@@ -728,75 +737,5 @@ function Avatar({
     >
       {compactIdentity.slice(0, 2).toUpperCase()}
     </span>
-  );
-}
-
-function HomeSidebar({
-  ownerPubkey,
-  onDisconnect,
-}: {
-  ownerPubkey: string;
-  onDisconnect: () => void;
-}) {
-  return (
-    <aside className="hidden w-60 shrink-0 border-r bg-sidebar p-3 md:flex md:flex-col">
-      <div className="flex items-center gap-2 px-2 py-2">
-        <div
-          className="h-8 w-8 overflow-hidden bg-black"
-          style={{ borderRadius: "22.37%" }}
-        >
-          <img alt="" className="h-full w-full" src={buzzAppIcon} />
-        </div>
-        <span className="font-semibold">Buzz</span>
-      </div>
-      <nav className="mt-4 space-y-1 text-sm">
-        <HomeNav active icon={<Inbox />} label="Inbox" to="/" />
-        <HomeNav icon={<BookMarked />} label="Repositories" to="/repos" />
-        <HomeNav icon={<MessageSquare />} label="Channels" to="/channels" />
-        <HomeNav icon={<Zap />} label="Pulse" to="/pulse" />
-        <HomeNav icon={<FolderKanban />} label="Projects" to="/projects" />
-        <HomeNav icon={<GitFork />} label="Workflows" to="/workflows" />
-        <HomeNav icon={<Bot />} label="Agents" to="/agents" />
-        <HomeNav icon={<Settings />} label="Settings" to="/settings" />
-      </nav>
-      <button
-        className="mt-auto flex items-center gap-2 border-t px-2 py-3 text-xs text-muted-foreground"
-        onClick={onDisconnect}
-        type="button"
-      >
-        <LogOut className="h-4 w-4" />
-        {truncatePubkey(ownerPubkey)}
-      </button>
-    </aside>
-  );
-}
-
-function HomeNav({
-  to,
-  label,
-  icon,
-  active,
-}: {
-  to:
-    | "/"
-    | "/repos"
-    | "/channels"
-    | "/pulse"
-    | "/projects"
-    | "/workflows"
-    | "/agents"
-    | "/settings";
-  label: string;
-  icon: React.ReactNode;
-  active?: boolean;
-}) {
-  return (
-    <Link
-      className={`flex items-center gap-2 rounded-md px-2 py-2 ${active ? "bg-sidebar-accent font-medium" : "text-muted-foreground hover:bg-sidebar-accent"}`}
-      to={to}
-    >
-      <span className="[&_svg]:h-4 [&_svg]:w-4">{icon}</span>
-      {label}
-    </Link>
   );
 }

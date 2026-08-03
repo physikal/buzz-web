@@ -3,6 +3,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 const FOLLOWS_PREFIX = "buzz-thread-follows.v1";
 const MUTED_PREFIX = "buzz-thread-muted.v1";
 const MAX_ENTRIES = 500;
+export const THREAD_NOTIFICATION_PREFERENCES_EVENT =
+  "buzz-web:thread-notification-preferences";
 
 type FollowEntry = { rootId: string; followedAt: number };
 
@@ -46,10 +48,18 @@ function readMuted(pubkey: string) {
 function writeValue(prefix: string, pubkey: string, value: unknown) {
   try {
     localStorage.setItem(key(prefix, pubkey), JSON.stringify(value));
+    window.dispatchEvent(new Event(THREAD_NOTIFICATION_PREFERENCES_EVENT));
     return true;
   } catch {
     return false;
   }
+}
+
+export function readThreadNotificationPreferences(pubkey: string) {
+  return {
+    followedRootIds: new Set(readFollows(pubkey).map((entry) => entry.rootId)),
+    mutedRootIds: readMuted(pubkey),
+  };
 }
 
 export function useThreadFollows(ownerPubkey: string) {

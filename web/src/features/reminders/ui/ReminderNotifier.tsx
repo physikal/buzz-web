@@ -2,9 +2,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef } from "react";
 
 import {
+  playNotificationSound,
   readNotificationSettings,
   type WebNotificationSettings,
-} from "@/features/settings/settings-api";
+} from "@/features/settings/notification-settings";
 import { listReminders, type Reminder } from "../reminder-api";
 
 const POLL_INTERVAL_MS = 30_000;
@@ -39,8 +40,8 @@ function showReminderNotification(
 ) {
   if (
     reminders.length === 0 ||
-    !settings.enabled ||
-    !settings.reminderAlerts ||
+    !settings.desktopEnabled ||
+    !settings.slotAlertsEnabled.needs_action ||
     !("Notification" in window) ||
     Notification.permission !== "granted"
   )
@@ -56,13 +57,14 @@ function showReminderNotification(
             reminder.content.note ||
             "A reminder is waiting"
           : `${reminders.length} reminders are due`,
-      silent: !settings.sound,
+      silent: true,
       tag:
         reminders.length === 1
           ? `buzz-reminder-${reminder.id}`
           : "buzz-reminders-due",
     },
   );
+  playNotificationSound(settings.sounds.needs_action);
   notification.onclick = () => {
     window.focus();
     const target = reminders.length === 1 ? reminder.content.target : undefined;
@@ -96,7 +98,7 @@ export function ReminderNotifier({
     const watermark = readWatermark(ownerPubkey);
     showReminderNotification(
       dueSince(remindersRef.current, watermark, now),
-      readNotificationSettings(),
+      readNotificationSettings(ownerPubkey),
     );
     localStorage.setItem(watermarkKey(ownerPubkey), String(now));
     void queryClient.invalidateQueries({

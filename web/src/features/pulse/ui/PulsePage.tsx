@@ -1,20 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import {
-  Bot,
-  BookMarked,
-  FolderKanban,
-  GitFork,
   Heart,
   ImagePlus,
-  Inbox,
-  LogOut,
   MessageCircle,
-  MessageSquare,
   PenSquare,
   Search,
   Send,
-  Settings,
   Share2,
   X,
   Zap,
@@ -24,9 +16,9 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
 
-import buzzAppIcon from "@/assets/app-icon@3x.png";
 import { OwnerConnection } from "@/features/agents/ui/OwnerConnection";
 import { openDm } from "@/features/channels/channel-api";
+import { AppPrimarySidebar } from "@/features/navigation/AppPrimarySidebar";
 import { lockOwnerVault } from "@/features/owner-vault/lib/vault-worker-client";
 import { truncatePubkey } from "@/shared/lib/pubkey";
 import { hasPrimaryShortcutModifier } from "@/shared/lib/keyboard-shortcuts";
@@ -105,7 +97,11 @@ function PulseWorkspace({
   return (
     <div className="flex min-h-dvh bg-background">
       {sidebar.open ? (
-        <PulseNav ownerPubkey={ownerPubkey} onDisconnect={onDisconnect} />
+        <AppPrimarySidebar
+          active="pulse"
+          onDisconnect={onDisconnect}
+          ownerPubkey={ownerPubkey}
+        />
       ) : null}
       <main className="min-w-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-2xl px-4 pb-12 sm:px-6">
@@ -555,74 +551,4 @@ function emptyText(tab: PulseTab, search: string) {
     agents: "No agent notes yet.",
     mine: "You haven't posted any notes yet.",
   }[tab];
-}
-
-function PulseNav({
-  ownerPubkey,
-  onDisconnect,
-}: {
-  ownerPubkey: string;
-  onDisconnect: () => void;
-}) {
-  return (
-    <aside className="hidden w-60 shrink-0 border-r bg-sidebar p-3 sm:flex sm:flex-col">
-      <div className="flex items-center gap-2 px-2 py-2">
-        <div
-          className="h-8 w-8 overflow-hidden bg-black"
-          style={{ borderRadius: "22.37%" }}
-        >
-          <img alt="" className="h-full w-full" src={buzzAppIcon} />
-        </div>
-        <span className="font-semibold">Buzz</span>
-      </div>
-      <nav className="mt-4 space-y-1 text-sm">
-        <Nav to="/" icon={<Inbox />} label="Inbox" />
-        <Nav to="/repos" icon={<BookMarked />} label="Repositories" />
-        <Nav to="/channels" icon={<MessageSquare />} label="Channels" />
-        <Nav to="/pulse" icon={<Zap />} label="Pulse" active />
-        <Nav to="/projects" icon={<FolderKanban />} label="Projects" />
-        <Nav to="/workflows" icon={<GitFork />} label="Workflows" />
-        <Nav to="/agents" icon={<Bot />} label="Agents" />
-        <Nav to="/settings" icon={<Settings />} label="Settings" />
-      </nav>
-      <button
-        className="mt-auto flex items-center gap-2 border-t px-2 py-3 text-xs text-muted-foreground"
-        onClick={onDisconnect}
-        type="button"
-      >
-        <LogOut className="h-4 w-4" />
-        {truncatePubkey(ownerPubkey)}
-      </button>
-    </aside>
-  );
-}
-
-function Nav({
-  to,
-  icon,
-  label,
-  active = false,
-}: {
-  to:
-    | "/"
-    | "/repos"
-    | "/channels"
-    | "/pulse"
-    | "/projects"
-    | "/workflows"
-    | "/agents"
-    | "/settings";
-  icon: React.ReactNode;
-  label: string;
-  active?: boolean;
-}) {
-  return (
-    <Link
-      className={`flex items-center gap-2 rounded-md px-2 py-2 ${active ? "bg-accent font-medium" : "text-muted-foreground hover:bg-accent"}`}
-      to={to}
-    >
-      <span className="[&_svg]:h-4 [&_svg]:w-4">{icon}</span>
-      {label}
-    </Link>
-  );
 }

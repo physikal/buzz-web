@@ -12,6 +12,7 @@ const KIND = 30078;
 const D_TAG = "channel-mutes";
 const STORAGE_PREFIX = "buzz-channel-mutes.v1";
 const DEBOUNCE_MS = 2_000;
+export const CHANNEL_MUTES_UPDATED_EVENT = "buzz-web:channel-mutes-updated";
 
 type MuteEntry = { muted: boolean; updatedAt: number };
 type MuteStore = { version: 1; channels: Record<string, MuteEntry> };
@@ -58,6 +59,15 @@ function readStore(pubkey: string): MuteStore {
 
 function writeStore(pubkey: string, store: MuteStore) {
   localStorage.setItem(storageKey(pubkey), JSON.stringify(store));
+  window.dispatchEvent(new Event(CHANNEL_MUTES_UPDATED_EVENT));
+}
+
+export function readMutedChannelIds(pubkey: string) {
+  return new Set(
+    Object.entries(readStore(pubkey).channels)
+      .filter(([, entry]) => entry.muted)
+      .map(([id]) => id),
+  );
 }
 
 function mergeStores(left: MuteStore, right: MuteStore): MuteStore {

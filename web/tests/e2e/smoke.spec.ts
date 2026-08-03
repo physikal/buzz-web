@@ -39,7 +39,38 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   page,
 }) => {
   test.setTimeout(150_000);
-  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"], {
+    origin: testOrigin,
+  });
+  await page.addInitScript(() => {
+    class TestNotification {
+      static permission: NotificationPermission = "granted";
+      static requestPermission = async () => "granted" as const;
+      onclick: (() => void) | null = null;
+      constructor(title: string, options?: NotificationOptions) {
+        const testWindow = window as typeof window & {
+          __buzzTestLastNotification?: TestNotification;
+          __buzzTestNotifications?: Array<{
+            body?: string;
+            tag?: string;
+            title: string;
+          }>;
+        };
+        testWindow.__buzzTestLastNotification = this;
+        testWindow.__buzzTestNotifications ??= [];
+        testWindow.__buzzTestNotifications.push({
+          body: options?.body,
+          tag: options?.tag,
+          title,
+        });
+      }
+      close() {}
+    }
+    Object.defineProperty(window, "Notification", {
+      configurable: true,
+      value: TestNotification,
+    });
+  });
   const cdp = await page.context().newCDPSession(page);
   await cdp.send("WebAuthn.enable");
   const { authenticatorId } = await cdp.send(
@@ -89,6 +120,9 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     content: string;
     tags: string[][];
   }> = [];
+  let sendLiveChannelEvent:
+    | ((event: (typeof submittedEvents)[number]) => void)
+    | null = null;
   let capturedSearchFilter: Record<string, unknown> | null = null;
   let addedCredentialCount = 0;
   let claimedCredential: {
@@ -804,8 +838,22 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
           const requestFilters = frame.slice(2) as Array<{
             kinds?: number[];
             "#h"?: string[];
+            limit?: number;
+            since?: number;
           }>;
           const filters = JSON.stringify(requestFilters);
+          if (
+            requestFilters.some(
+              (filter) =>
+                typeof filter.since === "number" &&
+                filter.limit === undefined &&
+                filter.kinds?.length === 6 &&
+                filter.kinds.includes(9),
+            )
+          ) {
+            sendLiveChannelEvent = (event) =>
+              socket.send(JSON.stringify(["EVENT", subscriptionId, event]));
+          }
           const signer = catalogSecret;
           const createdAt = Math.floor(Date.now() / 1000) - 60;
           if (filters.includes("39000")) {
@@ -2144,6 +2192,87 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   );
   expect(getPublicKey(restoredOwnerKey)).toBe(ownerPubkey);
   restoredOwnerKey.fill(0);
+  await page.getByRole("button", { name: "Notifications" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Notifications" }),
+  ).toBeVisible();
+  await page.getByRole("checkbox", { name: /Browser alerts/u }).check();
+  await page.getByLabel("@Mentions sound").selectOption("ping");
+  await page.getByRole("checkbox", { name: "Thread replies alerts" }).uncheck();
+  await page.getByRole("button", { name: "View all" }).click();
+  await expect(page.getByText("Agent: job accepted")).toBeVisible();
+  const appNavigation = page.getByRole("complementary", {
+    name: "App navigation",
+  });
+  await expect(
+    appNavigation.getByRole("status", { name: /unread Inbox items/u }),
+  ).toBeVisible();
+  const inboxBadgeSetting = page.getByRole("checkbox", {
+    name: "Inbox badge",
+  });
+  await inboxBadgeSetting.uncheck();
+  await expect(
+    appNavigation.getByRole("status", { name: /unread Inbox items/u }),
+  ).toHaveCount(0);
+  await inboxBadgeSetting.check();
+  await expect(
+    appNavigation.getByRole("status", { name: /unread Inbox items/u }),
+  ).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate((pubkey) => {
+        const raw = localStorage.getItem(
+          `buzz-notification-settings.v2:${pubkey}`,
+        );
+        return raw ? JSON.parse(raw) : null;
+      }, ownerPubkey),
+    )
+    .toMatchObject({
+      desktopEnabled: true,
+      homeBadgeEnabled: true,
+      sounds: { mention: "ping" },
+      slotAlertsEnabled: { thread_reply: false },
+    });
+  await expect.poll(() => sendLiveChannelEvent !== null).toBe(true);
+  const liveMention = finalizeEvent(
+    {
+      kind: 9,
+      created_at: Math.floor(Date.now() / 1_000),
+      content: "A live mention while viewing Settings",
+      tags: [
+        ["h", "44444444-4444-4444-8444-444444444444"],
+        ["p", ownerPubkey],
+      ],
+    },
+    catalogSecret,
+  );
+  sendLiveChannelEvent?.(liveMention);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (
+            window as typeof window & {
+              __buzzTestNotifications?: Array<{ body?: string }>;
+            }
+          ).__buzzTestNotifications?.some(
+            (notification) =>
+              notification.body === "A live mention while viewing Settings",
+          ) ?? false,
+      ),
+    )
+    .toBe(true);
+  await page.evaluate(() => {
+    (
+      window as typeof window & {
+        __buzzTestLastNotification?: { onclick: (() => void) | null };
+      }
+    ).__buzzTestLastNotification?.onclick?.();
+  });
+  await expect(page).toHaveURL(
+    new RegExp(`/channels\\?channel=.*&message=${liveMention.id}`),
+  );
+  await page.getByRole("link", { name: "Settings" }).click();
   await page.getByRole("button", { name: "Appearance" }).click();
   await expect(page.getByRole("heading", { name: "Appearance" })).toBeVisible();
   await expect(page.getByTestId("theme-pair-buzz")).toBeVisible();

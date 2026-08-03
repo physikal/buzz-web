@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { readNotificationSettings } from "@/features/settings/settings-api";
 import {
   queryEvents,
   subscribeEvents,
@@ -80,15 +79,11 @@ export function useLiveChannels({
   channels,
   selectedChannelId,
   onChannelEvent,
-  mutedChannelIds,
-  mutedRootIds,
 }: {
   ownerPubkey: string;
   channels: Channel[];
   selectedChannelId: string | null;
   onChannelEvent: (channelId: string) => void;
-  mutedChannelIds?: ReadonlySet<string>;
-  mutedRootIds?: ReadonlySet<string>;
 }) {
   const [status, setStatus] = useState<RelayLiveStatus>("connecting");
   const [activity, setActivity] = useState<Activity>({});
@@ -199,51 +194,11 @@ export function useLiveChannels({
           if (channelId === selectedChannelId && !document.hidden)
             managerRef.current?.markRead(channelId, event.created_at);
         }
-        if (CONTENT_KINDS.includes(event.kind)) {
-          const settings = readNotificationSettings();
-          const directlyMentioned = event.tags.some(
-            (tag) => tag[0] === "p" && tag[1] === ownerPubkey,
-          );
-          const rootId =
-            event.tags.find(
-              (tag) => tag[0] === "e" && tag[3] === "root",
-            )?.[1] ?? null;
-          const shouldNotify =
-            settings.enabled &&
-            (channelId !== selectedChannelId || settings.notifyWhileViewing) &&
-            event.pubkey !== ownerPubkey &&
-            (!mutedChannelIds?.has(channelId) || directlyMentioned) &&
-            (!rootId || !mutedRootIds?.has(rootId) || directlyMentioned) &&
-            typeof Notification !== "undefined" &&
-            Notification.permission === "granted";
-          if (shouldNotify) {
-            const channel = channels.find((item) => item.id === channelId);
-            const notification = new Notification(
-              channel?.channelType === "dm"
-                ? channel.name
-                : `#${channel?.name ?? "Buzz"}`,
-              {
-                body: event.content.slice(0, 240),
-                silent: !settings.sound,
-                tag: event.id,
-              },
-            );
-            notification.onclick = () => window.focus();
-          }
-        }
       },
       { requireNip07: true, onStatus: setStatus },
     );
     return subscription.close;
-  }, [
-    channelIds,
-    channels,
-    mutedChannelIds,
-    mutedRootIds,
-    onChannelEvent,
-    ownerPubkey,
-    selectedChannelId,
-  ]);
+  }, [channelIds, onChannelEvent, selectedChannelId]);
 
   const unread = useMemo(() => {
     const result: Record<string, number> = {};
