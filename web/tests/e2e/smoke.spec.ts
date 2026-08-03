@@ -3753,6 +3753,29 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   );
   await page.keyboard.press("Escape");
   await expect(deleteAgentDialog).toBeHidden();
+  await stoppedAgentCard
+    .getByRole("button", { name: "Snapshot auditor agent profile" })
+    .click();
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get("profile"))
+    .toBe(agentPubkey);
+  const agentProfile = page.getByRole("dialog", {
+    name: "Snapshot auditor profile",
+  });
+  await expect(agentProfile).toBeVisible();
+  for (const action of ["Follow", "Message", "Edit", "Start"]) {
+    await expect(
+      agentProfile.getByRole("button", { name: action, exact: true }),
+    ).toBeVisible();
+  }
+  await agentProfile.getByRole("button", { name: "Close" }).click();
+  await expect
+    .poll(() => new URL(page.url()).searchParams.has("profile"))
+    .toBe(false);
+  await page.goBack();
+  await expect(agentProfile).toBeVisible();
+  await page.goForward();
+  await expect(agentProfile).toBeHidden();
   await page.getByRole("button", { name: "Agent catalog" }).click();
   await expect(
     page.getByRole("heading", { name: "Agent catalog" }),

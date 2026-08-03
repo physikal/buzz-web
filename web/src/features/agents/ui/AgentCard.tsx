@@ -29,6 +29,7 @@ export function AgentCard({
   onDelete,
   onEdit,
   onExport,
+  onOpenProfile,
   onViewActivity,
   onViewMemory,
   onViewLogs,
@@ -41,6 +42,7 @@ export function AgentCard({
   onDelete: () => void;
   onEdit: () => void;
   onExport: () => void;
+  onOpenProfile: () => void;
   onViewActivity: () => void;
   onViewMemory: () => void;
   onViewLogs: () => void;
@@ -66,7 +68,7 @@ export function AgentCard({
               <TooltipTrigger asChild>
                 <button
                   aria-label={`Start ${agent.name}`}
-                  className="absolute inset-0 flex items-center justify-center rounded-full bg-black/0 text-transparent transition-colors hover:bg-black/45 hover:text-white"
+                  className="absolute inset-0 z-20 flex items-center justify-center rounded-full bg-black/0 text-transparent transition-colors hover:bg-black/45 hover:text-white"
                   disabled={pending}
                   onClick={() =>
                     agent.credential_mode === "subscription"
@@ -203,7 +205,12 @@ export function AgentCard({
         ) : null}
       </div>
 
-      <div className="absolute right-3 bottom-3 left-3 flex min-w-0 flex-col gap-0.5 text-left text-sm leading-5">
+      <button
+        aria-label={`${agent.name} agent profile`}
+        className="absolute right-3 bottom-3 left-3 z-10 flex min-w-0 flex-col gap-0.5 rounded-md text-left text-sm leading-5 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+        onClick={onOpenProfile}
+        type="button"
+      >
         <span className="truncate font-semibold">{agent.name}</span>
         <span className="truncate text-xs text-secondary-foreground/75">
           {agent.model || runtimeDisplayName(agent.runtime)}
@@ -221,7 +228,7 @@ export function AgentCard({
             {status}
           </span>
         )}
-      </div>
+      </button>
     </article>
   );
 }

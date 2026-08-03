@@ -1,4 +1,14 @@
-import { Bot, Copy, MessageCircle, UserMinus, UserPlus, X } from "lucide-react";
+import {
+  Bot,
+  Copy,
+  MessageCircle,
+  Pencil,
+  Play,
+  Square,
+  UserMinus,
+  UserPlus,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import type { UserProfile } from "@/features/channels/channel-api";
@@ -38,6 +48,10 @@ export function UserProfileDialog({
   following,
   followPending = false,
   onToggleFollow,
+  agentRunning,
+  agentActionPending = false,
+  onEditAgent,
+  onToggleAgentState,
 }: {
   pubkey: string | null;
   ownerPubkey: string;
@@ -50,6 +64,10 @@ export function UserProfileDialog({
   following?: boolean;
   followPending?: boolean;
   onToggleFollow?: () => void;
+  agentRunning?: boolean;
+  agentActionPending?: boolean;
+  onEditAgent?: () => void;
+  onToggleAgentState?: () => void;
 }) {
   useEscapeSurface(Boolean(pubkey), onClose);
   if (!pubkey) return null;
@@ -159,6 +177,22 @@ export function UserProfileDialog({
               <MessageCircle />
               Message
             </Button>
+            {onEditAgent ? (
+              <Button onClick={onEditAgent} variant="outline">
+                <Pencil />
+                Edit
+              </Button>
+            ) : null}
+            {onToggleAgentState ? (
+              <Button
+                disabled={agentActionPending}
+                onClick={onToggleAgentState}
+                variant="outline"
+              >
+                {agentRunning ? <Square /> : <Play />}
+                {agentRunning ? "Stop" : "Start"}
+              </Button>
+            ) : null}
           </div>
         ) : null}
       </div>

@@ -1,10 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import { Plus, RefreshCw } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import { listProfiles, openDm } from "@/features/channels/channel-api";
 import { AppPrimarySidebar } from "@/features/navigation/AppPrimarySidebar";
 import { lockOwnerVault } from "@/features/owner-vault/lib/vault-worker-client";
+import { useWorkspacePresence } from "@/features/presence/use-presence";
+import { UserProfileDialog } from "@/features/profile/UserProfileDialog";
+import { useProfileFollow } from "@/features/profile/profile-follow";
 import { getAgentDefaults } from "../agent-defaults-api";
 import {
   createAgent,
@@ -109,7 +114,13 @@ const PREVIEW_CHANNELS = [
   },
 ];
 
-export function AgentsPage() {
+export function AgentsPage({
+  initialProfilePubkey,
+  onProfileChange,
+}: {
+  initialProfilePubkey?: string;
+  onProfileChange?: (pubkey: string | null) => void;
+} = {}) {
   const previewMode = import.meta.env.DEV
     ? new URLSearchParams(window.location.search).get("preview")
     : null;
@@ -135,6 +146,8 @@ export function AgentsPage() {
   return (
     <AgentsWorkspace
       ownerPubkey={ownerPubkey}
+      initialProfilePubkey={initialProfilePubkey}
+      onProfileChange={onProfileChange}
       preview={preview}
       createOpen={createOpen}
       onCreateOpenChange={setCreateOpen}
@@ -148,18 +161,35 @@ export function AgentsPage() {
 
 function AgentsWorkspace({
   ownerPubkey,
+  initialProfilePubkey,
+  onProfileChange,
   preview,
   createOpen,
   onCreateOpenChange,
   onDisconnect,
 }: {
   ownerPubkey: string;
+  initialProfilePubkey?: string;
+  onProfileChange?: (pubkey: string | null) => void;
   preview: boolean;
   createOpen: boolean;
   onCreateOpenChange: (open: boolean) => void;
   onDisconnect: () => void;
 }) {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const [profilePubkey, setProfilePubkey] = useState<string | null>(
+    initialProfilePubkey ?? null,
+  );
+  useEffect(
+    () => setProfilePubkey(initialProfilePubkey ?? null),
+    [initialProfilePubkey],
+  );
+  const selectProfile = (pubkey: string | null) => {
+    if (pubkey === profilePubkey) return;
+    setProfilePubkey(pubkey);
+    onProfileChange?.(pubkey);
+  };
   const [agentToAddToChannel, setAgentToAddToChannel] =
     useState<ManagedAgent | null>(() =>
       new URLSearchParams(window.location.search).get("preview") ===
@@ -189,6 +219,21 @@ function AgentsWorkspace({
     staleTime: Number.POSITIVE_INFINITY,
     retry: false,
   });
+  const profileQuery = useQuery({
+    queryKey: ["profiles", profilePubkey ?? ""],
+    queryFn: () => listProfiles(profilePubkey ? [profilePubkey] : []),
+    enabled: Boolean(profilePubkey),
+    staleTime: 60_000,
+  });
+  const profile = profileQuery.data?.find(
+    (candidate) => candidate.pubkey === profilePubkey,
+  );
+  const profilePubkeys = useMemo(
+    () => (profilePubkey ? [profilePubkey] : []),
+    [profilePubkey],
+  );
+  const { presence, userStatuses } = useWorkspacePresence(profilePubkeys);
+  const profileFollow = useProfileFollow(ownerPubkey, profilePubkey);
   const defaultsQuery = useQuery({
     queryKey: ["agent-defaults", ownerPubkey],
     queryFn: () => getAgentDefaults(ownerPubkey),
@@ -291,6 +336,15 @@ function AgentsWorkspace({
     onError: (error) =>
       toast.error("Could not update agent", { description: error.message }),
   });
+  const profileDmMutation = useMutation({
+    mutationFn: (pubkey: string) => openDm([pubkey]),
+    onSuccess: (channelId) =>
+      navigate({ to: "/channels", search: { channel: channelId } }),
+    onError: (error) =>
+      toast.error("Could not open direct message", {
+        description: error.message,
+      }),
+  });
 
   function replaceAgent(updated: ManagedAgent) {
     queryClient.setQueryData<ManagedAgent[]>(
@@ -301,6 +355,15 @@ function AgentsWorkspace({
   }
 
   const agents = agentsQuery.data ?? [];
+  const profileAgent = agents.find(
+    (agent) => agent.agent_pubkey === profilePubkey,
+  );
+  const profileAgentRunning = Boolean(
+    profileAgent &&
+      ["pending", "starting", "running", "stopping"].includes(
+        profileAgent.observed_state,
+      ),
+  );
   const pending =
     createMutation.isPending ||
     stateMutation.isPending ||
@@ -366,6 +429,7 @@ function AgentsWorkspace({
                     onDelete={() => setAgentToDelete(agent)}
                     onEdit={() => setAgentToEdit(agent)}
                     onExport={() => setAgentToExport(agent)}
+                    onOpenProfile={() => selectProfile(agent.agent_pubkey)}
                     onViewActivity={() => setAgentActivity(agent)}
                     onViewMemory={() => setAgentToInspect(agent)}
                     onViewLogs={() => setAgentLog(agent)}
@@ -502,6 +566,44 @@ function AgentsWorkspace({
         onClose={() => setAgentActivity(null)}
       />
       <AgentLogDialog agent={agentLog} onClose={() => setAgentLog(null)} />
+      <UserProfileDialog
+        agentActionPending={stateMutation.isPending}
+        agentName={profileAgent?.name}
+        agentRunning={profileAgentRunning}
+        following={profileFollow.following}
+        followPending={profileFollow.pending}
+        onClose={() => selectProfile(null)}
+        onEditAgent={
+          profileAgent && !profileAgentRunning
+            ? () => {
+                selectProfile(null);
+                setAgentToEdit(profileAgent);
+              }
+            : undefined
+        }
+        onMessage={(pubkey) => profileDmMutation.mutate(pubkey)}
+        onToggleAgentState={
+          profileAgent
+            ? () => {
+                if (profileAgentRunning) {
+                  stateMutation.mutate({ id: profileAgent.id, running: false });
+                } else if (profileAgent.credential_mode === "subscription") {
+                  setAgentToAuthenticate(profileAgent);
+                } else {
+                  stateMutation.mutate({ id: profileAgent.id, running: true });
+                }
+              }
+            : undefined
+        }
+        onToggleFollow={profileFollow.toggle}
+        ownerPubkey={ownerPubkey}
+        presence={
+          profilePubkey ? (presence.get(profilePubkey) ?? "offline") : "offline"
+        }
+        profile={profile}
+        pubkey={profilePubkey}
+        userStatus={profilePubkey ? userStatuses.get(profilePubkey) : undefined}
+      />
       <DestructiveConfirmDialog
         confirmLabel="Delete agent"
         description={
