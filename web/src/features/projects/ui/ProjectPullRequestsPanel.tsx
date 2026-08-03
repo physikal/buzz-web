@@ -30,6 +30,7 @@ import {
   type CreatePullRequestInput,
 } from "./CreatePullRequestDialog";
 import { ProjectPullRequestFilesChangedPanel } from "./ProjectPullRequestFilesChangedPanel";
+import { ProjectPullRequestMetaRail } from "./ProjectPullRequestMetaRail";
 import { PullRequestReviewControls } from "./PullRequestReviewControls";
 
 export function ProjectPullRequestsPanel({
@@ -261,118 +262,116 @@ function PullRequestDetail({
       >
         ← Back to pull requests
       </button>
-      <header className="mt-5 border-b pb-5">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <p className="text-xs text-muted-foreground">
-              Pull request · #{pullRequest.id.slice(0, 8)}
+      <div className="mt-5 grid overflow-hidden rounded-md border xl:grid-cols-[minmax(0,1fr)_18rem]">
+        <div className="min-w-0">
+          <header className="border-b p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-xs text-muted-foreground">
+                  Pull request · #{pullRequest.id.slice(0, 8)}
+                </p>
+                <h2 className="mt-1 text-2xl font-semibold">
+                  {pullRequest.title}
+                </h2>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {canUpdate ? (
+                  <Button
+                    disabled={updateMutation.isPending}
+                    onClick={() => updateMutation.mutate()}
+                    size="sm"
+                    variant="outline"
+                  >
+                    <RefreshCw />
+                    {updateMutation.isPending ? "Updating..." : "Update PR"}
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+            <p className="mt-3 text-sm text-muted-foreground">
+              {pullRequest.branchName ?? "unknown"} →{" "}
+              {pullRequest.targetBranch ?? "main"}
+              {pullRequest.commit ? ` · ${pullRequest.commit.slice(0, 7)}` : ""}
+              {pullRequest.mergeCommit
+                ? ` · merged as ${pullRequest.mergeCommit.slice(0, 7)}`
+                : ""}
             </p>
-            <h2 className="mt-1 text-2xl font-semibold">{pullRequest.title}</h2>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {canUpdate ? (
-              <Button
-                disabled={updateMutation.isPending}
-                onClick={() => updateMutation.mutate()}
-                size="sm"
-                variant="outline"
-              >
-                <RefreshCw />
-                {updateMutation.isPending ? "Updating..." : "Update PR"}
-              </Button>
+            {pullRequest.content ? (
+              <p className="mt-5 whitespace-pre-wrap text-sm leading-6">
+                {pullRequest.content}
+              </p>
             ) : null}
-            {canManage ? (
-              <select
-                aria-label={`Status for ${pullRequest.title}`}
-                className="h-9 rounded-md border bg-background px-3 text-sm"
-                disabled={statusMutation.isPending}
-                value={pullRequest.status}
-                onChange={(event) =>
-                  statusMutation.mutate(
-                    event.target.value as ProjectPullRequestLifecycleStatus,
-                  )
-                }
-              >
-                <option value="open">Open</option>
-                <option value="draft">Draft</option>
-                <option value="closed">Closed</option>
-              </select>
-            ) : null}
+          </header>
+          <div className="flex gap-1 overflow-x-auto border-b px-4 py-2">
+            {(["conversation", "commits", "checks", "files"] as const).map(
+              (value) => (
+                <Button
+                  className="shrink-0"
+                  key={value}
+                  onClick={() => setMode(value)}
+                  size="sm"
+                  variant={mode === value ? "secondary" : "ghost"}
+                >
+                  {value === "conversation"
+                    ? `Conversation ${pullRequest.comments.length}`
+                    : value === "commits"
+                      ? `Commits ${pullRequest.updates.length + 1}`
+                      : value === "checks"
+                        ? "Checks 0"
+                        : `Files changed ${diffQuery.data?.files.length ?? 0}`}
+                </Button>
+              ),
+            )}
           </div>
+          {mode === "conversation" ? (
+            <>
+              <PullRequestReviewControls
+                onUpdated={onUpdated}
+                ownerPubkey={ownerPubkey}
+                project={project}
+                pullRequest={pullRequest}
+              />
+              <PullRequestConversation
+                comment={comment}
+                commentPending={commentMutation.isPending}
+                pullRequest={pullRequest}
+                onCommentChange={setComment}
+                onCommentSubmit={() => commentMutation.mutate()}
+                onOpenFiles={(anchor) => {
+                  setFocusedAnchor(anchor);
+                  setMode("files");
+                }}
+              />
+            </>
+          ) : mode === "commits" ? (
+            <PullRequestCommits pullRequest={pullRequest} />
+          ) : mode === "checks" ? (
+            <p className="p-4 text-sm text-muted-foreground">
+              No checks have been reported for this pull request yet.
+            </p>
+          ) : (
+            <ProjectPullRequestFilesChangedPanel
+              diff={diffQuery.data}
+              error={diffQuery.error}
+              focusedAnchor={focusedAnchor}
+              isLoading={diffQuery.isLoading}
+              onUpdated={onUpdated}
+              ownerPubkey={ownerPubkey}
+              project={project}
+              pullRequest={pullRequest}
+            />
+          )}
         </div>
-        <p className="mt-3 text-sm text-muted-foreground">
-          {pullRequest.branchName ?? "unknown"} →{" "}
-          {pullRequest.targetBranch ?? "main"}
-          {pullRequest.commit ? ` · ${pullRequest.commit.slice(0, 7)}` : ""}
-          {pullRequest.mergeCommit
-            ? ` · merged as ${pullRequest.mergeCommit.slice(0, 7)}`
-            : ""}
-        </p>
-        {pullRequest.content ? (
-          <p className="mt-5 whitespace-pre-wrap text-sm leading-6">
-            {pullRequest.content}
-          </p>
-        ) : null}
-      </header>
-      <div className="flex gap-1 overflow-x-auto border-b py-2">
-        {(["conversation", "commits", "checks", "files"] as const).map(
-          (value) => (
-            <Button
-              className="shrink-0"
-              key={value}
-              onClick={() => setMode(value)}
-              size="sm"
-              variant={mode === value ? "secondary" : "ghost"}
-            >
-              {value === "conversation"
-                ? `Conversation ${pullRequest.comments.length}`
-                : value === "commits"
-                  ? `Commits ${pullRequest.updates.length + 1}`
-                  : value === "checks"
-                    ? "Checks 0"
-                    : `Files changed ${diffQuery.data?.files.length ?? 0}`}
-            </Button>
-          ),
-        )}
-      </div>
-      {mode === "conversation" ? (
-        <>
-          <PullRequestReviewControls
-            onUpdated={onUpdated}
-            ownerPubkey={ownerPubkey}
-            project={project}
-            pullRequest={pullRequest}
-          />
-          <PullRequestConversation
-            comment={comment}
-            commentPending={commentMutation.isPending}
-            pullRequest={pullRequest}
-            onCommentChange={setComment}
-            onCommentSubmit={() => commentMutation.mutate()}
-            onOpenFiles={(anchor) => {
-              setFocusedAnchor(anchor);
-              setMode("files");
-            }}
-          />
-        </>
-      ) : mode === "commits" ? (
-        <PullRequestCommits pullRequest={pullRequest} />
-      ) : mode === "checks" ? (
-        <p className="py-8 text-sm text-muted-foreground">
-          No checks have been reported for this pull request yet.
-        </p>
-      ) : (
-        <ProjectPullRequestFilesChangedPanel
-          diff={diffQuery.data}
-          error={diffQuery.error}
-          focusedAnchor={focusedAnchor}
-          isLoading={diffQuery.isLoading}
+        <ProjectPullRequestMetaRail
+          canManage={canManage}
+          onStatusChange={(status) => statusMutation.mutate(status)}
           onUpdated={onUpdated}
           ownerPubkey={ownerPubkey}
           project={project}
           pullRequest={pullRequest}
+          statusPending={statusMutation.isPending}
         />
-      )}
+      </div>
     </section>
   );
 }
@@ -393,7 +392,7 @@ function PullRequestConversation({
   onOpenFiles: (anchor: ProjectPullRequestCommentAnchor) => void;
 }) {
   return (
-    <div className="py-6">
+    <div className="px-4 py-6">
       <h3 className="text-lg font-semibold">
         {pullRequest.comments.length}{" "}
         {pullRequest.comments.length === 1 ? "comment" : "comments"}
@@ -485,7 +484,7 @@ function PullRequestCommits({
     ...pullRequest.updates,
   ];
   return (
-    <div className="mt-6 divide-y rounded-md border">
+    <div className="m-4 divide-y rounded-md border">
       {commits.map((commit) => (
         <article className="flex items-start gap-3 p-4" key={commit.id}>
           <GitCommitHorizontal className="mt-0.5 h-4 w-4 text-muted-foreground" />

@@ -2643,6 +2643,27 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await expect(
     page.getByRole("button", { name: "Back to pull requests" }),
   ).toBeVisible();
+  const pullRequestMetaRail = page.getByRole("complementary", {
+    name: "Pull request metadata",
+  });
+  await expect(
+    pullRequestMetaRail.getByRole("heading", { name: "Status" }),
+  ).toBeVisible();
+  await expect(
+    pullRequestMetaRail.getByRole("heading", { name: "Reviewers" }),
+  ).toBeVisible();
+  await expect(
+    pullRequestMetaRail.getByRole("heading", { name: "Author" }),
+  ).toBeVisible();
+  await expect(
+    pullRequestMetaRail.getByRole("heading", { name: "Branches" }),
+  ).toBeVisible();
+  await expect(
+    pullRequestMetaRail.getByRole("heading", { name: "Activity" }),
+  ).toBeVisible();
+  await expect(
+    pullRequestMetaRail.getByRole("button", { name: "Add reviewer" }),
+  ).toHaveCount(0);
   await expect(page.getByText("feature/web-parity → main")).toBeVisible();
   await expect(page.getByText("abababa", { exact: false })).toBeVisible();
   await expect(page.getByText("cdcdcdc", { exact: false })).toHaveCount(0);
@@ -2741,6 +2762,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     page.getByText("No checks have been reported for this pull request yet."),
   ).toBeVisible();
   await page.getByRole("button", { name: "Conversation" }).click();
+  await expect(page.getByText("Comment posted")).toBeHidden({ timeout: 6_000 });
   await page.screenshot({ path: "/tmp/buzz-web-project-pr.png" });
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(
@@ -2751,6 +2773,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
       () => document.documentElement.scrollWidth <= window.innerWidth,
     ),
   ).toBe(true);
+  await expect(pullRequestMetaRail).toBeVisible();
   await page.screenshot({ path: "/tmp/buzz-web-project-pr-mobile.png" });
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.getByRole("button", { name: "Back to pull requests" }).click();

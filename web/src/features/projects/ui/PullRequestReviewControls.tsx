@@ -32,12 +32,7 @@ export function PullRequestReviewControls({
     "approve" | "request-changes" | null
   >(null);
   const [summary, setSummary] = useState("");
-  const [reviewerOpen, setReviewerOpen] = useState(false);
-  const [reviewerSearch, setReviewerSearch] = useState("");
   const viewer = ownerPubkey.toLowerCase();
-  const canRequestReview =
-    viewer === project.owner.toLowerCase() ||
-    viewer === pullRequest.author.toLowerCase();
   const canReview = canReviewProjectPullRequest(
     project,
     pullRequest,
@@ -46,34 +41,6 @@ export function PullRequestReviewControls({
   const hasApproved = pullRequest.approvals.some(
     (approval) => approval.author.toLowerCase() === viewer,
   );
-  const membershipQuery = useQuery({
-    queryKey: ["community-membership", ownerPubkey],
-    queryFn: () => getCommunityMembership(ownerPubkey),
-    enabled: canRequestReview && reviewerOpen,
-    staleTime: 30_000,
-  });
-  const existingReviewers = useMemo(
-    () => new Set(pullRequest.reviewers.map((pubkey) => pubkey.toLowerCase())),
-    [pullRequest.reviewers],
-  );
-  const candidates = useMemo(() => {
-    const search = reviewerSearch.trim().toLowerCase();
-    return (membershipQuery.data?.members ?? []).filter((member) => {
-      const label = member.profile?.displayName?.trim() ?? "";
-      return (
-        member.pubkey !== pullRequest.author.toLowerCase() &&
-        !existingReviewers.has(member.pubkey) &&
-        (!search ||
-          member.pubkey.includes(search) ||
-          label.toLowerCase().includes(search))
-      );
-    });
-  }, [
-    existingReviewers,
-    membershipQuery.data?.members,
-    pullRequest.author,
-    reviewerSearch,
-  ]);
   const decisionMutation = useMutation({
     mutationFn: (input: {
       decision: "approve" | "request-changes";
@@ -99,28 +66,10 @@ export function PullRequestReviewControls({
     onError: (error) =>
       toast.error("Could not submit review", { description: error.message }),
   });
-  const requestMutation = useMutation({
-    mutationFn: (input: { pubkey: string; label: string }) =>
-      requestProjectPullRequestReview(
-        project,
-        pullRequest,
-        ownerPubkey,
-        input.pubkey,
-        input.label,
-      ),
-    onSuccess: async () => {
-      await onUpdated();
-      setReviewerOpen(false);
-      setReviewerSearch("");
-      toast.success("Review requested");
-    },
-    onError: (error) =>
-      toast.error("Could not request review", { description: error.message }),
-  });
 
   return (
     <>
-      <section className="border-b py-5">
+      <section className="border-b px-4 py-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h3 className="text-sm font-semibold">Review</h3>
@@ -151,32 +100,6 @@ export function PullRequestReviewControls({
             ) : null}
           </div>
         </div>
-        {pullRequest.reviewers.length || canRequestReview ? (
-          <div className="mt-4 flex flex-wrap items-center gap-2">
-            <span className="text-xs font-medium text-muted-foreground">
-              Reviewers
-            </span>
-            {pullRequest.reviewers.map((pubkey) => (
-              <ReviewerBadge
-                approvals={pullRequest.approvals.map((item) => item.author)}
-                changeRequests={pullRequest.changeRequests.map(
-                  (item) => item.author,
-                )}
-                key={pubkey}
-                pubkey={pubkey}
-              />
-            ))}
-            {canRequestReview ? (
-              <Button
-                onClick={() => setReviewerOpen(true)}
-                size="sm"
-                variant="ghost"
-              >
-                <UserPlus /> Add reviewer
-              </Button>
-            ) : null}
-          </div>
-        ) : null}
       </section>
       <DecisionDialog
         decision={decision}
@@ -191,6 +114,97 @@ export function PullRequestReviewControls({
         }}
         onSummaryChange={setSummary}
       />
+    </>
+  );
+}
+
+export function PullRequestReviewersControl({
+  onUpdated,
+  ownerPubkey,
+  project,
+  pullRequest,
+}: {
+  onUpdated: () => Promise<unknown>;
+  ownerPubkey: string;
+  project: Project;
+  pullRequest: ProjectPullRequest;
+}) {
+  const [reviewerOpen, setReviewerOpen] = useState(false);
+  const [reviewerSearch, setReviewerSearch] = useState("");
+  const viewer = ownerPubkey.toLowerCase();
+  const canRequestReview =
+    viewer === project.owner.toLowerCase() ||
+    viewer === pullRequest.author.toLowerCase();
+  const membershipQuery = useQuery({
+    queryKey: ["community-membership", ownerPubkey],
+    queryFn: () => getCommunityMembership(ownerPubkey),
+    enabled: canRequestReview && reviewerOpen,
+    staleTime: 30_000,
+  });
+  const existingReviewers = useMemo(
+    () => new Set(pullRequest.reviewers.map((pubkey) => pubkey.toLowerCase())),
+    [pullRequest.reviewers],
+  );
+  const candidates = useMemo(() => {
+    const search = reviewerSearch.trim().toLowerCase();
+    return (membershipQuery.data?.members ?? []).filter((member) => {
+      const label = member.profile?.displayName?.trim() ?? "";
+      return (
+        member.pubkey !== pullRequest.author.toLowerCase() &&
+        !existingReviewers.has(member.pubkey) &&
+        (!search ||
+          member.pubkey.includes(search) ||
+          label.toLowerCase().includes(search))
+      );
+    });
+  }, [
+    existingReviewers,
+    membershipQuery.data?.members,
+    pullRequest.author,
+    reviewerSearch,
+  ]);
+  const requestMutation = useMutation({
+    mutationFn: (input: { pubkey: string; label: string }) =>
+      requestProjectPullRequestReview(
+        project,
+        pullRequest,
+        ownerPubkey,
+        input.pubkey,
+        input.label,
+      ),
+    onSuccess: async () => {
+      await onUpdated();
+      setReviewerOpen(false);
+      setReviewerSearch("");
+      toast.success("Review requested");
+    },
+    onError: (error) =>
+      toast.error("Could not request review", { description: error.message }),
+  });
+  if (!pullRequest.reviewers.length && !canRequestReview) return null;
+  return (
+    <>
+      <div className="flex flex-wrap items-center gap-2">
+        {pullRequest.reviewers.map((pubkey) => (
+          <ReviewerBadge
+            approvals={pullRequest.approvals.map((item) => item.author)}
+            changeRequests={pullRequest.changeRequests.map(
+              (item) => item.author,
+            )}
+            key={pubkey}
+            pubkey={pubkey}
+          />
+        ))}
+        {canRequestReview ? (
+          <Button
+            onClick={() => setReviewerOpen(true)}
+            size="sm"
+            variant="ghost"
+          >
+            <UserPlus /> Add reviewer
+          </Button>
+        ) : null}
+      </div>
       <ReviewerDialog
         candidates={candidates.map((member) => ({
           pubkey: member.pubkey,
