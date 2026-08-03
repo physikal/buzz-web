@@ -11,6 +11,7 @@ import {
   type Project,
   type ProjectIssue,
 } from "../project-api";
+import { ProjectRichContent } from "./ProjectRichContent";
 
 function issueStatusVisual(status: ProjectIssue["status"]) {
   if (status === "merged") {
@@ -79,9 +80,7 @@ export function ProjectIssueDetail({
               </h1>
             </div>
             {issue.content ? (
-              <p className="whitespace-pre-wrap text-sm leading-6">
-                {issue.content}
-              </p>
+              <ProjectRichContent content={issue.content} tags={issue.tags} />
             ) : null}
           </header>
           <section className="space-y-4 p-4">
@@ -96,9 +95,11 @@ export function ProjectIssueDetail({
                       {truncatePubkey(item.author)} ·{" "}
                       {relativeTime(item.createdAt)}
                     </p>
-                    <p className="mt-2 whitespace-pre-wrap text-sm leading-6">
-                      {item.content}
-                    </p>
+                    <ProjectRichContent
+                      className="mt-2 text-sm"
+                      content={item.content}
+                      tags={item.tags}
+                    />
                   </article>
                 ))}
               </div>

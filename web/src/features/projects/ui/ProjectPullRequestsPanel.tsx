@@ -32,6 +32,7 @@ import {
 } from "./CreatePullRequestDialog";
 import { ProjectPullRequestFilesChangedPanel } from "./ProjectPullRequestFilesChangedPanel";
 import { ProjectPullRequestMetaRail } from "./ProjectPullRequestMetaRail";
+import { ProjectRichContent } from "./ProjectRichContent";
 import { PullRequestReviewControls } from "./PullRequestReviewControls";
 
 export function ProjectPullRequestsPanel({
@@ -334,9 +335,11 @@ function PullRequestDetail({
               </p>
             ) : null}
             {pullRequest.content ? (
-              <p className="mt-5 whitespace-pre-wrap text-sm leading-6">
-                {pullRequest.content}
-              </p>
+              <ProjectRichContent
+                className="mt-5 text-sm"
+                content={pullRequest.content}
+                tags={pullRequest.tags}
+              />
             ) : null}
           </header>
           <div className="flex gap-1 overflow-x-auto border-b px-4 py-2">
@@ -468,9 +471,11 @@ function PullRequestConversation({
                   {item.anchor.line}
                 </button>
               ) : null}
-              <p className="mt-2 whitespace-pre-wrap text-sm leading-6">
-                {item.content}
-              </p>
+              <ProjectRichContent
+                className="mt-2 text-sm"
+                content={item.content}
+                tags={item.tags}
+              />
             </article>
           ))
         ) : (

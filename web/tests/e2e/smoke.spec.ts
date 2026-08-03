@@ -2552,7 +2552,11 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await expect(page.getByRole("heading", { name: "Issues" })).toBeVisible();
   await page.getByRole("button", { name: "New issue" }).click();
   await page.getByLabel("Title").fill("Browser issue");
-  await page.getByLabel("Description").fill("Track this from Buzz Web");
+  await page
+    .getByLabel("Description")
+    .fill(
+      "Track this from Buzz Web\n\n- [x] Render **Markdown** safely\n\n[Unsafe link](javascript:alert(1))",
+    );
   await page.getByLabel("Labels").fill("browser");
   await page.getByRole("button", { name: "Create issue" }).click();
   await expect
@@ -2575,6 +2579,10 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     page.getByRole("button", { name: "Back to issues" }),
   ).toBeVisible();
   await expect(page.getByText("Track this from Buzz Web")).toBeVisible();
+  await expect(
+    page.locator("strong").filter({ hasText: "Markdown" }),
+  ).toBeVisible();
+  await expect(page.getByRole("link", { name: "Unsafe link" })).toHaveCount(0);
   const issueMetaRail = page.getByRole("complementary", {
     name: "Issue metadata",
   });

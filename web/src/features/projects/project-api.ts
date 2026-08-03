@@ -2,6 +2,7 @@ import { queryEvents, type NostrEvent } from "@/shared/lib/nostr-client";
 import { truncatePubkey } from "@/shared/lib/pubkey";
 import { submitEvent } from "@/shared/lib/relay-events";
 import { relayHttpBaseUrl, relayWsUrl } from "@/shared/lib/relay-url";
+import { projectImetaTags } from "./project-event-metadata";
 
 export type Project = {
   id: string;
@@ -22,7 +23,9 @@ export type ProjectIssue = {
   id: string;
   title: string;
   content: string;
+  tags: string[][];
   author: string;
+  recipients: string[];
   labels: string[];
   status: "open" | "draft" | "merged" | "closed";
   createdAt: number;
@@ -33,6 +36,7 @@ export type ProjectIssue = {
 export type ProjectIssueComment = {
   id: string;
   content: string;
+  tags: string[][];
   author: string;
   createdAt: number;
 };
@@ -48,6 +52,7 @@ export type ProjectPullRequestReviewDecision = {
 export type ProjectPullRequestUpdate = {
   id: string;
   content: string;
+  tags: string[][];
   author: string;
   createdAt: number;
   commit: string | null;
@@ -76,6 +81,7 @@ export type ProjectPullRequest = {
   id: string;
   title: string;
   content: string;
+  tags: string[][];
   author: string;
   channelId: string | null;
   recipients: string[];
@@ -308,6 +314,7 @@ export async function listProjectIssues(
         .map((comment) => ({
           id: comment.id,
           content: comment.content,
+          tags: projectImetaTags(comment),
           author: comment.pubkey,
           createdAt: comment.created_at,
         }));
@@ -318,7 +325,9 @@ export async function listProjectIssues(
           event.content.split("\n")[0] ??
           "Untitled issue",
         content: event.content,
+        tags: projectImetaTags(event),
         author: event.pubkey,
+        recipients: tags(event, "p").map((pubkey) => pubkey.toLowerCase()),
         labels: tags(event, "t"),
         status: state,
         createdAt: event.created_at,
@@ -476,6 +485,7 @@ export async function listProjectPullRequests(
           return {
             id: comment.id,
             content: comment.content,
+            tags: projectImetaTags(comment),
             author: comment.pubkey,
             createdAt: comment.created_at,
             commit: tag(comment, "c") ?? null,
@@ -592,6 +602,7 @@ export async function listProjectPullRequests(
           event.content.split("\n")[0] ??
           "Untitled pull request",
         content: event.content,
+        tags: projectImetaTags(event),
         author: event.pubkey,
         channelId: safeProjectChannelId(tag(event, "h") ?? null),
         recipients: tags(event, "p").map((pubkey) => pubkey.toLowerCase()),
@@ -626,6 +637,7 @@ export async function listProjectPullRequests(
         updates: trustedUpdates.map((update) => ({
           id: update.id,
           content: update.content,
+          tags: projectImetaTags(update),
           author: update.pubkey,
           createdAt: update.created_at,
           commit: tag(update, "c") ?? null,
