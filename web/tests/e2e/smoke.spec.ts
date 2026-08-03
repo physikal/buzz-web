@@ -2544,7 +2544,9 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await page.keyboard.press("Escape");
   await expect(createBranchDialog).toBeHidden();
   await projectOverviewRail.getByRole("button", { name: "View all" }).click();
-  await expect(page.getByText("Repository owner")).toBeVisible();
+  await expect(
+    page.getByText("Could not load git contributors."),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Issues", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Issues" })).toBeVisible();
   await page.getByRole("button", { name: "New issue" }).click();

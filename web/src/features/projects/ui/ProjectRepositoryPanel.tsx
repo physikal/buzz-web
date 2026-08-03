@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { GitBranch, Tag, Users } from "lucide-react";
+import { GitBranch, GitCommitHorizontal, Tag } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -9,7 +9,7 @@ import { useGitLog, useGitReadme } from "@/features/repos/use-git-browse";
 import { useRepoRefs } from "@/features/repos/use-repo-refs";
 import { RepoCommitsSection } from "@/features/repos/ui/RepoCommitsSection";
 import { RepoReadmeSection } from "@/features/repos/ui/RepoReadmeSection";
-import { truncatePubkey } from "@/shared/lib/pubkey";
+import { relativeTime } from "@/shared/lib/relative-time";
 import { DestructiveConfirmDialog } from "@/shared/ui/destructive-confirm-dialog";
 import {
   createProjectRemoteBranch,
@@ -194,7 +194,7 @@ export function ProjectRepositoryPanel({
             refsQuery={refsQuery}
           />
         ) : (
-          <ProjectContributors project={project} />
+          <ProjectContributors project={project} refName={refName} />
         )}
       </section>
       <CreateBranchDialog
@@ -364,27 +364,66 @@ function ProjectCommits({
   );
 }
 
-function ProjectContributors({ project }: { project: Project }) {
-  const contributors = [
-    ...new Set([project.owner.toLowerCase(), ...project.contributors]),
-  ];
+function ProjectContributors({
+  project,
+  refName,
+}: {
+  project: Project;
+  refName: string;
+}) {
+  const metadata = useProjectRepositoryMetadata(project, refName);
+  if (metadata.isLoading) {
+    return (
+      <p className="rounded-md border p-4 text-sm text-muted-foreground">
+        Loading git contributors...
+      </p>
+    );
+  }
+  if (metadata.error) {
+    return (
+      <p className="rounded-md border p-4 text-sm text-muted-foreground">
+        Could not load git contributors.
+      </p>
+    );
+  }
+  if (!metadata.data?.contributors.length) {
+    return (
+      <p className="rounded-md border p-4 text-sm text-muted-foreground">
+        No git contributors are available yet.
+      </p>
+    );
+  }
   return (
     <div className="divide-y rounded-md border">
-      {contributors.map((pubkey) => (
-        <article className="flex items-center gap-3 p-4" key={pubkey}>
-          <Users className="h-4 w-4 text-muted-foreground" />
-          <div className="min-w-0">
-            <p className="text-sm font-medium">
-              {pubkey === project.owner.toLowerCase()
-                ? "Repository owner"
-                : "Contributor"}
-            </p>
-            <p className="mt-1 font-mono text-xs text-muted-foreground">
-              {truncatePubkey(pubkey)}
-            </p>
-          </div>
-        </article>
-      ))}
+      {metadata.data.contributors.map((contributor) => {
+        const label =
+          contributor.name || contributor.email || "Unknown contributor";
+        return (
+          <article
+            className="flex min-w-0 items-start gap-3 p-3 hover:bg-muted/35"
+            key={`${contributor.email}\0${contributor.name}`}
+          >
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted text-xs font-semibold">
+              {label.slice(0, 2).toUpperCase()}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-semibold">{label}</p>
+              <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground">
+                <span className="truncate">
+                  {contributor.email || "Git contributor"}
+                </span>
+                <span className="inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[0.6875rem]">
+                  <GitCommitHorizontal className="h-3 w-3" />
+                  {contributor.commitCount} commit
+                  {contributor.commitCount === 1 ? "" : "s"}
+                </span>
+                <span>·</span>
+                <span>updated {relativeTime(contributor.lastCommitAt)}</span>
+              </div>
+            </div>
+          </article>
+        );
+      })}
     </div>
   );
 }

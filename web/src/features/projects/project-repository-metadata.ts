@@ -34,10 +34,18 @@ const LANGUAGE_LABELS: Record<string, string> = {
 
 export type ProjectRepositoryMetadata = {
   contributorCount: number;
+  contributors: ProjectRepositoryContributor[];
   fileCount: number;
   filesTruncated: boolean;
   latestCommit: CommitInfo | null;
   languages: Array<[string, number]>;
+};
+
+export type ProjectRepositoryContributor = {
+  name: string;
+  email: string;
+  commitCount: number;
+  lastCommitAt: number;
 };
 
 function languageForPath(path: string) {
@@ -52,12 +60,33 @@ async function loadProjectRepositoryMetadata(
 ): Promise<ProjectRepositoryMetadata> {
   const oid = await resolveRef({ fs, dir, ref });
   const commits = await getCommitLog(fs, dir, ref, 100);
-  const contributors = new Set(
-    commits
-      .map((commit) =>
-        (commit.author.email || commit.author.name).trim().toLowerCase(),
-      )
-      .filter(Boolean),
+  const contributorMap = new Map<string, ProjectRepositoryContributor>();
+  for (const commit of commits) {
+    const name = commit.author.name.trim().slice(0, 256);
+    const email = commit.author.email.trim().slice(0, 256);
+    const key = (email || name).toLowerCase();
+    if (!key) continue;
+    const contributor = contributorMap.get(key);
+    if (contributor) {
+      contributor.commitCount += 1;
+      contributor.lastCommitAt = Math.max(
+        contributor.lastCommitAt,
+        commit.author.timestamp,
+      );
+    } else {
+      contributorMap.set(key, {
+        name,
+        email,
+        commitCount: 1,
+        lastCommitAt: commit.author.timestamp,
+      });
+    }
+  }
+  const contributors = [...contributorMap.values()].sort(
+    (left, right) =>
+      right.commitCount - left.commitCount ||
+      right.lastCommitAt - left.lastCommitAt ||
+      left.name.localeCompare(right.name),
   );
   const languageCounts: Record<string, number> = {};
   const directories = [""];
@@ -92,7 +121,8 @@ async function loadProjectRepositoryMetadata(
   if (directories.length > 0) filesTruncated = true;
 
   return {
-    contributorCount: contributors.size,
+    contributorCount: contributors.length,
+    contributors,
     fileCount,
     filesTruncated,
     latestCommit: commits[0] ?? null,
@@ -106,7 +136,7 @@ async function loadProjectRepositoryMetadata(
 
 export function useProjectRepositoryMetadata(project: Project, ref: string) {
   const clone = useGitClone(project.owner, project.dtag, ref, 100);
-  return useQuery({
+  const metadata = useQuery({
     queryKey: ["project-repository-metadata", project.repoAddress, ref],
     queryFn: () => {
       if (!clone.data) throw new Error("unreachable: enabled guards data");
@@ -116,4 +146,9 @@ export function useProjectRepositoryMetadata(project: Project, ref: string) {
     retry: false,
     staleTime: 5 * 60_000,
   });
+  return {
+    ...metadata,
+    error: clone.error ?? metadata.error,
+    isLoading: clone.isLoading || metadata.isLoading,
+  };
 }
