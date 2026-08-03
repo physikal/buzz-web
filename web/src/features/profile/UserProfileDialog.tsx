@@ -66,6 +66,8 @@ export type UserProfileDialogProps = {
   userStatus?: UserStatus;
   onClose: () => void;
   onMessage: (pubkey: string) => void;
+  onWave?: (pubkey: string) => void;
+  wavePending?: boolean;
   following?: boolean;
   followPending?: boolean;
   onToggleFollow?: () => void;
@@ -94,6 +96,8 @@ export function UserProfileDialog({
   userStatus,
   onClose,
   onMessage,
+  onWave,
+  wavePending = false,
   following,
   followPending = false,
   onToggleFollow,
@@ -175,6 +179,7 @@ export function UserProfileDialog({
               onAddToChannel={onAddToChannel}
               onEditAgent={onEditAgent}
               onMessage={() => onMessage(pubkey)}
+              onWave={onWave ? () => onWave(pubkey) : undefined}
               onOpenActivity={onOpenActivity}
               onOpenChannel={onOpenChannel}
               onTabChange={onTabChange}
@@ -187,6 +192,7 @@ export function UserProfileDialog({
               pubkey={pubkey}
               tab={tab}
               userStatus={userStatus}
+              wavePending={wavePending}
             />
           ) : managedAgent ? (
             <FocusedAgentView
@@ -221,6 +227,7 @@ function ProfileSummary({
   onAddToChannel,
   onEditAgent,
   onMessage,
+  onWave,
   onOpenActivity,
   onOpenChannel,
   onTabChange,
@@ -233,6 +240,7 @@ function ProfileSummary({
   pubkey,
   tab,
   userStatus,
+  wavePending,
 }: {
   agentActionPending: boolean;
   agentChannels: AgentChannel[];
@@ -246,6 +254,7 @@ function ProfileSummary({
   onAddToChannel?: () => void;
   onEditAgent?: () => void;
   onMessage: () => void;
+  onWave?: () => void;
   onOpenActivity?: () => void;
   onOpenChannel?: (channelId: string) => void;
   onTabChange?: (tab: ProfilePanelTab) => void;
@@ -258,6 +267,7 @@ function ProfileSummary({
   pubkey: string;
   tab: ProfilePanelTab;
   userStatus?: UserStatus;
+  wavePending: boolean;
 }) {
   return (
     <div className="space-y-5">
@@ -288,6 +298,20 @@ function ProfileSummary({
             <MessageCircle />
             Message
           </Button>
+          {!agentName && onWave ? (
+            <Button
+              aria-label="Wave"
+              className="buzz-wave-hover-trigger"
+              disabled={wavePending}
+              onClick={onWave}
+              variant="outline"
+            >
+              <span aria-hidden="true" className="buzz-wave-hand text-sm">
+                👋
+              </span>
+              {wavePending ? "Sending..." : "Wave"}
+            </Button>
+          ) : null}
           {onEditAgent ? (
             <Button onClick={onEditAgent} variant="outline">
               <Pencil />

@@ -22,6 +22,11 @@ import {
   parseSupportedLinkPreview,
 } from "../../src/features/channels/link-preview";
 import remarkSpoilers from "../../src/shared/lib/remark-spoilers";
+import {
+  buildWaveMessageContent,
+  parseWaveMessageContent,
+  WAVE_MESSAGE_MARKER,
+} from "../../src/features/channels/wave-message";
 
 const testPort = process.env.BUZZ_WEB_TEST_PORT ?? "4173";
 const testOrigin = `http://localhost:${testPort}`;
@@ -245,6 +250,22 @@ test("spoiler parsing matches desktop inline, block, and code behavior", () => {
   expect(JSON.stringify(tree)).toContain('"value":"delimiter"');
 });
 
+test("wave messages use the desktop marker and fallback semantics", () => {
+  expect(buildWaveMessageContent("  Alice  ")).toBe(
+    `${WAVE_MESSAGE_MARKER}\nAlice waved at you.`,
+  );
+  expect(buildWaveMessageContent(" ")).toBe(
+    `${WAVE_MESSAGE_MARKER}\nSomeone waved at you.`,
+  );
+  expect(parseWaveMessageContent("Ordinary message")).toBeNull();
+  expect(
+    parseWaveMessageContent(`\n ${WAVE_MESSAGE_MARKER}\nAlice waved at you.`),
+  ).toEqual({ fallbackText: "Alice waved at you." });
+  expect(parseWaveMessageContent(WAVE_MESSAGE_MARKER)).toEqual({
+    fallbackText: "Someone waved at you.",
+  });
+});
+
 test("owner setup creates a passkey-wrapped signer and enters Channels", async ({
   page,
 }) => {
@@ -346,6 +367,10 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   const catalogSecret = new Uint8Array(32);
   catalogSecret[31] = 1;
   const catalogPubkey = getPublicKey(catalogSecret);
+  const humanSecret = new Uint8Array(32);
+  humanSecret[31] = 2;
+  const humanPubkey = getPublicKey(humanSecret);
+  const directMessageChannelId = "66666666-6666-4666-8666-666666666666";
   const projectPullRequestCreatedAt = Math.floor(Date.now() / 1000) - 120;
   const welcomeMessageEvent = finalizeEvent(
     {
@@ -355,6 +380,15 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
       tags: [["h", "44444444-4444-4444-8444-444444444444"]],
     },
     catalogSecret,
+  );
+  const humanMessageEvent = finalizeEvent(
+    {
+      kind: 9,
+      created_at: Math.floor(Date.now() / 1000) - 50,
+      content: "Bob says hello.",
+      tags: [["h", "44444444-4444-4444-8444-444444444444"]],
+    },
+    humanSecret,
   );
   let catalogImageRequests = 0;
   let externalGitRequests = 0;
@@ -1086,7 +1120,11 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
                 workflow_id: event.tags.find((tag) => tag[0] === "d")?.[1],
                 webhook_secret: "webhook-test-secret",
               })}`
-            : undefined,
+            : event.kind === 41010
+              ? `response:${JSON.stringify({
+                  channel_id: directMessageChannelId,
+                })}`
+              : undefined,
       }),
     });
   });
@@ -1180,6 +1218,30 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
                 ),
               ]),
             );
+            if (submittedEvents.some((event) => event.kind === 41010)) {
+              socket.send(
+                JSON.stringify([
+                  "EVENT",
+                  subscriptionId,
+                  finalizeEvent(
+                    {
+                      kind: 39000,
+                      created_at: createdAt,
+                      content: "",
+                      tags: [
+                        ["d", directMessageChannelId],
+                        ["name", "Bob"],
+                        ["t", "dm"],
+                        ["private"],
+                        ["p", ownerPubkey],
+                        ["p", humanPubkey],
+                      ],
+                    },
+                    signer,
+                  ),
+                ]),
+              );
+            }
           }
           if (filters.includes("39002")) {
             socket.send(
@@ -1218,14 +1280,39 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
                 ),
               ]),
             );
+            if (submittedEvents.some((event) => event.kind === 41010)) {
+              socket.send(
+                JSON.stringify([
+                  "EVENT",
+                  subscriptionId,
+                  finalizeEvent(
+                    {
+                      kind: 39002,
+                      created_at: createdAt,
+                      content: "",
+                      tags: [
+                        ["d", directMessageChannelId],
+                        ["p", ownerPubkey, "", "owner"],
+                      ],
+                    },
+                    signer,
+                  ),
+                ]),
+              );
+            }
           }
           if (filters.includes("40008")) {
-            socket.send(
-              JSON.stringify(["EVENT", subscriptionId, welcomeMessageEvent]),
-            );
             const channelIds = new Set(
               requestFilters.flatMap((filter) => filter["#h"] ?? []),
             );
+            if (channelIds.has("44444444-4444-4444-8444-444444444444")) {
+              socket.send(
+                JSON.stringify(["EVENT", subscriptionId, welcomeMessageEvent]),
+              );
+              socket.send(
+                JSON.stringify(["EVENT", subscriptionId, humanMessageEvent]),
+              );
+            }
             for (const event of submittedEvents.filter(
               (event) =>
                 [9, 45001, 45003].includes(event.kind) &&
@@ -1266,6 +1353,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
                     tags: [
                       ["member", ownerPubkey, "owner"],
                       ["member", agentPubkey, "member"],
+                      ["member", humanPubkey, "member"],
                     ],
                   },
                   signer,
@@ -1849,6 +1937,24 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
                 ),
               ]),
             );
+            socket.send(
+              JSON.stringify([
+                "EVENT",
+                subscriptionId,
+                finalizeEvent(
+                  {
+                    kind: 0,
+                    created_at: createdAt,
+                    content: JSON.stringify({
+                      display_name: "Bob",
+                      about: "Human teammate",
+                    }),
+                    tags: [],
+                  },
+                  humanSecret,
+                ),
+              ]),
+            );
             for (const event of submittedEvents.filter(
               (candidate) => candidate.kind === 0,
             )) {
@@ -1894,8 +2000,58 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   );
   await expect(page.getByRole("heading", { name: "general" })).toBeVisible();
   await expect(page.getByText("Welcome to Buzz Web.")).toBeVisible();
+  await expect(page.getByText("Bob says hello.")).toBeVisible();
   await expect(page.getByText("Forged relay agent")).toHaveCount(0);
   await expect(page.getByLabel("Message #general")).toBeVisible();
+  const humanArticle = page.locator(
+    `article[id="message-${humanMessageEvent.id}"]`,
+  );
+  await humanArticle.getByRole("button", { name: "Open Bob profile" }).click();
+  const humanProfile = page.getByRole("dialog", { name: "Bob profile" });
+  await expect(humanProfile).toBeVisible();
+  const waveButton = humanProfile.getByRole("button", { name: "Wave" });
+  await expect(waveButton).toBeVisible();
+  await waveButton.click();
+  await expect(page.getByRole("heading", { name: "Bob" })).toBeVisible();
+  const waveAttachment = page.getByTestId("message-wave-attachment");
+  await expect(waveAttachment).toBeVisible();
+  await expect(waveAttachment).toContainText("waved at you.");
+  await expect(waveAttachment).toContainText("Start a huddle to talk to them.");
+  await expect(
+    waveAttachment.getByRole("button", { name: "Start huddle" }),
+  ).toBeVisible();
+  await expect(page.getByText(WAVE_MESSAGE_MARKER)).toHaveCount(0);
+  await expect
+    .poll(() =>
+      submittedEvents.find(
+        (event) =>
+          event.kind === 41010 &&
+          event.tags.some((tag) => tag[0] === "p" && tag[1] === humanPubkey),
+      ),
+    )
+    .toBeTruthy();
+  await expect
+    .poll(() =>
+      submittedEvents.find(
+        (event) =>
+          event.kind === 9 && event.content.startsWith(WAVE_MESSAGE_MARKER),
+      ),
+    )
+    .toMatchObject({
+      tags: expect.arrayContaining([["h", directMessageChannelId]]),
+    });
+  await waveAttachment.screenshot({ path: "/tmp/buzz-web-wave-message.png" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(waveAttachment).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({ path: "/tmp/buzz-web-wave-message-mobile.png" });
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.getByRole("button", { name: /^general(?: \d+)?$/u }).click();
+  await expect(page.getByRole("heading", { name: "general" })).toBeVisible();
   const unownedAgentArticle = page.locator(
     `article[id="message-${welcomeMessageEvent.id}"]`,
   );

@@ -46,6 +46,10 @@ import { MessageComposer, type ComposerPayload } from "./MessageComposer";
 import { DeleteMessageDialog } from "./DeleteMessageDialog";
 import { MessageMoreActions } from "./MessageMoreActions";
 import { LinkPreviewCards } from "./LinkPreviewCards";
+import { WaveMessageAttachment } from "./WaveMessageAttachment";
+import { parseWaveMessageContent } from "../wave-message";
+
+const interactiveSpoilerComponent = spoilerComponent();
 
 export type MessageActions = {
   canManage: (message: ChannelMessage) => boolean;
@@ -66,6 +70,8 @@ export type MessageActions = {
     ownEventId: string | null,
     customEmojiUrl?: string,
   ) => void;
+  onStartHuddle?: () => void;
+  huddlePending?: boolean;
 };
 
 export function MessageTimeline({
@@ -208,8 +214,12 @@ function MessageRow({
         : extractSupportedLinkPreviews(message.content),
     [message.content, message.kind],
   );
+  const waveMessage = useMemo(
+    () => parseWaveMessageContent(message.content),
+    [message.content],
+  );
   const markdownComponents = {
-    spoiler: spoilerComponent(),
+    spoiler: interactiveSpoilerComponent,
     a: SpoilerAwareAnchor,
     "channel-link": ({ children }: { children?: React.ReactNode }) => (
       <ChannelLinkChip
@@ -294,6 +304,12 @@ function MessageRow({
           <p className="mt-1 text-sm italic text-muted-foreground">
             This message was deleted.
           </p>
+        ) : waveMessage ? (
+          <WaveMessageAttachment
+            fallbackText={waveMessage.fallbackText}
+            huddlePending={actions.huddlePending}
+            onStartHuddle={actions.onStartHuddle}
+          />
         ) : (
           <>
             <div className="prose prose-sm mt-1 max-w-none break-words text-foreground dark:prose-invert prose-p:my-1 prose-pre:max-w-full prose-pre:overflow-x-auto">

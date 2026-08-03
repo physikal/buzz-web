@@ -2,7 +2,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Circle, Plus, Search, Settings } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-
 import { listAgents } from "@/features/agents/agent-api";
 import { listPersonas } from "@/features/agents/persona-api";
 import { listTeams } from "@/features/agents/team-api";
@@ -53,7 +52,6 @@ import {
   joinChannel,
   leaveChannel,
   listChannelMessages,
-  openDm,
   removeReaction,
   restoreChannel,
   searchMessages,
@@ -76,6 +74,7 @@ import { useMessageEditSession } from "../use-message-edit-session";
 import { createMessageSubmitters } from "../message-edit-submit";
 import { editLastOwnMessage } from "../message-management";
 import { createChannelMessageActions } from "../channel-message-actions";
+import { useProfileMessaging } from "../use-profile-messaging";
 import { ChannelSidebar } from "./ChannelSidebar";
 import { ChannelFindBar } from "./ChannelFindBar";
 import { ChannelIcon } from "./ChannelIcon";
@@ -94,7 +93,6 @@ import { ForumView } from "./ForumView";
 import { MessageComposer } from "./MessageComposer";
 import { MessageTimeline, ThreadPanel } from "./MessageTimeline";
 import { ReportMessageDialog } from "./ReportMessageDialog";
-
 export function ChannelsWorkspace({
   ownerPubkey,
   onDisconnect,
@@ -386,16 +384,12 @@ export function ChannelsWorkspace({
     },
     onError: mutationError("Could not create channel"),
   });
-  const dmMutation = useMutation({
-    mutationFn: openDm,
-    onSuccess: async (id) => {
-      await queryClient.invalidateQueries({
-        queryKey: ["channels", ownerPubkey],
-      });
-      selectChannel(id);
-      setDmOpen(false);
-    },
-    onError: mutationError("Could not open direct message"),
+  const { dmMutation, waveMutation } = useProfileMessaging({
+    onCloseNewMessage: () => setDmOpen(false),
+    onCloseProfile: () => selectProfile(null),
+    onOpenChannel: selectChannel,
+    ownerPubkey,
+    profiles,
   });
   const sendMutation = useMutation({
     mutationFn: sendChannelMessage,
@@ -511,7 +505,6 @@ export function ChannelsWorkspace({
   const searchResults: SearchResult[] = (searchMutation.data ?? []).map(
     (event) => toMessageSearchResult(event, channels, agentNames, profiles),
   );
-
   const { submitEdit, submitRoot } = createMessageSubmitters({
     activeTargetId: messageEdit.session?.message.id ?? null,
     cancelEdit: messageEdit.cancel,
@@ -524,26 +517,37 @@ export function ChannelsWorkspace({
     sendMutation.isPending ||
     editMutation.isPending ||
     deleteMessageMutation.isPending;
-  const actions = createChannelMessageActions({
-    deleteMessage: deleteMessageMutation.mutateAsync,
-    deletePending: deleteMessageMutation.isPending,
-    isMessageUnread,
-    managedAgents: agentsQuery.data ?? [],
-    markMessagesRead,
-    markMessagesUnread,
-    messages,
-    onOpenChannel: selectChannel,
-    onOpenMessage: openMessage,
-    onOpenProfile: selectProfile,
-    onReact: reactionMutation.mutate,
-    onReport: setReportTarget,
-    onRemind: setReminderTarget,
-    onStartEdit: messageEdit.start,
-    ownerPubkey,
-    selectedChannelId: selected?.id ?? null,
-  });
-  const threadRoot =
-    messages.find((message) => message.id === threadRootId) ?? null;
+  const actions = {
+    ...createChannelMessageActions({
+      deleteMessage: deleteMessageMutation.mutateAsync,
+      deletePending: deleteMessageMutation.isPending,
+      isMessageUnread,
+      managedAgents: agentsQuery.data ?? [],
+      markMessagesRead,
+      markMessagesUnread,
+      messages,
+      onOpenChannel: selectChannel,
+      onOpenMessage: openMessage,
+      onOpenProfile: selectProfile,
+      onReact: reactionMutation.mutate,
+      onReport: setReportTarget,
+      onRemind: setReminderTarget,
+      onStartEdit: messageEdit.start,
+      ownerPubkey,
+      selectedChannelId: selected?.id ?? null,
+    }),
+    huddlePending:
+      huddle.pending || Boolean(huddle.active) || Boolean(huddle.joined),
+    onStartHuddle: () => {
+      void huddle.start([]).catch((error) =>
+        toast.error("Could not start huddle", {
+          description:
+            error instanceof Error ? error.message : "Audio setup failed.",
+        }),
+      );
+    },
+  };
+  const threadRoot = messages.find((item) => item.id === threadRootId) ?? null;
   const threadPanel =
     selected && threadRoot && selected.channelType !== "forum" ? (
       <ThreadPanel
@@ -861,6 +865,7 @@ export function ChannelsWorkspace({
           dmMutation.mutate([pubkey]);
           selectProfile(null);
         }}
+        onWave={(pubkey) => waveMutation.mutate(pubkey)}
         onOpenChannel={(channelId) => {
           selectChannel(channelId);
         }}
@@ -876,6 +881,7 @@ export function ChannelsWorkspace({
         tab={initialProfileTab}
         userStatus={profileTarget ? userStatuses.get(profileTarget) : undefined}
         view={initialProfileView}
+        wavePending={waveMutation.isPending}
       />
       <ChannelBrowserDialog
         channels={allChannels}
