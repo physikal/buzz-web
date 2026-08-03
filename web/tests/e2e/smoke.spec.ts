@@ -1561,6 +1561,9 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await page.getByRole("button", { name: "Open Buzz" }).click();
   await expect(page).toHaveURL(/\/channels$/);
   await page.getByRole("button", { name: /^general(?: \d+)?$/u }).click();
+  await expect(page.getByRole("complementary", { name: "Thread" })).toHaveCount(
+    0,
+  );
   await expect(page.getByRole("heading", { name: "general" })).toBeVisible();
   await expect(page.getByText("Welcome to Buzz Web.")).toBeVisible();
   await expect(page.getByLabel("Message #general")).toBeVisible();
@@ -1618,6 +1621,10 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await page.getByRole("button", { name: "Back to posts" }).click();
   await expect(page.getByRole("button", { name: "1 reply" })).toBeVisible();
   await page.getByRole("button", { name: /^general(?: \d+)?$/u }).click();
+  await expect(page.getByRole("complementary", { name: "Thread" })).toHaveCount(
+    0,
+  );
+  await expect(page).not.toHaveURL(/message=/u);
   await expect(page.getByText(/is typing…$/)).toBeVisible();
   await page.getByLabel("Message #general").fill("Typing interoperability");
   await expect
@@ -1650,6 +1657,10 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await channelFind.fill("Welcome to Buzz");
   await expect(page.getByText("1 of 1", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Next match" })).toBeEnabled();
+  await expect(page).not.toHaveURL(/message=/u);
+  await expect(page.getByRole("complementary", { name: "Thread" })).toHaveCount(
+    0,
+  );
   await channelFind.press("Escape");
   await expect(channelFind).toBeHidden();
   await composer.fill("keyboard bold");
@@ -2193,6 +2204,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   expect(getPublicKey(restoredOwnerKey)).toBe(ownerPubkey);
   restoredOwnerKey.fill(0);
   await page.getByRole("button", { name: "Notifications" }).click();
+  await expect(page).toHaveURL(/\/settings\?section=notifications$/u);
   await expect(
     page.getByRole("heading", { name: "Notifications" }),
   ).toBeVisible();
@@ -2274,6 +2286,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   );
   await page.getByRole("link", { name: "Settings" }).click();
   await page.getByRole("button", { name: "Appearance" }).click();
+  await expect(page).toHaveURL(/\/settings\?section=appearance$/u);
   await expect(page.getByRole("heading", { name: "Appearance" })).toBeVisible();
   await expect(page.getByTestId("theme-pair-buzz")).toBeVisible();
   await page.getByRole("button", { name: "Dark" }).click();
@@ -2303,11 +2316,17 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   });
   await focusThreadMessage.hover();
   await focusThreadMessage.getByRole("button", { name: "Reply" }).click();
+  await expect(page).toHaveURL(new RegExp(`message=${welcomeMessageEvent.id}`));
   await expect(
     page.getByRole("button", { name: "Back to channel" }),
   ).toBeVisible();
   await expect(page.getByRole("heading", { name: "Thread" })).toBeVisible();
   await page.getByRole("button", { name: "Close thread" }).click();
+  await expect(page).not.toHaveURL(/message=/u);
+  await page.goBack();
+  await expect(page.getByRole("heading", { name: "Thread" })).toBeVisible();
+  await page.goForward();
+  await expect(page.getByRole("heading", { name: "Thread" })).toHaveCount(0);
   await page.getByRole("link", { name: "Settings" }).click();
   await page.getByRole("button", { name: "Appearance" }).click();
   await page.getByLabel("Thread layout").selectOption("split");

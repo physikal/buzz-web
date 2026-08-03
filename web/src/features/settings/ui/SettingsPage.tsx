@@ -14,7 +14,7 @@ import {
   Ticket,
   UserRound,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { OwnerConnection } from "@/features/agents/ui/OwnerConnection";
@@ -34,6 +34,7 @@ import { KeyboardShortcutsPanel } from "./KeyboardShortcutsPanel";
 import { ModerationPanel } from "./ModerationPanel";
 import { AppearancePanel } from "./AppearancePanel";
 import { NotificationsPanel } from "./NotificationsPanel";
+import type { SettingsSection } from "../settings-sections";
 import {
   getOwnerProfile,
   getUserStatus,
@@ -43,19 +44,7 @@ import {
   uploadAvatar,
 } from "../settings-api";
 
-type Section =
-  | "profile"
-  | "notifications"
-  | "appearance"
-  | "shortcuts"
-  | "agents"
-  | "channel-templates"
-  | "reminders"
-  | "community-members"
-  | "custom-emoji"
-  | "moderation";
-
-const SETTINGS_ROWS: Array<[Section, string, React.ReactNode]> = [
+const SETTINGS_ROWS: Array<[SettingsSection, string, React.ReactNode]> = [
   ["profile", "Profile", <UserRound key="profile" />],
   ["notifications", "Notifications", <Bell key="notifications" />],
   ["appearance", "Appearance", <MonitorCog key="appearance" />],
@@ -68,12 +57,20 @@ const SETTINGS_ROWS: Array<[Section, string, React.ReactNode]> = [
   ["custom-emoji", "Custom emoji", <Smile key="custom-emoji" />],
 ];
 
-export function SettingsPage() {
+export function SettingsPage({
+  initialSection = "profile",
+  onSectionChange,
+}: {
+  initialSection?: SettingsSection;
+  onSectionChange?: (section: SettingsSection) => void;
+} = {}) {
   const [ownerPubkey, setOwnerPubkey] = useState<string | null>(null);
   if (!ownerPubkey) return <OwnerConnection onConnected={setOwnerPubkey} />;
   return (
     <SettingsWorkspace
       ownerPubkey={ownerPubkey}
+      initialSection={initialSection}
+      onSectionChange={onSectionChange}
       onDisconnect={() => {
         void lockOwnerVault();
         setOwnerPubkey(null);
@@ -85,11 +82,20 @@ export function SettingsPage() {
 function SettingsWorkspace({
   ownerPubkey,
   onDisconnect,
+  initialSection,
+  onSectionChange,
 }: {
   ownerPubkey: string;
   onDisconnect: () => void;
+  initialSection: SettingsSection;
+  onSectionChange?: (section: SettingsSection) => void;
 }) {
-  const [section, setSection] = useState<Section>("profile");
+  const [section, setSection] = useState<SettingsSection>(initialSection);
+  useEffect(() => setSection(initialSection), [initialSection]);
+  function selectSection(next: SettingsSection) {
+    setSection(next);
+    onSectionChange?.(next);
+  }
   return (
     <div className="flex min-h-dvh bg-background">
       <AppPrimarySidebar
@@ -100,7 +106,7 @@ function SettingsWorkspace({
       />
       <aside className="hidden w-52 shrink-0 border-r p-3 md:block">
         <h1 className="px-2 py-3 text-lg font-semibold">Settings</h1>
-        <SettingsNav active={section} onSelect={setSection} />
+        <SettingsNav active={section} onSelect={selectSection} />
       </aside>
       <main className="min-w-0 flex-1 overflow-y-auto p-4 md:p-8">
         <div className="mb-6 md:hidden">
@@ -127,7 +133,9 @@ function SettingsWorkspace({
             aria-label="Settings section"
             className="mt-2 w-full rounded-md border bg-background px-3 py-2 text-sm"
             id="settings-section"
-            onChange={(event) => setSection(event.target.value as Section)}
+            onChange={(event) =>
+              selectSection(event.target.value as SettingsSection)
+            }
             value={section}
           >
             {SETTINGS_ROWS.map(([value, label]) => (
@@ -177,8 +185,8 @@ function SettingsNav({
   active,
   onSelect,
 }: {
-  active: Section;
-  onSelect: (section: Section) => void;
+  active: SettingsSection;
+  onSelect: (section: SettingsSection) => void;
 }) {
   return (
     <nav className="space-y-1">

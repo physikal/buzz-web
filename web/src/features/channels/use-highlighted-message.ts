@@ -6,11 +6,16 @@ export function useHighlightedMessage(
   highlightedId: string | null,
   messages: ChannelMessage[],
   openThread: (rootId: string) => void,
+  openRootMessage = false,
 ) {
-  const highlightedRootId = useMemo(
-    () => messages.find((message) => message.id === highlightedId)?.rootId,
-    [highlightedId, messages],
-  );
+  const highlightedRootId = useMemo(() => {
+    const message = messages.find(
+      (candidate) => candidate.id === highlightedId,
+    );
+    return message
+      ? (message.rootId ?? (openRootMessage ? message.id : null))
+      : null;
+  }, [highlightedId, messages, openRootMessage]);
   useEffect(() => {
     if (!highlightedId || messages.length === 0) return;
     if (highlightedRootId) openThread(highlightedRootId);

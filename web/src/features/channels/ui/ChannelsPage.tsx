@@ -27,6 +27,7 @@ import {
 import { useHuddle } from "@/features/huddles/use-huddle";
 import { useChannelFind } from "../use-channel-find";
 import { useChannelReadShortcuts } from "../use-channel-read-shortcuts";
+import { useChannelRouteState } from "../use-channel-route-state";
 import { useChannelActions } from "../use-channel-actions";
 import { getCustomEmoji } from "@/features/settings/custom-emoji-api";
 import { submitModerationReport } from "@/features/settings/moderation-api";
@@ -107,14 +108,19 @@ export function ChannelsWorkspace({
 }) {
   const queryClient = useQueryClient();
   const sidebar = useSidebarVisibility();
-  const [selectedId, setSelectedId] = useState<string | null>(
-    initialChannelId ?? null,
-  );
-  const [threadRootId, setThreadRootId] = useState<string | null>(null);
+  const {
+    clearChannel,
+    closeThread,
+    highlightedId,
+    openMessage,
+    selectChannel,
+    selectedId,
+    setHighlightedId,
+    setSelectedId,
+    setThreadRootId,
+    threadRootId,
+  } = useChannelRouteState({ initialChannelId, initialMessageId });
   const threadViewMode = useThreadViewMode();
-  const [highlightedId, setHighlightedId] = useState<string | null>(
-    initialMessageId ?? null,
-  );
   const [createOpen, setCreateOpen] = useState(false);
   const [dmOpen, setDmOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -137,7 +143,6 @@ export function ChannelsWorkspace({
     if (action === "search") setSearchOpen(true);
   }, []);
   useChannelActions(initialAction, openChannelAction);
-
   const channelsQuery = useQuery({
     queryKey: ["channels", ownerPubkey],
     queryFn: () => ensureStarterChannels(ownerPubkey),
@@ -193,10 +198,6 @@ export function ChannelsWorkspace({
     channels[0] ??
     null;
   useActiveNotificationChannel(selected?.id ?? null);
-  const selectChannel = useCallback((channelId: string) => {
-    setSelectedId(channelId);
-    setThreadRootId(null);
-  }, []);
   const huddle = useHuddle({
     channelId: selected?.id ?? null,
     channelName: selected?.name ?? null,
@@ -216,17 +217,19 @@ export function ChannelsWorkspace({
   const channelFind = useChannelFind({
     channelId: selected?.id ?? null,
     messages,
-    onActivate: useCallback((match) => {
-      setThreadRootId(match.rootId);
-      setHighlightedId(match.id);
-    }, []),
+    onActivate: useCallback(
+      (match) => {
+        setThreadRootId(match.rootId);
+        setHighlightedId(match.id);
+      },
+      [setHighlightedId, setThreadRootId],
+    ),
   });
   const typingEntries = useTypingIndicators({
     channelId: selected?.id ?? null,
     channelType: selected?.channelType ?? null,
     ownerPubkey,
   });
-
   const handleLiveChannelEvent = useCallback(
     (channelId: string) => {
       void queryClient.invalidateQueries({
@@ -253,7 +256,6 @@ export function ChannelsWorkspace({
     selectedChannelId: selected?.id ?? null,
     onChannelEvent: handleLiveChannelEvent,
   });
-
   const channelIds = useMemo(
     () => channels.map((channel) => channel.id),
     [channels],
@@ -263,7 +265,6 @@ export function ChannelsWorkspace({
     selectedChannelId: selected?.id ?? null,
     markChannelRead,
   });
-
   const reactionEventIds = useMemo(
     () => messages.map((message) => message.id),
     [messages],
@@ -295,9 +296,13 @@ export function ChannelsWorkspace({
   useEffect(() => {
     if (channels[0] && !channels.some((channel) => channel.id === selectedId))
       setSelectedId(channels[0].id);
-  }, [channels, selectedId]);
-  useHighlightedMessage(highlightedId, messages, setThreadRootId);
-
+  }, [channels, selectedId, setSelectedId]);
+  useHighlightedMessage(
+    highlightedId,
+    messages,
+    setThreadRootId,
+    Boolean(initialMessageId),
+  );
   const allPubkeys = useMemo(
     () => [
       ownerPubkey,
@@ -354,7 +359,6 @@ export function ChannelsWorkspace({
     ownerPubkey,
     profiles,
   ]);
-
   const refreshSelected = useCallback(async () => {
     if (!selected) return;
     await queryClient.invalidateQueries({
@@ -363,7 +367,6 @@ export function ChannelsWorkspace({
   }, [ownerPubkey, queryClient, selected]);
   const mutationError = (title: string) => (error: Error) =>
     toast.error(title, { description: error.message });
-
   const createMutation = useMutation({
     mutationFn: async (input: {
       name: string;
@@ -395,7 +398,7 @@ export function ChannelsWorkspace({
       await queryClient.invalidateQueries({
         queryKey: ["channels", ownerPubkey],
       });
-      setSelectedId(id);
+      selectChannel(id);
       setCreateOpen(false);
       toast.success("Channel created");
       const template = templatesQuery.data?.find(
@@ -415,7 +418,7 @@ export function ChannelsWorkspace({
       await queryClient.invalidateQueries({
         queryKey: ["channels", ownerPubkey],
       });
-      setSelectedId(id);
+      selectChannel(id);
       setDmOpen(false);
     },
     onError: mutationError("Could not open direct message"),
@@ -483,7 +486,7 @@ export function ChannelsWorkspace({
         queryKey: ["channels", ownerPubkey],
       });
       setBrowserOpen(false);
-      setSelectedId(channelId);
+      selectChannel(channelId);
       toast.success("Channel restored");
     },
     onError: mutationError("Could not restore channel"),
@@ -508,7 +511,7 @@ export function ChannelsWorkspace({
     },
     onSuccess: async () => {
       setSettingsOpen(false);
-      setSelectedId(null);
+      clearChannel();
       await queryClient.invalidateQueries({
         queryKey: ["channels", ownerPubkey],
       });
@@ -546,10 +549,11 @@ export function ChannelsWorkspace({
       mediaTags: payload.mediaTags,
     });
   }
-
   const actions: MessageActions = {
     deletePending: deleteMessageMutation.isPending,
-    onReply: (message) => setThreadRootId(message.rootId ?? message.id),
+    onReply: (message) =>
+      selected &&
+      openMessage(selected.id, message.rootId ?? message.id, message.id),
     onEdit: async (message, content) => {
       if (!selected) return;
       await editMutation.mutateAsync({
@@ -596,7 +600,7 @@ export function ChannelsWorkspace({
         layout={threadViewMode}
         mentionCandidates={dmCandidates}
         messages={messages}
-        onClose={() => setThreadRootId(null)}
+        onClose={() => closeThread(selected.id)}
         followed={followedRootIds.has(threadRoot.id)}
         onFollow={() => followThread(threadRoot.id)}
         onUnfollow={() => unfollowThread(threadRoot.id)}
@@ -747,7 +751,7 @@ export function ChannelsWorkspace({
               matchingMessageIds={channelFind.matchingIds}
               mentionCandidates={dmCandidates}
               messages={messages}
-              onCloseThread={() => setThreadRootId(null)}
+              onCloseThread={() => closeThread(selected.id)}
               onSubmitPost={submitRoot}
               onSubmitReply={async (root, payload) => {
                 await sendMutation.mutateAsync({
@@ -838,7 +842,7 @@ export function ChannelsWorkspace({
             <button
               aria-label="Back to channel"
               className="absolute inset-0 cursor-default"
-              onClick={() => setThreadRootId(null)}
+              onClick={() => selected && closeThread(selected.id)}
               type="button"
             />
             <div className="relative h-full w-full shadow-2xl lg:w-[min(72rem,calc(100vw-5rem))]">
@@ -892,7 +896,7 @@ export function ChannelsWorkspace({
         onClose={() => setBrowserOpen(false)}
         onJoin={(channelId) => joinMutation.mutate(channelId)}
         onOpen={(channelId) => {
-          setSelectedId(channelId);
+          selectChannel(channelId);
           setBrowserOpen(false);
         }}
         onRestore={(channelId) => restoreMutation.mutate(channelId)}
@@ -935,9 +939,7 @@ export function ChannelsWorkspace({
         onClose={() => setSearchOpen(false)}
         onSearch={searchMutation.mutate}
         onSelect={(result) => {
-          setSelectedId(result.channelId);
-          setThreadRootId(result.rootId);
-          setHighlightedId(result.id);
+          openMessage(result.channelId, result.rootId ?? result.id, result.id);
           setSearchOpen(false);
         }}
       />
