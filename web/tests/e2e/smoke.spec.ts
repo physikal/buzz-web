@@ -10,6 +10,7 @@ import {
   encrypt as encryptNip49,
 } from "nostr-tools/nip49";
 import { finalizeEvent, getPublicKey, verifyEvent } from "nostr-tools/pure";
+import { mergeOwnerProfileMetadata } from "../../src/features/profile/profile-metadata";
 
 const testPort = process.env.BUZZ_WEB_TEST_PORT ?? "4173";
 const testOrigin = `http://localhost:${testPort}`;
@@ -33,6 +34,32 @@ test("repositories page remains available from its desktop route", async ({
 }) => {
   await page.goto("/repos");
   await expect(page.getByText("Repositories")).toBeVisible();
+});
+
+test("profile edits preserve interoperable kind-0 metadata", () => {
+  expect(
+    mergeOwnerProfileMetadata(
+      JSON.stringify({
+        name: "stable-alias",
+        nip05: "owner@example.com",
+        website: "https://example.com",
+        lud16: "owner@example.com",
+      }),
+      {
+        displayName: "Updated owner",
+        about: "Updated from Buzz Web",
+        avatarUrl: "https://example.com/avatar.png",
+      },
+    ),
+  ).toEqual({
+    name: "stable-alias",
+    display_name: "Updated owner",
+    about: "Updated from Buzz Web",
+    picture: "https://example.com/avatar.png",
+    nip05: "owner@example.com",
+    website: "https://example.com",
+    lud16: "owner@example.com",
+  });
 });
 
 test("owner setup creates a passkey-wrapped signer and enters Channels", async ({
@@ -377,7 +404,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
         finalizeEvent(
           {
             kind: 9,
-            created_at: Math.floor(Date.now() / 1000),
+            created_at: Math.floor(Date.parse("2026-01-15T12:00:00Z") / 1_000),
             content: "Welcome search result",
             tags: [["h", "44444444-4444-4444-8444-444444444444"]],
           },
@@ -878,6 +905,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
           const subscriptionId = frame[1];
           const requestFilters = frame.slice(2) as Array<{
             kinds?: number[];
+            authors?: string[];
             "#h"?: string[];
             limit?: number;
             since?: number;
@@ -1581,6 +1609,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
                     content: JSON.stringify({
                       display_name: "Relay agent",
                       about: "Posts build updates",
+                      nip05: "relay-agent@example.com",
                     }),
                     tags: [],
                   },
@@ -1588,6 +1617,11 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
                 ),
               ]),
             );
+            for (const event of submittedEvents.filter(
+              (candidate) => candidate.kind === 0,
+            )) {
+              socket.send(JSON.stringify(["EVENT", subscriptionId, event]));
+            }
           }
           socket.send(JSON.stringify(["EOSE", subscriptionId]));
         }
@@ -1906,6 +1940,11 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await page.getByRole("button", { name: "Open Relay agent profile" }).click();
   await expect(
     page.getByRole("dialog", { name: "Relay agent profile" }),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByRole("dialog", { name: "Relay agent profile" })
+      .getByText("relay-agent@example.com"),
   ).toBeVisible();
   await expect(page.getByText("Posts build updates")).toBeVisible();
   await expect(page.getByText("Reviewing builds")).toBeVisible();
@@ -2226,6 +2265,26 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await page.getByRole("link", { name: "Settings" }).click();
   await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Profile" })).toBeVisible();
+  await expect(page.getByLabel("Display name")).toHaveValue("");
+  await expect(page.getByText("Not set", { exact: true })).toBeVisible();
+  await page.getByLabel("Display name").fill("Web owner");
+  await page.getByLabel("About").fill("Owner profile from the browser");
+  await page.getByRole("button", { name: "Save profile" }).click();
+  await expect
+    .poll(() => {
+      const profileEvent = submittedEvents.find(
+        (event) => event.kind === 0 && event.pubkey === ownerPubkey,
+      );
+      const metadata = profileEvent
+        ? (JSON.parse(profileEvent.content) as Record<string, unknown>)
+        : null;
+      return metadata;
+    })
+    .toMatchObject({
+      display_name: "Web owner",
+      name: "Web owner",
+      about: "Owner profile from the browser",
+    });
   await page.getByLabel("Passkey label").fill("Bitwarden passkey");
   await page.getByRole("button", { name: "Add passkey" }).click();
   await expect(page.getByText("Passkey added")).toBeVisible();

@@ -98,6 +98,11 @@ export function UserProfileDialog({
             <p className="mt-1 capitalize text-xs text-muted-foreground">
               {presence}
             </p>
+            {profile?.nip05Handle ? (
+              <p className="mt-1 truncate text-xs text-muted-foreground">
+                {profile.nip05Handle}
+              </p>
+            ) : null}
             {userStatus ? (
               <p className="mt-2 break-words text-sm">
                 {userStatus.emoji ? `${userStatus.emoji} ` : ""}

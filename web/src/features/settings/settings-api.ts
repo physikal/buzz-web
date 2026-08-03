@@ -1,4 +1,5 @@
 import { listProfiles, uploadMedia } from "@/features/channels/channel-api";
+import { mergeOwnerProfileMetadata } from "@/features/profile/profile-metadata";
 import { submitEvent } from "@/shared/lib/relay-events";
 import { queryEvents } from "@/shared/lib/nostr-client";
 import { relayWsUrl } from "@/shared/lib/relay-url";
@@ -7,6 +8,7 @@ export type ProfileInput = {
   displayName: string;
   about: string;
   avatarUrl: string;
+  nip05Handle: string;
 };
 
 export type UserStatus = {
@@ -67,19 +69,41 @@ export async function getOwnerProfile(pubkey: string): Promise<ProfileInput> {
     displayName: profile?.displayName ?? "",
     about: profile?.about ?? "",
     avatarUrl: profile?.avatarUrl ?? "",
+    nip05Handle: profile?.nip05Handle ?? "",
   };
 }
 
-export async function updateOwnerProfile(input: ProfileInput): Promise<void> {
+export async function updateOwnerProfile(
+  ownerPubkey: string,
+  input: ProfileInput,
+): Promise<void> {
+  if (!/^[0-9a-f]{64}$/i.test(ownerPubkey)) {
+    throw new Error("Owner public key is invalid.");
+  }
+  if (!input.displayName.trim() || input.displayName.trim().length > 200) {
+    throw new Error("Display name must be between 1 and 200 characters.");
+  }
+  if (input.about.trim().length > 5_000) {
+    throw new Error("Profile description is limited to 5,000 characters.");
+  }
+  if (input.avatarUrl.trim().length > 8_192) {
+    throw new Error("Avatar URL is too long.");
+  }
+  const events = await queryEvents(
+    relayWsUrl(),
+    { kinds: [0], authors: [ownerPubkey], limit: 20 },
+    { requireNip07: true },
+  );
+  const current = events.sort(
+    (left, right) =>
+      right.created_at - left.created_at || right.id.localeCompare(left.id),
+  )[0];
   await submitEvent({
     kind: 0,
     tags: [],
-    content: JSON.stringify({
-      display_name: input.displayName.trim(),
-      name: input.displayName.trim(),
-      about: input.about.trim(),
-      picture: input.avatarUrl.trim(),
-    }),
+    content: JSON.stringify(
+      mergeOwnerProfileMetadata(current?.content ?? "{}", input),
+    ),
   });
 }
 

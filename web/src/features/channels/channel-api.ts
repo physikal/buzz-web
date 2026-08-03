@@ -62,6 +62,7 @@ export type UserProfile = {
   displayName: string | null;
   avatarUrl: string | null;
   about: string | null;
+  nip05Handle: string | null;
 };
 
 export type ChannelMember = {
@@ -575,7 +576,10 @@ export async function listProfiles(pubkeys: string[]): Promise<UserProfile[]> {
   return [...latest.values()].map((event) => {
     let profile: Record<string, unknown> = {};
     try {
-      profile = JSON.parse(event.content) as Record<string, unknown>;
+      const value = JSON.parse(event.content) as unknown;
+      if (value && typeof value === "object" && !Array.isArray(value)) {
+        profile = value as Record<string, unknown>;
+      }
     } catch {
       // Preserve a pubkey fallback for malformed legacy metadata.
     }
@@ -589,6 +593,10 @@ export async function listProfiles(pubkeys: string[]): Promise<UserProfile[]> {
             : null,
       avatarUrl: typeof profile.picture === "string" ? profile.picture : null,
       about: typeof profile.about === "string" ? profile.about : null,
+      nip05Handle:
+        typeof profile.nip05 === "string" && profile.nip05.length <= 320
+          ? profile.nip05
+          : null,
     };
   });
 }

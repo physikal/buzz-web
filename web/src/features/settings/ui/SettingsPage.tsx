@@ -6,6 +6,7 @@ import {
   Bot,
   Camera,
   CalendarClock,
+  Copy,
   FileStack,
   Keyboard,
   MonitorCog,
@@ -229,7 +230,12 @@ function ProfilePanel({ ownerPubkey }: { ownerPubkey: string }) {
     <ProfileForm
       key={JSON.stringify(profileQuery.data)}
       initial={
-        profileQuery.data ?? { displayName: "", about: "", avatarUrl: "" }
+        profileQuery.data ?? {
+          displayName: "",
+          about: "",
+          avatarUrl: "",
+          nip05Handle: "",
+        }
       }
       ownerPubkey={ownerPubkey}
       onSaved={() =>
@@ -252,7 +258,7 @@ function ProfileForm({
 }) {
   const [profile, setProfile] = useState(initial);
   const update = useMutation({
-    mutationFn: updateOwnerProfile,
+    mutationFn: (input: ProfileInput) => updateOwnerProfile(ownerPubkey, input),
     onSuccess: async () => {
       await onSaved();
       toast.success("Profile updated");
@@ -311,6 +317,7 @@ function ProfileForm({
           <Input
             className="mt-2"
             id="profile-name"
+            maxLength={200}
             value={profile.displayName}
             onChange={(event) =>
               setProfile((current) => ({
@@ -325,6 +332,7 @@ function ProfileForm({
           <textarea
             className="mt-2 min-h-28 w-full rounded-md border bg-background p-3 text-sm"
             id="profile-about"
+            maxLength={5_000}
             value={profile.about}
             onChange={(event) =>
               setProfile((current) => ({
@@ -335,11 +343,17 @@ function ProfileForm({
           />
         </label>
         <UserStatusPanel ownerPubkey={ownerPubkey} />
-        <div className="rounded-md border p-3">
-          <p className="text-sm font-medium">Public key</p>
-          <p className="mt-1 break-all font-mono text-xs text-muted-foreground">
-            {ownerPubkey}
-          </p>
+        <div className="divide-y rounded-md border">
+          <IdentityValueRow
+            copyValue={ownerPubkey}
+            label="Public key"
+            value={ownerPubkey}
+          />
+          <IdentityValueRow
+            copyValue={profile.nip05Handle || undefined}
+            label="NIP-05 handle"
+            value={profile.nip05Handle || "Not set"}
+          />
         </div>
         <Button
           disabled={update.isPending || !profile.displayName.trim()}
@@ -351,6 +365,45 @@ function ProfileForm({
       <OwnerPasskeysPanel />
       <OwnerBackupPanel ownerPubkey={ownerPubkey} />
     </Panel>
+  );
+}
+
+function IdentityValueRow({
+  label,
+  value,
+  copyValue,
+}: {
+  label: string;
+  value: string;
+  copyValue?: string;
+}) {
+  return (
+    <div className="flex min-h-16 items-center justify-between gap-3 p-3">
+      <div className="min-w-0">
+        <p className="text-sm font-medium">{label}</p>
+        <p
+          className="mt-1 truncate font-mono text-xs text-muted-foreground"
+          title={value}
+        >
+          {value}
+        </p>
+      </div>
+      {copyValue ? (
+        <Button
+          aria-label={`Copy ${label}`}
+          onClick={async () => {
+            await navigator.clipboard.writeText(copyValue);
+            toast.success(`${label} copied`);
+          }}
+          size="icon"
+          title={`Copy ${label}`}
+          type="button"
+          variant="ghost"
+        >
+          <Copy />
+        </Button>
+      ) : null}
+    </div>
   );
 }
 

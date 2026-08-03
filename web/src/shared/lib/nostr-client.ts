@@ -28,6 +28,64 @@ export interface NostrFilter {
 export type NostrEvent = SignedNostrEvent;
 
 const QUERY_TIMEOUT_MS = 10_000;
+const MAX_QUERY_EVENTS = 5_000;
+
+function matchesHexPrefix(candidate: string, values: unknown) {
+  return (
+    Array.isArray(values) &&
+    values.some(
+      (value) =>
+        typeof value === "string" &&
+        value.length > 0 &&
+        candidate.startsWith(value.toLowerCase()),
+    )
+  );
+}
+
+export function eventMatchesFilter(
+  event: NostrEvent,
+  filter: NostrFilter | Record<string, unknown>,
+) {
+  if (Array.isArray(filter.ids) && !matchesHexPrefix(event.id, filter.ids)) {
+    return false;
+  }
+  if (
+    Array.isArray(filter.authors) &&
+    !matchesHexPrefix(event.pubkey, filter.authors)
+  ) {
+    return false;
+  }
+  if (Array.isArray(filter.kinds) && !filter.kinds.includes(event.kind)) {
+    return false;
+  }
+  if (typeof filter.since === "number" && event.created_at < filter.since) {
+    return false;
+  }
+  if (typeof filter.until === "number" && event.created_at > filter.until) {
+    return false;
+  }
+  for (const [key, values] of Object.entries(filter)) {
+    if (!key.startsWith("#") || !Array.isArray(values)) continue;
+    const tagName = key.slice(1);
+    if (
+      !event.tags.some(
+        (tag) =>
+          tag[0] === tagName &&
+          values.some((value) => typeof value === "string" && tag[1] === value),
+      )
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function eventMatchesAnyFilter(
+  event: NostrEvent,
+  filters: Array<NostrFilter | Record<string, unknown>>,
+) {
+  return filters.some((filter) => eventMatchesFilter(event, filter));
+}
 
 export async function publishEphemeralEvent(
   template: Parameters<typeof signNostrEvent>[0],
@@ -164,7 +222,10 @@ export async function queryEventsHttp(
     throw new Error(message);
   }
   if (!Array.isArray(payload)) throw new Error("Invalid relay query response.");
-  return payload.filter(validNostrEvent);
+  return payload
+    .filter(validNostrEvent)
+    .filter((event) => eventMatchesAnyFilter(event, filters))
+    .slice(0, MAX_QUERY_EVENTS);
 }
 
 /**
@@ -177,6 +238,7 @@ export function queryEvents(
   filter: NostrFilter | NostrFilter[],
   options?: { requireNip07?: boolean },
 ): Promise<NostrEvent[]> {
+  const requestedFilters = Array.isArray(filter) ? filter : [filter];
   return new Promise((resolve, reject) => {
     const events: NostrEvent[] = [];
     const subId = `q-${Date.now().toString(36)}`;
@@ -210,8 +272,7 @@ export function queryEvents(
     const sendReq = () => {
       if (!reqSent) {
         reqSent = true;
-        const filters = Array.isArray(filter) ? filter : [filter];
-        ws.send(JSON.stringify(["REQ", subId, ...filters]));
+        ws.send(JSON.stringify(["REQ", subId, ...requestedFilters]));
       }
     };
 
@@ -279,7 +340,13 @@ export function queryEvents(
       }
 
       if (type === "EVENT" && data[1] === subId && data[2]) {
-        if (validNostrEvent(data[2])) events.push(data[2]);
+        if (
+          events.length < MAX_QUERY_EVENTS &&
+          validNostrEvent(data[2]) &&
+          eventMatchesAnyFilter(data[2], requestedFilters)
+        ) {
+          events.push(data[2]);
+        }
       } else if (type === "EOSE" && data[1] === subId) {
         if (!settled) {
           settled = true;
@@ -337,6 +404,7 @@ export function subscribeEvents(
     onStatus?: (status: "connecting" | "live" | "offline") => void;
   },
 ): LiveSubscription {
+  const requestedFilters = Array.isArray(filter) ? filter : [filter];
   let stopped = false;
   let ws: WebSocket | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -356,8 +424,7 @@ export function subscribeEvents(
     const sendReq = () => {
       if (reqSent || ws?.readyState !== WebSocket.OPEN) return;
       reqSent = true;
-      const filters = Array.isArray(filter) ? filter : [filter];
-      ws.send(JSON.stringify(["REQ", subId, ...filters]));
+      ws.send(JSON.stringify(["REQ", subId, ...requestedFilters]));
     };
 
     ws.addEventListener("open", () => {
@@ -392,7 +459,12 @@ export function subscribeEvents(
         return;
       }
       if (frame[0] === "EVENT" && frame[1] === subId && frame[2]) {
-        if (validNostrEvent(frame[2])) onEvent(frame[2]);
+        if (
+          validNostrEvent(frame[2]) &&
+          eventMatchesAnyFilter(frame[2], requestedFilters)
+        ) {
+          onEvent(frame[2]);
+        }
         return;
       }
       if (frame[0] === "EOSE" && frame[1] === subId) {
