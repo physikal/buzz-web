@@ -554,6 +554,7 @@ export function ThreadPanel({
   selectedMessageId,
   matchingMessageIds,
   forum = false,
+  layout = "split",
 }: {
   channel: Channel;
   root: ChannelMessage;
@@ -576,12 +577,13 @@ export function ThreadPanel({
   selectedMessageId?: string | null;
   matchingMessageIds?: ReadonlySet<string>;
   forum?: boolean;
+  layout?: "focus" | "split";
 }) {
   const replies = messages.filter((message) => message.rootId === root.id);
   return (
     <aside
       aria-label={forum ? "Forum thread" : "Thread"}
-      className={`flex min-h-0 w-full shrink-0 flex-col bg-background ${forum ? "flex-1" : "border-l lg:w-[28rem]"}`}
+      className={`flex min-h-0 w-full shrink-0 flex-col bg-background ${forum ? "flex-1" : layout === "focus" ? "h-full border-l" : "border-l lg:w-[28rem]"}`}
     >
       <header className="flex h-16 items-center border-b px-4">
         {forum ? (

@@ -2144,6 +2144,58 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   );
   expect(getPublicKey(restoredOwnerKey)).toBe(ownerPubkey);
   restoredOwnerKey.fill(0);
+  await page.getByRole("button", { name: "Appearance" }).click();
+  await expect(page.getByRole("heading", { name: "Appearance" })).toBeVisible();
+  await expect(page.getByTestId("theme-pair-buzz")).toBeVisible();
+  await page.getByRole("button", { name: "Dark" }).click();
+  await page.getByTestId("theme-option-github-dark").click();
+  await expect(page.locator("html")).toHaveClass(/dark/u);
+  await expect
+    .poll(() =>
+      page.evaluate(() => ({
+        theme: localStorage.getItem("buzz-theme"),
+        followSystem: localStorage.getItem("buzz-follow-system"),
+      })),
+    )
+    .toEqual({ theme: "github-dark", followSystem: "false" });
+  await page.getByRole("button", { name: "Green accent" }).click();
+  await expect
+    .poll(() => page.evaluate(() => localStorage.getItem("buzz-accent-color")))
+    .toBe("#22c55e");
+  await page.getByLabel("Thread layout").selectOption("focus");
+  await expect
+    .poll(() =>
+      page.evaluate(() => localStorage.getItem("buzz.channels.threadViewMode")),
+    )
+    .toBe("focus");
+  await page.getByRole("link", { name: "Channels" }).click();
+  const focusThreadMessage = page.locator("article").filter({
+    hasText: "Welcome to Buzz Web.",
+  });
+  await focusThreadMessage.hover();
+  await focusThreadMessage.getByRole("button", { name: "Reply" }).click();
+  await expect(
+    page.getByRole("button", { name: "Back to channel" }),
+  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Thread" })).toBeVisible();
+  await page.getByRole("button", { name: "Close thread" }).click();
+  await page.getByRole("link", { name: "Settings" }).click();
+  await page.getByRole("button", { name: "Appearance" }).click();
+  await page.getByLabel("Thread layout").selectOption("split");
+  await page.getByRole("button", { name: "System" }).click();
+  await page.getByTestId("theme-pair-buzz").click();
+  await page.screenshot({
+    path: "/tmp/buzz-web-settings-appearance.png",
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByLabel("Settings section")).toHaveValue("appearance");
+  await expect(page.getByRole("link", { name: "Back to Buzz" })).toBeVisible();
+  await page.screenshot({
+    path: "/tmp/buzz-web-settings-appearance-mobile.png",
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 1280, height: 720 });
   await page.getByRole("button", { name: "Shortcuts" }).click();
   await expect(
     page.getByRole("heading", { name: "Keyboard shortcuts" }),

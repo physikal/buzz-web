@@ -65,6 +65,7 @@ import { useChannelStars } from "../use-channel-stars";
 import { useChannelSort } from "../use-channel-sort";
 import { useChannelSections } from "../use-channel-sections";
 import { useThreadFollows } from "../use-thread-follows";
+import { useThreadViewMode } from "../thread-view-mode";
 import { useTypingIndicators } from "../use-typing";
 import { buildDmCandidates } from "../dm-candidates";
 import { messageSubtree } from "../message-tree";
@@ -109,6 +110,7 @@ export function ChannelsWorkspace({
     initialChannelId ?? null,
   );
   const [threadRootId, setThreadRootId] = useState<string | null>(null);
+  const threadViewMode = useThreadViewMode();
   const [highlightedId, setHighlightedId] = useState<string | null>(
     initialMessageId ?? null,
   );
@@ -584,6 +586,45 @@ export function ChannelsWorkspace({
   };
   const threadRoot =
     messages.find((message) => message.id === threadRootId) ?? null;
+  const threadPanel =
+    selected && threadRoot && selected.channelType !== "forum" ? (
+      <ThreadPanel
+        actions={actions}
+        agentNames={agentNames}
+        channel={selected}
+        customEmoji={customEmojiQuery.data?.community ?? []}
+        layout={threadViewMode}
+        mentionCandidates={dmCandidates}
+        messages={messages}
+        onClose={() => setThreadRootId(null)}
+        followed={followedRootIds.has(threadRoot.id)}
+        onFollow={() => followThread(threadRoot.id)}
+        onUnfollow={() => unfollowThread(threadRoot.id)}
+        onTyping={() =>
+          void sendTypingIndicator(selected.id, threadRoot.id, threadRoot.id)
+        }
+        ownerPubkey={ownerPubkey}
+        pending={sendMutation.isPending}
+        matchingMessageIds={channelFind.matchingIds}
+        presence={presence}
+        profiles={profiles}
+        root={threadRoot}
+        selectedMessageId={highlightedId}
+        typingPubkeys={typingEntries
+          .filter((entry) => entry.threadId === threadRoot.id)
+          .map((entry) => entry.pubkey)}
+        onSubmit={async (payload) => {
+          await sendMutation.mutateAsync({
+            channelId: selected.id,
+            content: payload.content,
+            mentionPubkeys: payload.mentionPubkeys,
+            parentId: threadRoot.id,
+            rootId: threadRoot.id,
+            mediaTags: payload.mediaTags,
+          });
+        }}
+      />
+    ) : null;
   return (
     <div className="flex h-dvh min-h-0 bg-background">
       <ChannelsPrimarySidebar
@@ -791,42 +832,22 @@ export function ChannelsWorkspace({
           )
         ) : null}
       </main>
-      {selected && threadRoot && selected.channelType !== "forum" ? (
-        <ThreadPanel
-          actions={actions}
-          agentNames={agentNames}
-          channel={selected}
-          customEmoji={customEmojiQuery.data?.community ?? []}
-          mentionCandidates={dmCandidates}
-          messages={messages}
-          onClose={() => setThreadRootId(null)}
-          followed={followedRootIds.has(threadRoot.id)}
-          onFollow={() => followThread(threadRoot.id)}
-          onUnfollow={() => unfollowThread(threadRoot.id)}
-          onTyping={() =>
-            void sendTypingIndicator(selected.id, threadRoot.id, threadRoot.id)
-          }
-          ownerPubkey={ownerPubkey}
-          pending={sendMutation.isPending}
-          matchingMessageIds={channelFind.matchingIds}
-          presence={presence}
-          profiles={profiles}
-          root={threadRoot}
-          selectedMessageId={highlightedId}
-          typingPubkeys={typingEntries
-            .filter((entry) => entry.threadId === threadRoot.id)
-            .map((entry) => entry.pubkey)}
-          onSubmit={async (payload) => {
-            await sendMutation.mutateAsync({
-              channelId: selected.id,
-              content: payload.content,
-              mentionPubkeys: payload.mentionPubkeys,
-              parentId: threadRoot.id,
-              rootId: threadRoot.id,
-              mediaTags: payload.mediaTags,
-            });
-          }}
-        />
+      {threadPanel ? (
+        threadViewMode === "focus" ? (
+          <div className="fixed inset-0 z-40 flex justify-end bg-black/30">
+            <button
+              aria-label="Back to channel"
+              className="absolute inset-0 cursor-default"
+              onClick={() => setThreadRootId(null)}
+              type="button"
+            />
+            <div className="relative h-full w-full shadow-2xl lg:w-[min(72rem,calc(100vw-5rem))]">
+              {threadPanel}
+            </div>
+          </div>
+        ) : (
+          threadPanel
+        )
       ) : null}
       <CreateChannelDialog
         open={createOpen}

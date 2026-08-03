@@ -42,6 +42,10 @@
     --sidebar-ring: 225 13.56% 76.86%;
     --ui-warning: #8a5a00;
     --ui-warning-bg: #fff7df;
+    --buzz-gradient-light-top: #e6e6b6;
+    --buzz-gradient-light-bottom: #c4d0da;
+    --buzz-gradient-dark-top: #4a4616;
+    --buzz-gradient-dark-bottom: #0a1423;
   }
 
   .dark {
@@ -101,4 +105,21 @@
     @apply bg-background text-foreground antialiased;
     font-family: "Inter Variable", Inter, "Avenir Next", "Segoe UI", sans-serif;
   }
+}
+
+:root[data-buzz-sidebar] .bg-sidebar {
+  background-color: transparent;
+  background-image: linear-gradient(
+    to bottom,
+    var(--buzz-gradient-light-top),
+    var(--buzz-gradient-light-bottom)
+  );
+}
+
+:root[data-buzz-sidebar].dark .bg-sidebar {
+  background-image: linear-gradient(
+    to bottom,
+    var(--buzz-gradient-dark-top),
+    var(--buzz-gradient-dark-bottom)
+  );
 }

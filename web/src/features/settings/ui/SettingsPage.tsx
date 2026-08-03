@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import {
+  ArrowLeft,
   Bell,
   Bot,
   BookMarked,
@@ -31,7 +32,6 @@ import { OwnerBackupPanel } from "@/features/owner-vault/ui/OwnerBackupPanel";
 import { OwnerPasskeysPanel } from "@/features/owner-vault/ui/OwnerPasskeysPanel";
 import { RemindersPanel } from "@/features/reminders/ui/RemindersPanel";
 import { truncatePubkey } from "@/shared/lib/pubkey";
-import { ThemeToggle } from "@/shared/theme/ThemeToggle";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { CommunityMembersPanel } from "./CommunityMembersPanel";
@@ -40,6 +40,7 @@ import { AgentRuntimesPanel } from "./AgentRuntimesPanel";
 import { CustomEmojiPanel } from "./CustomEmojiPanel";
 import { KeyboardShortcutsPanel } from "./KeyboardShortcutsPanel";
 import { ModerationPanel } from "./ModerationPanel";
+import { AppearancePanel } from "./AppearancePanel";
 import {
   getOwnerProfile,
   getUserStatus,
@@ -62,6 +63,19 @@ type Section =
   | "community-members"
   | "custom-emoji"
   | "moderation";
+
+const SETTINGS_ROWS: Array<[Section, string, React.ReactNode]> = [
+  ["profile", "Profile", <UserRound key="profile" />],
+  ["notifications", "Notifications", <Bell key="notifications" />],
+  ["appearance", "Appearance", <MonitorCog key="appearance" />],
+  ["shortcuts", "Shortcuts", <Keyboard key="shortcuts" />],
+  ["agents", "Agents", <Bot key="agents" />],
+  ["channel-templates", "Templates", <FileStack key="templates" />],
+  ["reminders", "Reminders", <CalendarClock key="reminders" />],
+  ["community-members", "Invites", <Ticket key="community-members" />],
+  ["moderation", "Moderation", <ShieldAlert key="moderation" />],
+  ["custom-emoji", "Custom emoji", <Smile key="custom-emoji" />],
+];
 
 export function SettingsPage() {
   const [ownerPubkey, setOwnerPubkey] = useState<string | null>(null);
@@ -87,7 +101,7 @@ function SettingsWorkspace({
   const [section, setSection] = useState<Section>("profile");
   return (
     <div className="flex min-h-dvh bg-background">
-      <aside className="hidden w-60 shrink-0 border-r bg-sidebar p-3 sm:flex sm:flex-col">
+      <aside className="hidden w-60 shrink-0 border-r bg-sidebar p-3 lg:flex lg:flex-col">
         <div className="flex items-center gap-2 px-2 py-2">
           <div
             className="h-8 w-8 overflow-hidden bg-black"
@@ -115,11 +129,45 @@ function SettingsWorkspace({
           {truncatePubkey(ownerPubkey)}
         </button>
       </aside>
-      <aside className="w-52 shrink-0 border-r p-3">
+      <aside className="hidden w-52 shrink-0 border-r p-3 md:block">
         <h1 className="px-2 py-3 text-lg font-semibold">Settings</h1>
         <SettingsNav active={section} onSelect={setSection} />
       </aside>
-      <main className="min-w-0 flex-1 overflow-y-auto p-5 sm:p-8">
+      <main className="min-w-0 flex-1 overflow-y-auto p-4 md:p-8">
+        <div className="mb-6 md:hidden">
+          <div className="mb-3 flex items-center gap-2">
+            <Button
+              asChild
+              aria-label="Back to Buzz"
+              size="icon"
+              variant="ghost"
+            >
+              <Link to="/channels">
+                <ArrowLeft />
+              </Link>
+            </Button>
+            <h1 className="text-xl font-semibold">Settings</h1>
+          </div>
+          <label
+            className="block text-sm font-medium"
+            htmlFor="settings-section"
+          >
+            Section
+          </label>
+          <select
+            aria-label="Settings section"
+            className="mt-2 w-full rounded-md border bg-background px-3 py-2 text-sm"
+            id="settings-section"
+            onChange={(event) => setSection(event.target.value as Section)}
+            value={section}
+          >
+            {SETTINGS_ROWS.map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </div>
         <div className="mx-auto max-w-2xl">
           {section === "profile" ? (
             <ProfilePanel ownerPubkey={ownerPubkey} />
@@ -161,21 +209,9 @@ function SettingsNav({
   active: Section;
   onSelect: (section: Section) => void;
 }) {
-  const rows: Array<[Section, string, React.ReactNode]> = [
-    ["profile", "Profile", <UserRound key="profile" />],
-    ["notifications", "Notifications", <Bell key="notifications" />],
-    ["appearance", "Appearance", <MonitorCog key="appearance" />],
-    ["shortcuts", "Shortcuts", <Keyboard key="shortcuts" />],
-    ["agents", "Agents", <Bot key="agents" />],
-    ["channel-templates", "Templates", <FileStack key="templates" />],
-    ["reminders", "Reminders", <CalendarClock key="reminders" />],
-    ["community-members", "Invites", <Ticket key="community-members" />],
-    ["moderation", "Moderation", <ShieldAlert key="moderation" />],
-    ["custom-emoji", "Custom emoji", <Smile key="custom-emoji" />],
-  ];
   return (
     <nav className="space-y-1">
-      {rows.map(([value, label, icon]) => (
+      {SETTINGS_ROWS.map(([value, label, icon]) => (
         <button
           className={`flex w-full items-center gap-2 rounded-md px-2 py-2 text-sm ${active === value ? "bg-accent font-medium" : "text-muted-foreground hover:bg-accent"}`}
           key={value}
@@ -499,24 +535,6 @@ function NotificationsPanel() {
   );
 }
 
-function AppearancePanel() {
-  return (
-    <Panel
-      title="Appearance"
-      description="Match Buzz to your browser and working environment."
-    >
-      <div className="flex items-center justify-between rounded-md border p-4">
-        <div>
-          <p className="text-sm font-medium">Color theme</p>
-          <p className="text-sm text-muted-foreground">
-            Switch between light and dark appearance.
-          </p>
-        </div>
-        <ThemeToggle />
-      </div>
-    </Panel>
-  );
-}
 function ToggleRow({
   checked,
   disabled,
