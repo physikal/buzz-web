@@ -4,6 +4,8 @@ import {
   Bot,
   BookMarked,
   BookOpen,
+  Copy,
+  ExternalLink,
   FolderKanban,
   GitFork,
   Inbox,
@@ -14,13 +16,14 @@ import {
   X,
   Zap,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import buzzAppIcon from "@/assets/app-icon@3x.png";
 import { OwnerConnection } from "@/features/agents/ui/OwnerConnection";
 import { lockOwnerVault } from "@/features/owner-vault/lib/vault-worker-client";
 import { truncatePubkey } from "@/shared/lib/pubkey";
+import { isSafeHttpUrl } from "@/shared/lib/url";
 import { useEscapeSurface } from "@/shared/hooks/use-escape-surface";
 import { useSidebarVisibility } from "@/shared/hooks/use-sidebar-visibility";
 import { Button } from "@/shared/ui/button";
@@ -247,6 +250,7 @@ function ProjectDetail({
   const selectedIssue = (issuesQuery.data ?? []).find(
     (issue) => issue.id === selectedIssueId,
   );
+  const safeWebUrl = isSafeHttpUrl(project.webUrl) ? project.webUrl : null;
   if (selectedIssue) {
     return (
       <ProjectIssueDetail
@@ -281,23 +285,56 @@ function ProjectDetail({
       <header className="mt-5 flex flex-wrap items-start justify-between gap-4">
         <SidebarToggleButton />
         <div>
-          <h1 className="text-2xl font-semibold">{project.name}</h1>
+          <div className="flex min-w-0 items-center gap-1.5">
+            <h1 className="min-w-0 text-2xl font-semibold">{project.name}</h1>
+            {safeWebUrl ? (
+              <Button
+                aria-label="Open project web page"
+                asChild
+                className="h-7 w-7 shrink-0"
+                size="icon"
+                variant="ghost"
+              >
+                <a href={safeWebUrl} rel="noopener noreferrer" target="_blank">
+                  <ExternalLink />
+                </a>
+              </Button>
+            ) : null}
+          </div>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
             {project.description}
           </p>
-          <p className="mt-2 font-mono text-xs text-muted-foreground">
+          <p className="mt-2 break-all font-mono text-xs text-muted-foreground">
             {project.repoAddress}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {projectView === "issues" ? (
             <Button onClick={() => setIssueOpen(true)}>
               <Plus /> New issue
             </Button>
           ) : null}
-          {project.cloneUrls[0] ? (
+          {project.projectChannelId ? (
             <Button asChild variant="outline">
-              <a href={project.cloneUrls[0]}>Clone URL</a>
+              <Link
+                search={{ channel: project.projectChannelId }}
+                to="/channels"
+              >
+                <MessageSquare /> Open Discussion
+              </Link>
+            </Button>
+          ) : null}
+          {project.cloneUrls[0] ? (
+            <Button
+              onClick={() => {
+                void navigator.clipboard
+                  .writeText(project.cloneUrls[0] ?? "")
+                  .then(() => toast.success("Clone URL copied"))
+                  .catch(() => toast.error("Could not copy clone URL"));
+              }}
+              variant="outline"
+            >
+              <Copy /> Copy clone URL
             </Button>
           ) : null}
         </div>
@@ -350,6 +387,7 @@ function ProjectDetail({
         projectView === "contributors" ? (
           <ProjectRepositoryPanel
             initialCommitOid={initialCommitOid}
+            onViewChange={setProjectView}
             project={project}
             view={projectView}
           />
@@ -666,6 +704,14 @@ function CreateProjectDialog({
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [cloneUrl, setCloneUrl] = useState("");
+  const [webUrl, setWebUrl] = useState("");
+  useEffect(() => {
+    if (!open) return;
+    setName("");
+    setDescription("");
+    setCloneUrl("");
+    setWebUrl("");
+  }, [open]);
   if (!open) return null;
   return (
     <Modal disabled={pending} title="New project" onClose={onClose}>
@@ -673,7 +719,7 @@ function CreateProjectDialog({
         className="space-y-4"
         onSubmit={(event) => {
           event.preventDefault();
-          void onSubmit({ name, description, cloneUrl });
+          void onSubmit({ name, description, cloneUrl, webUrl });
         }}
       >
         <Field htmlFor="project-name" label="Name">
@@ -699,6 +745,18 @@ function CreateProjectDialog({
             id="project-clone-url"
             value={cloneUrl}
             onChange={(event) => setCloneUrl(event.target.value)}
+          />
+        </Field>
+        <Field htmlFor="project-web-url" label="Web URL (optional)">
+          <Input
+            autoCapitalize="none"
+            autoComplete="off"
+            autoCorrect="off"
+            id="project-web-url"
+            placeholder="https://github.com/owner/repo"
+            spellCheck={false}
+            value={webUrl}
+            onChange={(event) => setWebUrl(event.target.value)}
           />
         </Field>
         <div className="flex justify-end gap-2">

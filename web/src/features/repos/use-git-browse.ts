@@ -81,8 +81,13 @@ export function useGitLog(owner: string, repoName: string, ref: string) {
 }
 
 /** Find and read the README from the repo root. */
-export function useGitReadme(owner: string, repoName: string, ref: string) {
-  const cloneQuery = useGitClone(owner, repoName, ref);
+export function useGitReadme(
+  owner: string,
+  repoName: string,
+  ref: string,
+  depth: number | null = 1,
+) {
+  const cloneQuery = useGitClone(owner, repoName, ref, depth);
 
   return useQuery({
     queryKey: ["git-readme", owner, repoName, ref],

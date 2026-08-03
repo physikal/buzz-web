@@ -13,6 +13,7 @@ export type Project = {
   contributors: string[];
   cloneUrls: string[];
   webUrl: string | null;
+  projectChannelId: string | null;
   createdAt: number;
   repoAddress: string;
 };
@@ -137,6 +138,16 @@ function tags(event: NostrEvent, name: string) {
     .flatMap((item) => item.slice(1).filter(Boolean));
 }
 
+function safeProjectChannelId(value: string | null) {
+  if (!value || value.length > 256) return null;
+  return [...value].every((character) => {
+    const code = character.charCodeAt(0);
+    return code > 0x1f && code !== 0x7f;
+  })
+    ? value
+    : null;
+}
+
 function eventProject(event: NostrEvent): Project {
   const dtag = tag(event, "d") ?? event.id;
   const explicitClones = tags(event, "clone");
@@ -145,6 +156,8 @@ function eventProject(event: NostrEvent): Project {
     : [
         `${relayHttpBaseUrl().replace(/\/+$/, "")}/git/${event.pubkey}/${encodeURIComponent(dtag)}.git`,
       ];
+  const projectChannelId =
+    tag(event, "h") ?? tag(event, "project-channel") ?? null;
   return {
     id: `${event.pubkey}:${dtag}`,
     dtag,
@@ -159,6 +172,7 @@ function eventProject(event: NostrEvent): Project {
       .map((item) => (item[1] ?? "").toLowerCase()),
     cloneUrls,
     webUrl: tag(event, "web") ?? null,
+    projectChannelId: safeProjectChannelId(projectChannelId),
     createdAt: event.created_at,
     repoAddress: `30617:${event.pubkey}:${dtag}`,
   };

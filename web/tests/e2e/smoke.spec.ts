@@ -975,6 +975,8 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
                       ["d", "relay-project"],
                       ["name", "Relay project"],
                       ["description", "A relay-native project"],
+                      ["web", "https://example.com/relay-project"],
+                      ["h", "44444444-4444-4444-8444-444444444444"],
                     ],
                   },
                   signer,
@@ -2406,13 +2408,20 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await page.getByRole("menuitem", { name: "Repository" }).click();
   await page.getByLabel("Name").fill("Web parity");
   await page.getByLabel("Description").fill("Created from the browser");
+  await page
+    .getByLabel("Web URL (optional)")
+    .fill("https://example.com/web-parity");
   await page.getByRole("button", { name: "Create project" }).click();
   await expect
     .poll(() =>
       submittedEvents.some(
         (event) =>
           event.kind === 30617 &&
-          event.tags.some((tag) => tag[0] === "d" && tag[1] === "web-parity"),
+          event.tags.some((tag) => tag[0] === "d" && tag[1] === "web-parity") &&
+          event.tags.some(
+            (tag) =>
+              tag[0] === "web" && tag[1] === "https://example.com/web-parity",
+          ),
       ),
     )
     .toBe(true);
@@ -2428,6 +2437,49 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await page.getByRole("link", { name: "Relay project" }).click();
   await expect(page.getByRole("button", { name: "Overview" })).toBeVisible();
   await expect(
+    page.getByRole("link", { name: "Open project web page" }),
+  ).toHaveAttribute("href", "https://example.com/relay-project");
+  await expect(
+    page.getByRole("link", { name: "Open Discussion" }),
+  ).toHaveAttribute(
+    "href",
+    "/channels?channel=44444444-4444-4444-8444-444444444444",
+  );
+  await expect(
+    page.getByRole("button", { name: "Copy clone URL" }),
+  ).toBeVisible();
+  const projectOverviewRail = page.getByRole("complementary", {
+    name: "Repository overview",
+  });
+  await expect(
+    projectOverviewRail.getByRole("heading", { name: "People" }),
+  ).toBeVisible();
+  await expect(
+    projectOverviewRail.getByRole("heading", { name: "Top Languages" }),
+  ).toBeVisible();
+  await expect(
+    projectOverviewRail.getByRole("heading", { name: "Repository" }),
+  ).toBeVisible();
+  await expect(
+    projectOverviewRail.getByText("Branch", { exact: true }).locator(".."),
+  ).toContainText("main");
+  await expect(
+    projectOverviewRail.getByRole("button", { name: "View all" }),
+  ).toBeVisible();
+  await expect(page.getByText("Project created")).toBeHidden({
+    timeout: 6_000,
+  });
+  await page.screenshot({ path: "/tmp/buzz-web-project-overview.png" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+  await expect(projectOverviewRail).toBeVisible();
+  await page.screenshot({ path: "/tmp/buzz-web-project-overview-mobile.png" });
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await expect(
     page.getByRole("button", { name: "Files", exact: true }),
   ).toBeVisible();
   await expect(
@@ -2436,10 +2488,12 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await expect(
     page.getByRole("button", { name: "Contributors", exact: true }),
   ).toBeVisible();
-  await expect(page.getByText("3 branches")).toBeVisible();
   await expect(page.getByText("attacker-branch")).toHaveCount(0);
   const repositoryRef = page.getByLabel("Repository branch or tag");
   await expect(repositoryRef).toHaveValue("branch:main");
+  await expect(repositoryRef.locator('option[value^="branch:"]')).toHaveCount(
+    3,
+  );
   await expect(
     repositoryRef.locator('option[value="branch:../escape"]'),
   ).toHaveCount(0);
@@ -2489,7 +2543,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   ).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(createBranchDialog).toBeHidden();
-  await page.getByRole("button", { name: "Contributors", exact: true }).click();
+  await projectOverviewRail.getByRole("button", { name: "View all" }).click();
   await expect(page.getByText("Repository owner")).toBeVisible();
   await page.getByRole("button", { name: "Issues", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Issues" })).toBeVisible();

@@ -9,7 +9,6 @@ import { useGitLog, useGitReadme } from "@/features/repos/use-git-browse";
 import { useRepoRefs } from "@/features/repos/use-repo-refs";
 import { RepoCommitsSection } from "@/features/repos/ui/RepoCommitsSection";
 import { RepoReadmeSection } from "@/features/repos/ui/RepoReadmeSection";
-import { RepoRefsSection } from "@/features/repos/ui/RepoRefsSection";
 import { truncatePubkey } from "@/shared/lib/pubkey";
 import { DestructiveConfirmDialog } from "@/shared/ui/destructive-confirm-dialog";
 import {
@@ -17,13 +16,15 @@ import {
   deleteProjectRemoteBranch,
 } from "../project-branches";
 import { listProjectPullRequests, type Project } from "../project-api";
+import { useProjectRepositoryMetadata } from "../project-repository-metadata";
+import { ProjectCommitDetail } from "./ProjectCommitDetail";
 import {
   CreateBranchDialog,
   ProjectRepositoryRefControls,
   type RepositoryRefControlsProps,
 } from "./ProjectRepositoryRefControls";
 import { ProjectFilesBrowser } from "./ProjectFilesBrowser";
-import { ProjectCommitDetail } from "./ProjectCommitDetail";
+import { ProjectOverviewRail } from "./ProjectOverviewRail";
 
 export type ProjectRepositoryView =
   | "overview"
@@ -33,10 +34,12 @@ export type ProjectRepositoryView =
 
 export function ProjectRepositoryPanel({
   initialCommitOid,
+  onViewChange,
   project,
   view,
 }: {
   initialCommitOid?: string;
+  onViewChange?: (view: ProjectRepositoryView) => void;
   project: Project;
   view: ProjectRepositoryView;
 }) {
@@ -169,6 +172,8 @@ export function ProjectRepositoryPanel({
         {view === "overview" ? (
           <ProjectOverview
             project={project}
+            onViewChange={onViewChange}
+            pullRequestCount={pullRequestsQuery.data?.length ?? 0}
             refControls={refControls}
             refName={refName}
             refsQuery={refsQuery}
@@ -226,28 +231,48 @@ export function ProjectRepositoryPanel({
 type RefsQuery = ReturnType<typeof useRepoRefs>;
 
 function ProjectOverview({
+  onViewChange,
   project,
+  pullRequestCount,
   refControls,
   refName,
   refsQuery,
 }: {
+  onViewChange?: (view: ProjectRepositoryView) => void;
   project: Project;
+  pullRequestCount: number;
   refControls: RepositoryRefControlsProps;
   refName: string;
   refsQuery: RefsQuery;
 }) {
-  const readme = useGitReadme(project.owner, project.dtag, refName);
+  const readme = useGitReadme(project.owner, project.dtag, refName, 100);
+  const metadata = useProjectRepositoryMetadata(project, refName);
   return (
     <>
       <ProjectRepositoryRefControls {...refControls} />
-      <RepoRefsSection isLoading={refsQuery.isLoading} refs={refsQuery.data} />
-      <RepositoryError error={refsQuery.error ?? readme.error} />
-      <RepoReadmeSection isLoading={readme.isLoading} readme={readme.data} />
-      {!readme.isLoading && !readme.error && !readme.data ? (
-        <p className="mt-8 text-sm text-muted-foreground">
-          This repository does not have a README on {refName}.
-        </p>
-      ) : null}
+      <div className="mt-4 grid overflow-hidden rounded-md border xl:grid-cols-[minmax(0,1fr)_18rem]">
+        <div className="min-w-0 p-4">
+          <RepositoryError
+            error={refsQuery.error ?? readme.error ?? metadata.error}
+          />
+          <RepoReadmeSection
+            isLoading={readme.isLoading}
+            readme={readme.data}
+          />
+          {!readme.isLoading && !readme.error && !readme.data ? (
+            <p className="mt-4 text-sm text-muted-foreground">
+              This repository does not have a README on {refName}.
+            </p>
+          ) : null}
+        </div>
+        <ProjectOverviewRail
+          branch={refName}
+          metadata={metadata.data}
+          onViewContributors={() => onViewChange?.("contributors")}
+          project={project}
+          pullRequestCount={pullRequestCount}
+        />
+      </div>
     </>
   );
 }
