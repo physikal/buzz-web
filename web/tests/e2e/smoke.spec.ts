@@ -179,6 +179,10 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   const managedAgents: Array<Record<string, unknown>> = [];
   const createdAgentInputs: Array<Record<string, unknown>> = [];
   const restoredMemory: Array<{ slug: string; body: string }> = [];
+  const uploadedMedia = new Map<
+    string,
+    { bytes: Buffer; contentType: string }
+  >();
   const submittedEvents: Array<{
     id: string;
     pubkey: string;
@@ -361,15 +365,42 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     expect(event.pubkey).toBe(ownerPubkey);
     expect(event.kind).toBe(24242);
     expect(event.tags).toContainEqual(["x", sha256]);
+    const contentType =
+      request.headers()["content-type"] ?? "application/octet-stream";
+    const isAnnotatedImage =
+      contentType === "image/png" &&
+      [...uploadedMedia.values()].some(
+        (media) => media.contentType === "image/png",
+      );
+    uploadedMedia.set(sha256, { bytes, contentType });
+    if (isAnnotatedImage)
+      await new Promise((resolve) => setTimeout(resolve, 250));
     await route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
-        url: `https://cdn.example.com/${sha256}`,
+        url: `${testOrigin}/media/${sha256}`,
         sha256,
         size: bytes.length,
-        type: request.headers()["content-type"],
+        type: contentType,
       }),
+    });
+  });
+  await page.route("**/media/*", async (route) => {
+    const hash = new URL(route.request().url()).pathname.split("/").pop() ?? "";
+    const media = uploadedMedia.get(hash);
+    if (!media) {
+      await route.fulfill({ status: 404, body: "Not found" });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: media.contentType,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Content-Length": String(media.bytes.length),
+      },
+      body: media.bytes,
     });
   });
   await page.route("**/query", async (route) => {
@@ -1815,6 +1846,81 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     );
   });
   await expect(page.getByText("pasted-note.txt")).toBeVisible();
+  const imageBase64 = await page.evaluate(() => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 240;
+    canvas.height = 140;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Canvas is unavailable in the test browser.");
+    context.fillStyle = "#f8fafc";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.fillStyle = "#0f766e";
+    context.fillRect(20, 20, 200, 100);
+    return canvas.toDataURL("image/png").split(",")[1];
+  });
+  await composer
+    .locator("xpath=ancestor::form")
+    .locator('input[type="file"]')
+    .setInputFiles({
+      name: "diagram.png",
+      mimeType: "image/png",
+      buffer: Buffer.from(imageBase64, "base64"),
+    });
+  await page.getByRole("button", { name: "Preview diagram.png" }).click();
+  const imagePreview = page.getByRole("dialog", {
+    name: "diagram.png preview",
+  });
+  await expect(imagePreview).toBeVisible();
+  await imagePreview.getByRole("button", { name: "Draw on image" }).click();
+  const drawingCanvas = page.getByLabel("Drawing canvas");
+  await expect(drawingCanvas).toBeVisible();
+  const drawingBounds = await drawingCanvas.boundingBox();
+  expect(drawingBounds).not.toBeNull();
+  if (drawingBounds) {
+    await page.mouse.move(
+      drawingBounds.x + drawingBounds.width * 0.25,
+      drawingBounds.y + drawingBounds.height * 0.25,
+    );
+    await page.mouse.down();
+    await page.mouse.move(
+      drawingBounds.x + drawingBounds.width * 0.75,
+      drawingBounds.y + drawingBounds.height * 0.75,
+      { steps: 8 },
+    );
+    await page.mouse.up();
+  }
+  await expect(
+    page.getByRole("button", { name: "Undo drawing" }),
+  ).toBeEnabled();
+  await page.getByRole("button", { name: "Undo drawing" }).click();
+  await expect(
+    page.getByRole("button", { name: "Redo drawing" }),
+  ).toBeEnabled();
+  await page.getByRole("button", { name: "Redo drawing" }).click();
+  await page.screenshot({ path: "/tmp/buzz-web-image-editor.png" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(drawingCanvas).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({ path: "/tmp/buzz-web-image-editor-mobile.png" });
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Saving..." })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByText("Draw on image", { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Preview diagram-annotated.png" }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Preview diagram-annotated.png" })
+    .click();
+  await page.getByRole("button", { name: "Revert" }).click();
+  await expect(
+    page.getByRole("button", { name: "Preview diagram.png" }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Add direct messages" }).click();
   const newMessageDialog = page.getByRole("dialog", { name: "New message" });
   await expect(

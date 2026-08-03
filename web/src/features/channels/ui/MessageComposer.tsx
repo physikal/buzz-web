@@ -1,4 +1,4 @@
-import { FileText, Send, UploadCloud, X } from "lucide-react";
+import { Send, UploadCloud } from "lucide-react";
 import {
   type DragEvent,
   type FormEvent,
@@ -33,6 +33,7 @@ import {
   resolveMentionPubkeys,
 } from "../mention-routing";
 import { ComposerToolbar } from "./ComposerToolbar";
+import { ComposerAttachments } from "./ComposerAttachments";
 
 export type ComposerPayload = {
   content: string;
@@ -86,6 +87,9 @@ export function MessageComposer({
   const [attachments, setAttachments] = useState<DraftAttachment[]>(
     () => loadDraftState(ownerPubkey, channel.id, parent?.id).pendingImeta,
   );
+  const [originalAttachmentByUrl, setOriginalAttachmentByUrl] = useState<
+    Map<string, DraftAttachment>
+  >(() => new Map());
   const [mentionRefs, setMentionRefs] = useState<DraftMentionRef[]>(
     () => loadDraftState(ownerPubkey, channel.id, parent?.id).mentionRefs,
   );
@@ -132,6 +136,7 @@ export function MessageComposer({
       hydrate ? persistentPrefix(persistentAudience.refs) : saved.content,
     );
     setAttachments(saved.pendingImeta);
+    setOriginalAttachmentByUrl(new Map());
     setMentionRefs(hydrate ? [...persistentAudience.refs] : saved.mentionRefs);
     dragDepthRef.current = 0;
     setIsDragOver(false);
@@ -205,6 +210,90 @@ export function MessageComposer({
     }
   }
 
+  function replaceAttachment(currentUrl: string, replacement: DraftAttachment) {
+    setAttachments((current) => {
+      const next = current.map((attachment) =>
+        attachment.url === currentUrl ? replacement : attachment,
+      );
+      saveDraft(
+        ownerPubkey,
+        channel.id,
+        parent?.id,
+        draftRef.current,
+        textareaRef.current?.selectionStart ?? draftRef.current.length,
+        next,
+      );
+      return next;
+    });
+  }
+
+  async function editAttachment(attachment: DraftAttachment, blob: Blob) {
+    if (pending || uploading) return;
+    const editContextKey = contextKey;
+    setUploading(true);
+    try {
+      const baseName =
+        attachment.filename?.replace(/\.[^.]+$/, "") || "attachment";
+      const media = await uploadMedia(
+        new File([blob], `${baseName}-annotated.png`, { type: "image/png" }),
+      );
+      const replacement: DraftAttachment = {
+        url: media.url,
+        sha256: media.sha256,
+        size: media.size,
+        type: media.type,
+        uploaded: Math.floor(Date.now() / 1_000),
+        dim: media.dimensions,
+        thumb: media.thumbnailUrl,
+        filename: `${baseName}-annotated.png`,
+      };
+      if (contextKeyRef.current !== editContextKey) return;
+      setOriginalAttachmentByUrl((current) => {
+        const next = new Map(current);
+        next.set(replacement.url, current.get(attachment.url) ?? attachment);
+        next.delete(attachment.url);
+        return next;
+      });
+      replaceAttachment(attachment.url, replacement);
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  function revertAttachment(attachment: DraftAttachment) {
+    const original = originalAttachmentByUrl.get(attachment.url);
+    if (!original) return;
+    replaceAttachment(attachment.url, original);
+    setOriginalAttachmentByUrl((current) => {
+      const next = new Map(current);
+      next.delete(attachment.url);
+      return next;
+    });
+  }
+
+  function removeAttachment(index: number) {
+    setAttachments((current) => {
+      const removed = current[index];
+      const next = current.filter((_, itemIndex) => itemIndex !== index);
+      saveDraft(
+        ownerPubkey,
+        channel.id,
+        parent?.id,
+        draftRef.current,
+        textareaRef.current?.selectionStart ?? draftRef.current.length,
+        next,
+      );
+      if (removed) {
+        setOriginalAttachmentByUrl((originals) => {
+          const updated = new Map(originals);
+          updated.delete(removed.url);
+          return updated;
+        });
+      }
+      return next;
+    });
+  }
+
   async function submit(event: FormEvent) {
     event.preventDefault();
     if ((!draft.trim() && !attachments.length) || pending || uploading) return;
@@ -252,6 +341,7 @@ export function MessageComposer({
       });
       setDraft(persistentPrefix(retainedRefs));
       setAttachments([]);
+      setOriginalAttachmentByUrl(new Map());
       setMentionRefs([...retainedRefs]);
       setMentionAutocomplete(null);
       deleteDraft(ownerPubkey, parent?.id ? `thread:${parent.id}` : channel.id);
@@ -416,42 +506,14 @@ export function MessageComposer({
           </div>
         ) : null}
         {attachments.length ? (
-          <div className="flex flex-wrap gap-2 border-b p-2">
-            {attachments.map((attachment, index) => (
-              <span
-                className="flex max-w-full items-center gap-2 rounded-md bg-muted px-2 py-1 text-xs"
-                key={attachment.url}
-              >
-                <FileText className="h-3.5 w-3.5 shrink-0" />
-                <span className="truncate">
-                  {attachment.filename ?? "Attachment"}
-                </span>
-                <button
-                  aria-label={`Remove ${attachment.filename ?? "attachment"}`}
-                  onClick={() => {
-                    setAttachments((current) => {
-                      const next = current.filter(
-                        (_, itemIndex) => itemIndex !== index,
-                      );
-                      saveDraft(
-                        ownerPubkey,
-                        channel.id,
-                        parent?.id,
-                        draftRef.current,
-                        textareaRef.current?.selectionStart ??
-                          draftRef.current.length,
-                        next,
-                      );
-                      return next;
-                    });
-                  }}
-                  type="button"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </span>
-            ))}
-          </div>
+          <ComposerAttachments
+            attachments={attachments}
+            disabled={pending || uploading}
+            onEdit={editAttachment}
+            onRemove={removeAttachment}
+            onRevert={revertAttachment}
+            originalByUrl={originalAttachmentByUrl}
+          />
         ) : null}
         <div className="flex items-end gap-1 p-2">
           <input
