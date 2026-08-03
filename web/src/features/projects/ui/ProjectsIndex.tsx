@@ -1,12 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
-  ChevronDown,
   CircleDot,
   FolderGit2,
+  GitCommit,
   GitPullRequest,
-  LayoutGrid,
-  List,
   MessageSquare,
   Radio,
   RefreshCw,
@@ -14,216 +12,39 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 
-import { relayHttpBaseUrl } from "@/shared/lib/relay-url";
 import { truncatePubkey } from "@/shared/lib/pubkey";
+import { PubkeyAvatar } from "@/features/repos/ui/PubkeyAvatar";
 import { Button } from "@/shared/ui/button";
 import { SidebarToggleButton } from "@/shared/ui/sidebar-toggle-button";
 import type { Project, ProjectIssue, ProjectPullRequest } from "../project-api";
 import { listProjectsWorkItems } from "../projects-work-items";
 import {
+  isRelayHostedProject,
+  projectUpdatedAt,
+} from "../projects-index-helpers";
+import {
   PROJECTS_INDEX_STORAGE,
+  projectsRelativeTime,
   readProjectsIndexState,
   writeProjectsIndexState,
 } from "../projects-index-state";
 import { ProjectsCreateControls } from "./ProjectsCreateControls";
+import {
+  projectActivityDayKey,
+  ProjectsContributionGraph,
+} from "./ProjectsContributionGraph";
+import {
+  EmptyList,
+  ListControls,
+  type ProjectsFilter,
+  type ProjectsSort,
+  ProjectsTabs,
+  type ProjectsViewMode,
+  SelectControl,
+} from "./ProjectsIndexControls";
 
-type ProjectsFilter = "overview" | "repositories" | "pull-requests" | "issues";
 type ProjectsScope = "all" | "mine" | "local";
 type WorkItemScope = "all" | "mine";
-type ProjectsSort = "updated" | "created" | "name";
-type ProjectsViewMode = "grid" | "list";
-
-function relativeTime(timestamp: number) {
-  const seconds = Math.max(1, Math.floor(Date.now() / 1_000) - timestamp);
-  if (seconds >= 7 * 86_400) {
-    return new Date(timestamp * 1_000).toLocaleDateString(undefined, {
-      month: "short",
-      day: "numeric",
-      ...(seconds >= 31_536_000 ? { year: "numeric" } : {}),
-    });
-  }
-  const units = [
-    [86_400, "day"],
-    [3_600, "hour"],
-    [60, "minute"],
-    [1, "second"],
-  ] as const;
-  for (const [size, label] of units) {
-    const count = Math.floor(seconds / size);
-    if (count > 0) return `${count} ${label}${count === 1 ? "" : "s"} ago`;
-  }
-  return "just now";
-}
-
-function isRelayHostedProject(project: Project) {
-  const expected = `${relayHttpBaseUrl().replace(/\/+$/u, "")}/git/${project.owner}/${encodeURIComponent(project.dtag)}.git`;
-  return project.cloneUrls.some((cloneUrl) => cloneUrl === expected);
-}
-
-function projectUpdatedAt(
-  project: Project,
-  issues: Array<{ project: Project; issue: ProjectIssue }>,
-  pullRequests: Array<{
-    project: Project;
-    pullRequest: ProjectPullRequest;
-  }>,
-) {
-  return Math.max(
-    project.createdAt,
-    ...issues
-      .filter((item) => item.project.repoAddress === project.repoAddress)
-      .map((item) => item.issue.updatedAt),
-    ...pullRequests
-      .filter((item) => item.project.repoAddress === project.repoAddress)
-      .map((item) => item.pullRequest.updatedAt),
-  );
-}
-
-function ProjectsTabs({
-  filter,
-  onChange,
-}: {
-  filter: ProjectsFilter;
-  onChange: (filter: ProjectsFilter) => void;
-}) {
-  const options = [
-    ["overview", "Overview"],
-    ["repositories", "Repositories"],
-    ["pull-requests", "Pull Requests"],
-    ["issues", "Issues"],
-  ] as const;
-  return (
-    <nav
-      aria-label="Projects views"
-      className="flex h-13 min-w-0 flex-1 overflow-x-auto border-b"
-    >
-      {options.map(([value, label]) => (
-        <Button
-          aria-current={filter === value ? "page" : undefined}
-          className={`relative h-full shrink-0 rounded-none px-2.5 shadow-none after:absolute after:inset-x-2.5 after:bottom-0 after:h-0.5 after:bg-current after:content-[''] ${
-            filter === value
-              ? "font-semibold text-foreground after:opacity-100"
-              : "text-muted-foreground after:opacity-0 hover:bg-transparent hover:text-foreground hover:after:opacity-100"
-          }`}
-          key={value}
-          onClick={() => onChange(value)}
-          variant="ghost"
-        >
-          <span className="grid">
-            <span
-              aria-hidden="true"
-              className="invisible col-start-1 row-start-1 font-semibold"
-            >
-              {label}
-            </span>
-            <span className="col-start-1 row-start-1">{label}</span>
-          </span>
-        </Button>
-      ))}
-    </nav>
-  );
-}
-
-function ViewModeToggle({
-  value,
-  onChange,
-}: {
-  value: ProjectsViewMode;
-  onChange: (value: ProjectsViewMode) => void;
-}) {
-  return (
-    <fieldset className="flex items-center rounded-md bg-muted/40 p-0.5">
-      <legend className="sr-only">Project layout</legend>
-      <Button
-        aria-label="Grid layout"
-        aria-pressed={value === "grid"}
-        className="h-7 w-7 p-0"
-        onClick={() => onChange("grid")}
-        size="icon"
-        variant={value === "grid" ? "secondary" : "ghost"}
-      >
-        <LayoutGrid className="h-3.5 w-3.5" />
-      </Button>
-      <Button
-        aria-label="List layout"
-        aria-pressed={value === "list"}
-        className="h-7 w-7 p-0"
-        onClick={() => onChange("list")}
-        size="icon"
-        variant={value === "list" ? "secondary" : "ghost"}
-      >
-        <List className="h-3.5 w-3.5" />
-      </Button>
-    </fieldset>
-  );
-}
-
-function SelectControl<T extends string>({
-  label,
-  options,
-  value,
-  onChange,
-}: {
-  label: string;
-  options: Array<{ label: string; value: T }>;
-  value: T;
-  onChange: (value: T) => void;
-}) {
-  return (
-    <label className="relative inline-flex items-center">
-      <span className="sr-only">{label}</span>
-      <select
-        aria-label={label}
-        className="h-8 appearance-none rounded-md bg-transparent py-1 pl-2 pr-8 text-sm font-semibold outline-none hover:bg-muted/50 focus:ring-1 focus:ring-ring"
-        onChange={(event) => onChange(event.target.value as T)}
-        value={value}
-      >
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-      <ChevronDown className="pointer-events-none absolute right-2 h-4 w-4 text-muted-foreground" />
-    </label>
-  );
-}
-
-function ListControls({
-  sort,
-  viewMode,
-  onSortChange,
-  onViewModeChange,
-}: {
-  sort: ProjectsSort;
-  viewMode: ProjectsViewMode;
-  onSortChange: (sort: ProjectsSort) => void;
-  onViewModeChange: (viewMode: ProjectsViewMode) => void;
-}) {
-  return (
-    <div className="flex items-center gap-2">
-      <select
-        aria-label="Sort projects"
-        className="h-8 rounded-md bg-transparent px-2 text-xs outline-none hover:bg-muted/50 focus:ring-1 focus:ring-ring"
-        onChange={(event) => onSortChange(event.target.value as ProjectsSort)}
-        value={sort}
-      >
-        <option value="updated">Recent activity</option>
-        <option value="created">Created date</option>
-        <option value="name">Name</option>
-      </select>
-      <ViewModeToggle value={viewMode} onChange={onViewModeChange} />
-    </div>
-  );
-}
-
-function EmptyList({ children }: { children: string }) {
-  return (
-    <div className="border border-dashed px-4 py-12 text-center text-sm text-muted-foreground">
-      {children}
-    </div>
-  );
-}
 
 function RepositoryItems({
   projects,
@@ -231,6 +52,8 @@ function RepositoryItems({
   pendingDelete,
   viewMode,
   issueCounts,
+  commitCounts,
+  people,
   pullRequestCounts,
   updatedAt,
   onDelete,
@@ -240,6 +63,8 @@ function RepositoryItems({
   pendingDelete: boolean;
   viewMode: ProjectsViewMode;
   issueCounts: Map<string, number>;
+  commitCounts: Map<string, number>;
+  people: Map<string, string[]>;
   pullRequestCounts: Map<string, number>;
   updatedAt: Map<string, number>;
   onDelete: (project: Project) => void;
@@ -294,12 +119,37 @@ function RepositoryItems({
               </Button>
             ) : null}
           </div>
+          {viewMode === "grid" ? (
+            <div className="pointer-events-none flex min-h-6 items-center -space-x-1">
+              {(people.get(project.repoAddress) ?? [])
+                .slice(0, 5)
+                .map((pubkey) => (
+                  <span className="ring-2 ring-background" key={pubkey}>
+                    <PubkeyAvatar pubkey={pubkey} size="sm" />
+                  </span>
+                ))}
+            </div>
+          ) : null}
           <div
             className={`flex min-w-0 items-center gap-3 text-xs text-muted-foreground ${
               viewMode === "grid" ? "mt-auto" : "ml-auto shrink-0"
             }`}
           >
-            <span className="font-mono">{truncatePubkey(project.owner)}</span>
+            {viewMode === "list" ? (
+              <span className="pointer-events-none hidden -space-x-1 lg:flex">
+                {(people.get(project.repoAddress) ?? [])
+                  .slice(0, 3)
+                  .map((pubkey) => (
+                    <span className="ring-2 ring-background" key={pubkey}>
+                      <PubkeyAvatar pubkey={pubkey} size="sm" />
+                    </span>
+                  ))}
+              </span>
+            ) : null}
+            <span className="inline-flex items-center gap-1">
+              <GitCommit className="h-3.5 w-3.5" />
+              {commitCounts.get(project.repoAddress) ?? 0}
+            </span>
             <span className="inline-flex items-center gap-1">
               <GitPullRequest className="h-3.5 w-3.5" />
               {pullRequestCounts.get(project.repoAddress) ?? 0}
@@ -309,13 +159,62 @@ function RepositoryItems({
               {issueCounts.get(project.repoAddress) ?? 0}
             </span>
             <span className="whitespace-nowrap">
-              {relativeTime(
+              {projectsRelativeTime(
                 updatedAt.get(project.repoAddress) ?? project.createdAt,
               )}
             </span>
           </div>
+          {viewMode === "grid" ? (
+            <ProjectActivityBar
+              commits={commitCounts.get(project.repoAddress) ?? 0}
+              issues={issueCounts.get(project.repoAddress) ?? 0}
+              pullRequests={pullRequestCounts.get(project.repoAddress) ?? 0}
+            />
+          ) : null}
         </article>
       ))}
+    </div>
+  );
+}
+
+function ProjectActivityBar({
+  commits,
+  issues,
+  pullRequests,
+}: {
+  commits: number;
+  issues: number;
+  pullRequests: number;
+}) {
+  const total = commits + issues + pullRequests;
+  return (
+    <div
+      aria-label={`${commits} ${commits === 1 ? "commit" : "commits"}, ${pullRequests} ${pullRequests === 1 ? "pull request" : "pull requests"}, ${issues} ${issues === 1 ? "issue" : "issues"}`}
+      className="pointer-events-none flex h-1.5 w-full gap-px overflow-hidden rounded-full bg-muted/60"
+      role="img"
+    >
+      {total ? (
+        <>
+          {commits ? (
+            <span
+              className="h-full bg-primary/60"
+              style={{ width: `${(commits / total) * 100}%` }}
+            />
+          ) : null}
+          {pullRequests ? (
+            <span
+              className="h-full bg-primary"
+              style={{ width: `${(pullRequests / total) * 100}%` }}
+            />
+          ) : null}
+          {issues ? (
+            <span
+              className="h-full bg-orange-500"
+              style={{ width: `${(issues / total) * 100}%` }}
+            />
+          ) : null}
+        </>
+      ) : null}
     </div>
   );
 }
@@ -421,7 +320,7 @@ function WorkItemItems({
               </span>
             ) : null}
             <span className="whitespace-nowrap">
-              {relativeTime(item.createdAt)}
+              {projectsRelativeTime(item.createdAt)}
             </span>
           </div>
         </article>
@@ -526,9 +425,7 @@ function activityItems(
       });
     }
   }
-  return items
-    .sort((left, right) => right.createdAt - left.createdAt)
-    .slice(0, 30);
+  return items.sort((left, right) => right.createdAt - left.createdAt);
 }
 
 function Overview({
@@ -550,6 +447,27 @@ function Overview({
   onOpenActivity: (item: ActivityItem) => void;
 }) {
   const activity = activityItems(projects, issues, pullRequests);
+  const people = [
+    ...new Set([
+      ...projects.flatMap((project) => [
+        project.owner,
+        ...project.contributors,
+      ]),
+      ...activity.map((item) => item.actor),
+      ...pullRequests.flatMap(({ pullRequest }) => [
+        ...pullRequest.recipients,
+        ...pullRequest.reviewers,
+      ]),
+    ]),
+  ].filter((pubkey) => /^[0-9a-f]{64}$/iu.test(pubkey));
+  const activityByDay = activity.reduce<Record<string, number>>(
+    (counts, item) => {
+      const key = projectActivityDayKey(item.createdAt);
+      counts[key] = (counts[key] ?? 0) + 1;
+      return counts;
+    },
+    {},
+  );
   const stats = [
     {
       label: "Repositories",
@@ -578,66 +496,86 @@ function Overview({
   ];
   return (
     <section data-testid="projects-overview-panel">
-      <div className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
-        {stats.map(({ label, count, icon: Icon, onClick }) => (
-          <button
-            className="flex min-h-28 flex-col border px-3.5 py-3 text-left transition-colors hover:bg-muted/30"
-            data-testid="projects-overview-stat"
-            key={label}
-            onClick={onClick}
-            type="button"
-          >
-            <span className="flex w-full items-center justify-between gap-2 text-xs font-medium text-muted-foreground">
-              {label}
-              <Icon className="h-3.5 w-3.5" />
-            </span>
-            <span className="mt-auto pt-4 text-4xl font-semibold leading-none">
-              {count}
-            </span>
-          </button>
-        ))}
-      </div>
-      <div className="mt-5">
-        <h2 className="text-base font-semibold">Activity</h2>
-        {loading ? (
-          <p className="mt-3 border px-4 py-10 text-center text-sm text-muted-foreground">
-            Loading project activity...
-          </p>
-        ) : activity.length ? (
-          <div className="mt-3 divide-y border">
-            {activity.map((item) => (
-              <button
-                className="flex w-full min-w-0 gap-3 px-4 py-3 text-left hover:bg-muted/20"
-                key={item.id}
-                onClick={() => onOpenActivity(item)}
-                type="button"
-              >
-                <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted font-mono text-[10px] font-semibold">
-                  {item.actor.slice(0, 2).toUpperCase()}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-xs text-muted-foreground">
-                    {truncatePubkey(item.actor)} {item.action}{" "}
-                    {item.project.name}
+      <div className="grid xl:grid-cols-[minmax(0,1fr)_18rem]">
+        <div className="order-1 grid grid-cols-2 gap-2 sm:gap-3 xl:order-none xl:col-start-1 xl:row-start-1 xl:grid-cols-4 xl:pr-4">
+          {stats.map(({ label, count, icon: Icon, onClick }) => (
+            <button
+              className="flex min-h-28 flex-col border px-3.5 py-3 text-left transition-colors hover:bg-muted/30"
+              data-testid="projects-overview-stat"
+              key={label}
+              onClick={onClick}
+              type="button"
+            >
+              <span className="flex w-full items-center justify-between gap-2 text-xs font-medium text-muted-foreground">
+                {label}
+                <Icon className="h-3.5 w-3.5" />
+              </span>
+              <span className="mt-auto pt-4 text-4xl font-semibold leading-none">
+                {count}
+              </span>
+            </button>
+          ))}
+        </div>
+        <aside className="order-3 min-w-0 border-t py-4 xl:order-none xl:col-start-2 xl:row-start-1 xl:border-t-0 xl:pt-0">
+          <h2 className="text-base font-semibold">People</h2>
+          {people.length ? (
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {people.slice(0, 18).map((pubkey) => (
+                <PubkeyAvatar key={pubkey} pubkey={pubkey} size="sm" />
+              ))}
+            </div>
+          ) : (
+            <p className="mt-2 text-sm text-muted-foreground">No people yet.</p>
+          )}
+        </aside>
+        <div className="order-2 mt-5 min-w-0 xl:order-none xl:col-start-1 xl:row-start-2 xl:pr-4">
+          <h2 className="text-base font-semibold">Activity</h2>
+          {loading ? (
+            <p className="mt-3 border px-4 py-10 text-center text-sm text-muted-foreground">
+              Loading project activity...
+            </p>
+          ) : activity.length ? (
+            <div className="mt-3 divide-y border">
+              {activity.slice(0, 30).map((item) => (
+                <button
+                  className="flex w-full min-w-0 gap-3 px-4 py-3 text-left hover:bg-muted/20"
+                  key={item.id}
+                  onClick={() => onOpenActivity(item)}
+                  type="button"
+                >
+                  <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted font-mono text-[10px] font-semibold">
+                    {item.actor.slice(0, 2).toUpperCase()}
                   </span>
-                  <span className="mt-0.5 block truncate text-sm font-semibold">
-                    {item.title}
-                  </span>
-                  {item.body ? (
-                    <span className="mt-1 block line-clamp-2 text-sm text-muted-foreground">
-                      {item.body}
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {truncatePubkey(item.actor)} {item.action}{" "}
+                      {item.project.name}
                     </span>
-                  ) : null}
-                </span>
-                <span className="shrink-0 text-xs text-muted-foreground">
-                  {relativeTime(item.createdAt)}
-                </span>
-              </button>
-            ))}
+                    <span className="mt-0.5 block truncate text-sm font-semibold">
+                      {item.title}
+                    </span>
+                    {item.body ? (
+                      <span className="mt-1 block line-clamp-2 text-sm text-muted-foreground">
+                        {item.body}
+                      </span>
+                    ) : null}
+                  </span>
+                  <span className="shrink-0 text-xs text-muted-foreground">
+                    {projectsRelativeTime(item.createdAt)}
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <EmptyList>No project activity yet.</EmptyList>
+          )}
+        </div>
+        <aside className="order-4 min-w-0 border-t py-4 xl:order-none xl:col-start-2 xl:row-start-2 xl:border-t-0 xl:pt-5">
+          <h2 className="text-base font-semibold">Contribution Activity</h2>
+          <div className="mt-3">
+            <ProjectsContributionGraph activityByDay={activityByDay} />
           </div>
-        ) : (
-          <EmptyList>No project activity yet.</EmptyList>
-        )}
+        </aside>
       </div>
     </section>
   );
@@ -738,6 +676,57 @@ export function ProjectsIndex({
     }
     return counts;
   }, [pullRequests]);
+  const commitCounts = useMemo(() => {
+    const commits = new Map<string, Set<string>>();
+    for (const { project, pullRequest } of pullRequests) {
+      const values = commits.get(project.repoAddress) ?? new Set<string>();
+      for (const commit of [
+        pullRequest.initialCommit,
+        pullRequest.commit,
+        ...pullRequest.updates.map((update) => update.commit),
+      ]) {
+        if (commit) values.add(commit);
+      }
+      commits.set(project.repoAddress, values);
+    }
+    return new Map(
+      [...commits].map(([repoAddress, values]) => [repoAddress, values.size]),
+    );
+  }, [pullRequests]);
+  const projectPeople = useMemo(() => {
+    const people = new Map<string, Set<string>>();
+    for (const project of projects) {
+      people.set(
+        project.repoAddress,
+        new Set([project.owner, ...project.contributors]),
+      );
+    }
+    for (const { project, issue } of issues) {
+      const values = people.get(project.repoAddress) ?? new Set<string>();
+      values.add(issue.author);
+      for (const comment of issue.comments) values.add(comment.author);
+      people.set(project.repoAddress, values);
+    }
+    for (const { project, pullRequest } of pullRequests) {
+      const values = people.get(project.repoAddress) ?? new Set<string>();
+      for (const pubkey of [
+        pullRequest.author,
+        ...pullRequest.recipients,
+        ...pullRequest.reviewers,
+        ...pullRequest.updates.map((update) => update.author),
+        ...pullRequest.comments.map((comment) => comment.author),
+      ]) {
+        values.add(pubkey);
+      }
+      people.set(project.repoAddress, values);
+    }
+    return new Map(
+      [...people].map(([repoAddress, values]) => [
+        repoAddress,
+        [...values].filter((pubkey) => /^[0-9a-f]{64}$/iu.test(pubkey)),
+      ]),
+    );
+  }, [issues, projects, pullRequests]);
   const updatedAt = useMemo(
     () =>
       new Map(
@@ -959,9 +948,11 @@ export function ProjectsIndex({
             </div>
           ) : filter === "repositories" ? (
             <RepositoryItems
+              commitCounts={commitCounts}
               issueCounts={issueCounts}
               ownerPubkey={ownerPubkey}
               pendingDelete={pendingDelete}
+              people={projectPeople}
               projects={visibleProjects}
               pullRequestCounts={pullRequestCounts}
               updatedAt={updatedAt}

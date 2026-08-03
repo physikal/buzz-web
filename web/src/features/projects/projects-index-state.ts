@@ -27,3 +27,25 @@ export function writeProjectsIndexState(key: string, value: string) {
     // The in-memory control remains usable when storage is unavailable.
   }
 }
+
+export function projectsRelativeTime(timestamp: number) {
+  const seconds = Math.max(1, Math.floor(Date.now() / 1_000) - timestamp);
+  if (seconds >= 7 * 86_400) {
+    return new Date(timestamp * 1_000).toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+      ...(seconds >= 31_536_000 ? { year: "numeric" } : {}),
+    });
+  }
+  const units = [
+    [86_400, "day"],
+    [3_600, "hour"],
+    [60, "minute"],
+    [1, "second"],
+  ] as const;
+  for (const [size, label] of units) {
+    const count = Math.floor(seconds / size);
+    if (count > 0) return `${count} ${label}${count === 1 ? "" : "s"} ago`;
+  }
+  return "just now";
+}

@@ -2339,6 +2339,11 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await page.getByRole("link", { name: "Projects" }).click();
   await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
   await expect(page.getByText("Activity", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "People" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Contribution Activity" }),
+  ).toBeVisible();
+  await expect(page.getByTestId("projects-contribution-graph")).toBeVisible();
   await expect(page.getByText("Cross-project injection")).toHaveCount(0);
   await page.screenshot({ path: "/tmp/buzz-web-projects-overview.png" });
   await page.setViewportSize({ width: 390, height: 844 });
@@ -2391,6 +2396,11 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await page.getByRole("button", { name: "Repositories" }).click();
   await expect(
     page.getByRole("heading", { name: "Relay project" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("img", {
+      name: "1 commit, 1 pull request, 1 issue",
+    }),
   ).toBeVisible();
   await page.getByTestId("projects-create-menu").click();
   await page.getByRole("menuitem", { name: "Repository" }).click();
