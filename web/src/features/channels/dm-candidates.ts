@@ -17,6 +17,7 @@ export function buildDmCandidates({
   agents,
   relayAgents,
   members,
+  isArchived = () => false,
 }: {
   ownerPubkey: string;
   pubkeys: string[];
@@ -24,6 +25,7 @@ export function buildDmCandidates({
   agents: ManagedAgent[];
   relayAgents: RelayAgent[];
   members: CommunityMember[];
+  isArchived?: (pubkey: string) => boolean;
 }): DmCandidate[] {
   const candidates = new Map<string, DmCandidate>();
   const agentNames = new Map(
@@ -83,9 +85,11 @@ export function buildDmCandidates({
       isAgent: true,
     });
   }
-  return [...candidates.values()].sort(
-    (left, right) =>
-      Number(right.isAgent) - Number(left.isAgent) ||
-      left.displayName.localeCompare(right.displayName),
-  );
+  return [...candidates.values()]
+    .filter((candidate) => !isArchived(candidate.pubkey))
+    .sort(
+      (left, right) =>
+        Number(right.isAgent) - Number(left.isAgent) ||
+        left.displayName.localeCompare(right.displayName),
+    );
 }

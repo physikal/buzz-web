@@ -8,6 +8,7 @@ import {
   Copy,
   Fingerprint,
   Headphones,
+  Info,
   Logs,
   MessageCircle,
   Pencil,
@@ -32,15 +33,18 @@ import type {
   PresenceStatus,
   UserStatus,
 } from "@/features/presence/presence-api";
+import { useIdentityArchive } from "@/features/identity-archive/use-identity-archive";
 import { useEscapeSurface } from "@/shared/hooks/use-escape-surface";
 import { truncatePubkey } from "@/shared/lib/pubkey";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 import {
   PROFILE_PANEL_VIEW_TITLES,
   type ProfilePanelTab,
   type ProfilePanelView,
 } from "./profile-panel-state";
+import { ProfileArchiveMenu } from "./ProfileArchiveMenu";
 
 export function PresenceDot({ status }: { status: PresenceStatus }) {
   return (
@@ -121,7 +125,8 @@ export function UserProfileDialog({
   onTabChange,
   onViewChange,
 }: UserProfileDialogProps) {
-  useEscapeSurface(Boolean(pubkey), onClose);
+  const archiveActions = useIdentityArchive(pubkey, ownerPubkey);
+  useEscapeSurface(Boolean(pubkey), onClose, archiveActions.isPending);
   if (!pubkey) return null;
   const displayName =
     agentName ??
@@ -139,7 +144,8 @@ export function UserProfileDialog({
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
       role="dialog"
       onMouseDown={(event) => {
-        if (event.currentTarget === event.target) onClose();
+        if (event.currentTarget === event.target && !archiveActions.isPending)
+          onClose();
       }}
     >
       <div className="flex max-h-[90dvh] w-full max-w-md flex-col rounded-lg bg-background shadow-2xl">
@@ -159,8 +165,15 @@ export function UserProfileDialog({
               ? "Profile"
               : PROFILE_PANEL_VIEW_TITLES[effectiveView]}
           </h2>
+          {effectiveView === "summary" ? (
+            <ProfileArchiveMenu
+              actions={archiveActions}
+              isBot={Boolean(agentName)}
+            />
+          ) : null}
           <Button
             aria-label="Close"
+            disabled={archiveActions.isPending}
             onClick={onClose}
             size="icon"
             variant="ghost"
@@ -207,6 +220,7 @@ export function UserProfileDialog({
               tab={tab}
               userStatus={userStatus}
               huddlePending={huddlePending}
+              isArchived={archiveActions.isArchived === true}
               wavePending={wavePending}
             />
           ) : managedAgent ? (
@@ -257,6 +271,7 @@ function ProfileSummary({
   tab,
   userStatus,
   huddlePending,
+  isArchived,
   wavePending,
 }: {
   agentActionPending: boolean;
@@ -286,6 +301,7 @@ function ProfileSummary({
   tab: ProfilePanelTab;
   userStatus?: UserStatus;
   huddlePending: boolean;
+  isArchived: boolean;
   wavePending: boolean;
 }) {
   return (
@@ -293,6 +309,7 @@ function ProfileSummary({
       <ProfileHero
         agentName={agentName}
         displayName={displayName}
+        isArchived={isArchived}
         presence={presence}
         profile={profile}
         userStatus={userStatus}
@@ -409,12 +426,14 @@ function ProfileSummary({
 function ProfileHero({
   agentName,
   displayName,
+  isArchived,
   presence,
   profile,
   userStatus,
 }: {
   agentName?: string;
   displayName: string;
+  isArchived: boolean;
   presence: PresenceStatus;
   profile?: UserProfile;
   userStatus?: UserStatus;
@@ -441,6 +460,33 @@ function ProfileHero({
         <h3 className="text-xl font-semibold">{displayName}</h3>
         {agentName ? (
           <Bot aria-label="Agent" className="h-4 w-4 text-muted-foreground" />
+        ) : null}
+        {isArchived ? (
+          <span className="inline-flex items-center gap-1">
+            <Badge
+              data-testid="user-profile-archived-flair"
+              variant="secondary"
+            >
+              Archived
+            </Badge>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  aria-label="What archived means"
+                  className="inline-flex h-7 w-7 items-center justify-center text-muted-foreground hover:text-foreground"
+                  data-testid="user-profile-archived-info"
+                  type="button"
+                >
+                  <Info className="h-4 w-4" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-72 text-left" side="top">
+                Archived identities do not appear in search, autocomplete, or
+                member-add flows in this space. You can unarchive them at any
+                time.
+              </TooltipContent>
+            </Tooltip>
+          </span>
         ) : null}
       </div>
       {profile?.about ? (

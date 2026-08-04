@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { listProfiles, type Channel } from "@/features/channels/channel-api";
 import type { ComposerPayload } from "@/features/channels/ui/MessageComposer";
 import { MessageComposer } from "@/features/channels/ui/MessageComposer";
+import { useArchivedIdentityPredicate } from "@/features/identity-archive/use-identity-archive";
 import { getCustomEmoji } from "@/features/settings/custom-emoji-api";
 import { truncatePubkey } from "@/shared/lib/pubkey";
 
@@ -20,16 +21,18 @@ export function ProjectCommentComposer({
   workItemId: string;
   onSubmit: (payload: ComposerPayload) => Promise<void>;
 }) {
+  const isArchived = useArchivedIdentityPredicate(ownerPubkey);
   const participantPubkeys = useMemo(
     () =>
       [...new Set(participants.map((pubkey) => pubkey.toLowerCase()))]
         .filter(
           (pubkey) =>
             /^[0-9a-f]{64}$/u.test(pubkey) &&
-            pubkey !== ownerPubkey.toLowerCase(),
+            pubkey !== ownerPubkey.toLowerCase() &&
+            !isArchived(pubkey),
         )
         .sort(),
-    [ownerPubkey, participants],
+    [isArchived, ownerPubkey, participants],
   );
   const profilesQuery = useQuery({
     queryKey: ["project-comment-profiles", participantPubkeys],

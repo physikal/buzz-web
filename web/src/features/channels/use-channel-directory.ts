@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import type { ManagedAgent } from "@/features/agents/agent-api";
 import { useWorkspacePresence } from "@/features/presence/use-presence";
 import type { CommunityMember } from "@/features/settings/community-api";
+import { useArchivedIdentityPredicate } from "@/features/identity-archive/use-identity-archive";
 import { listProfiles, type ChannelMessage } from "./channel-api";
 import { buildDmCandidates } from "./dm-candidates";
 import { buildAgentNames, useRelayAgents } from "./use-relay-agents";
@@ -29,6 +30,7 @@ export function useChannelDirectory({
   members?: CommunityMember[];
   profileTarget: string | null;
 }) {
+  const isArchived = useArchivedIdentityPredicate(ownerPubkey);
   const relayAgents = useRelayAgents(ownerPubkey);
   const allPubkeys = useMemo(
     () => [
@@ -85,8 +87,17 @@ export function useChannelDirectory({
         agents: managedAgents,
         relayAgents,
         members,
+        isArchived,
       }),
-    [managedAgents, members, ownerPubkey, profiles, relayAgents, uniquePubkeys],
+    [
+      isArchived,
+      managedAgents,
+      members,
+      ownerPubkey,
+      profiles,
+      relayAgents,
+      uniquePubkeys,
+    ],
   );
   return { agentNames, dmCandidates, presence, profiles, userStatuses };
 }

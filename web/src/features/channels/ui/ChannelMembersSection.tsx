@@ -1,8 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Crown, Shield, Trash2, UserPlus } from "lucide-react";
+import {
+  Archive,
+  ChevronDown,
+  ChevronRight,
+  Crown,
+  Shield,
+  Trash2,
+  UserPlus,
+} from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import { useArchivedIdentityPredicate } from "@/features/identity-archive/use-identity-archive";
 import { parsePubkey, truncatePubkey } from "@/shared/lib/pubkey";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
@@ -24,6 +33,8 @@ export function ChannelMembersSection({
   ownerPubkey: string;
 }) {
   const queryClient = useQueryClient();
+  const isArchived = useArchivedIdentityPredicate(ownerPubkey);
+  const [archivedOpen, setArchivedOpen] = useState(false);
   const [pubkeyInput, setPubkeyInput] = useState("");
   const [role, setRole] =
     useState<Exclude<ChannelMember["role"], "owner">>("member");
@@ -34,6 +45,8 @@ export function ChannelMembersSection({
     enabled: channel.isMember,
   });
   const members = membersQuery.data ?? [];
+  const activeMembers = members.filter((member) => !isArchived(member.pubkey));
+  const archivedMembers = members.filter((member) => isArchived(member.pubkey));
   const profilesQuery = useQuery({
     queryKey: ["profiles", ...members.map((member) => member.pubkey).sort()],
     queryFn: () => listProfiles(members.map((member) => member.pubkey)),
@@ -89,6 +102,75 @@ export function ChannelMembersSection({
   });
   const parsedInput = parsePubkey(pubkeyInput);
 
+  function memberRow(member: ChannelMember, archived = false) {
+    const isSelf = member.pubkey === ownerPubkey.toLowerCase();
+    const manageable =
+      canManage &&
+      !isSelf &&
+      member.role !== "owner" &&
+      (currentRole === "owner" || member.role !== "admin");
+    return (
+      <div
+        className="flex min-h-12 items-center gap-2 px-3 py-2"
+        data-testid={`sidebar-member-${member.pubkey}`}
+        key={member.pubkey}
+      >
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium">
+            {profileNames.get(member.pubkey) || truncatePubkey(member.pubkey)}
+            {isSelf ? " (you)" : ""}
+          </p>
+          <p className="flex items-center gap-1 text-xs capitalize text-muted-foreground">
+            {member.role === "owner" ? <Crown className="h-3 w-3" /> : null}
+            {member.role === "admin" ? <Shield className="h-3 w-3" /> : null}
+            {archived ? <Archive className="h-3 w-3" /> : null}
+            {archived ? "archived" : member.role}
+          </p>
+        </div>
+        {manageable ? (
+          <>
+            <select
+              aria-label={`Role for ${truncatePubkey(member.pubkey)}`}
+              className="h-8 rounded-md border bg-background px-2 text-xs"
+              disabled={mutation.isPending || archived}
+              value={member.role}
+              onChange={(event) =>
+                mutation.mutate({
+                  action: "role",
+                  pubkey: member.pubkey,
+                  role: event.target.value as Exclude<
+                    ChannelMember["role"],
+                    "owner"
+                  >,
+                })
+              }
+            >
+              <option value="member">Member</option>
+              <option value="admin">Admin</option>
+              <option value="guest">Guest</option>
+              <option value="bot">Bot</option>
+            </select>
+            <Button
+              aria-label={`Remove ${truncatePubkey(member.pubkey)}`}
+              disabled={mutation.isPending || archived}
+              onClick={() =>
+                mutation.mutate({
+                  action: "remove",
+                  pubkey: member.pubkey,
+                })
+              }
+              size="icon"
+              type="button"
+              variant="ghost"
+            >
+              <Trash2 />
+            </Button>
+          </>
+        ) : null}
+      </div>
+    );
+  }
+
   return (
     <section className="mt-6 border-t pt-5">
       <div className="flex items-center justify-between gap-3">
@@ -143,77 +225,31 @@ export function ChannelMembersSection({
         {membersQuery.isLoading ? (
           <p className="p-3 text-sm text-muted-foreground">Loading members…</p>
         ) : members.length ? (
-          members.map((member) => {
-            const isSelf = member.pubkey === ownerPubkey.toLowerCase();
-            const manageable =
-              canManage &&
-              !isSelf &&
-              member.role !== "owner" &&
-              (currentRole === "owner" || member.role !== "admin");
-            return (
-              <div
-                className="flex min-h-12 items-center gap-2 px-3 py-2"
-                key={member.pubkey}
-              >
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium">
-                    {profileNames.get(member.pubkey) ||
-                      truncatePubkey(member.pubkey)}
-                    {isSelf ? " (you)" : ""}
-                  </p>
-                  <p className="flex items-center gap-1 text-xs capitalize text-muted-foreground">
-                    {member.role === "owner" ? (
-                      <Crown className="h-3 w-3" />
-                    ) : null}
-                    {member.role === "admin" ? (
-                      <Shield className="h-3 w-3" />
-                    ) : null}
-                    {member.role}
-                  </p>
-                </div>
-                {manageable ? (
-                  <>
-                    <select
-                      aria-label={`Role for ${truncatePubkey(member.pubkey)}`}
-                      className="h-8 rounded-md border bg-background px-2 text-xs"
-                      disabled={mutation.isPending}
-                      value={member.role}
-                      onChange={(event) =>
-                        mutation.mutate({
-                          action: "role",
-                          pubkey: member.pubkey,
-                          role: event.target.value as Exclude<
-                            ChannelMember["role"],
-                            "owner"
-                          >,
-                        })
-                      }
-                    >
-                      <option value="member">Member</option>
-                      <option value="admin">Admin</option>
-                      <option value="guest">Guest</option>
-                      <option value="bot">Bot</option>
-                    </select>
-                    <Button
-                      aria-label={`Remove ${truncatePubkey(member.pubkey)}`}
-                      disabled={mutation.isPending}
-                      onClick={() =>
-                        mutation.mutate({
-                          action: "remove",
-                          pubkey: member.pubkey,
-                        })
-                      }
-                      size="icon"
-                      type="button"
-                      variant="ghost"
-                    >
-                      <Trash2 />
-                    </Button>
-                  </>
+          <>
+            {activeMembers.map((member) => memberRow(member))}
+            {archivedMembers.length ? (
+              <div data-testid="members-sidebar-archived">
+                <button
+                  aria-expanded={archivedOpen}
+                  className="flex h-10 w-full items-center gap-2 px-3 text-left text-sm font-medium text-muted-foreground hover:bg-muted"
+                  data-testid="members-sidebar-archived-toggle"
+                  onClick={() => setArchivedOpen((current) => !current)}
+                  type="button"
+                >
+                  {archivedOpen ? <ChevronDown /> : <ChevronRight />}
+                  <span>Archived</span>
+                  <span data-testid="members-sidebar-archived-count">
+                    ({archivedMembers.length})
+                  </span>
+                </button>
+                {archivedOpen ? (
+                  <div data-testid="members-sidebar-archived-list">
+                    {archivedMembers.map((member) => memberRow(member, true))}
+                  </div>
                 ) : null}
               </div>
-            );
-          })
+            ) : null}
+          </>
         ) : (
           <p className="p-3 text-sm text-muted-foreground">
             No member snapshot is available.

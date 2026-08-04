@@ -3,6 +3,7 @@ import { Check, Search, TriangleAlert, UserPlus, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import { useArchivedIdentityPredicate } from "@/features/identity-archive/use-identity-archive";
 import { getCommunityMembership } from "@/features/settings/community-api";
 import { useEscapeSurface } from "@/shared/hooks/use-escape-surface";
 import { truncatePubkey } from "@/shared/lib/pubkey";
@@ -132,6 +133,7 @@ export function PullRequestReviewersControl({
 }) {
   const [reviewerOpen, setReviewerOpen] = useState(false);
   const [reviewerSearch, setReviewerSearch] = useState("");
+  const isArchived = useArchivedIdentityPredicate(ownerPubkey);
   const viewer = ownerPubkey.toLowerCase();
   const canRequestReview =
     viewer === project.owner.toLowerCase() ||
@@ -153,6 +155,7 @@ export function PullRequestReviewersControl({
       return (
         member.pubkey !== pullRequest.author.toLowerCase() &&
         !existingReviewers.has(member.pubkey) &&
+        !isArchived(member.pubkey) &&
         (!search ||
           member.pubkey.includes(search) ||
           label.toLowerCase().includes(search))
@@ -160,6 +163,7 @@ export function PullRequestReviewersControl({
     });
   }, [
     existingReviewers,
+    isArchived,
     membershipQuery.data?.members,
     pullRequest.author,
     reviewerSearch,

@@ -23,6 +23,8 @@ import {
   sortBrowserChannels,
 } from "../../src/features/channels/channel-browser";
 import type { Channel } from "../../src/features/channels/channel-api";
+import { archivedPubkeysFromSnapshot } from "../../src/features/identity-archive/identity-archive-api";
+import { archivedIdentityPredicate } from "../../src/features/identity-archive/use-identity-archive";
 import {
   extractSupportedLinkPreviews,
   parseSupportedLinkPreview,
@@ -203,6 +205,53 @@ test("channel browser matches and ranks channels like desktop", () => {
       sales: 1,
     }).map(({ name }) => name),
   ).toEqual(["agents", "general", "engineering", "sales"]);
+});
+
+test("identity archive accepts only the advertised relay snapshot", () => {
+  const relaySecret = new Uint8Array(32);
+  relaySecret[31] = 10;
+  const relayPubkey = getPublicKey(relaySecret);
+  const archived = "ab".repeat(32);
+  const snapshot = finalizeEvent(
+    {
+      kind: 13535,
+      created_at: 1,
+      content: "",
+      tags: [["-"], ["p", archived], ["p", archived], ["p", "not-a-pubkey"]],
+    },
+    relaySecret,
+  );
+  expect(archivedPubkeysFromSnapshot(snapshot, relayPubkey)).toEqual([
+    archived,
+  ]);
+  expect(archivedPubkeysFromSnapshot(snapshot, "cd".repeat(32))).toEqual([]);
+  expect(
+    archivedPubkeysFromSnapshot(
+      {
+        ...snapshot,
+        sig: `${snapshot.sig.slice(0, -1)}${snapshot.sig.endsWith("0") ? "1" : "0"}`,
+      },
+      relayPubkey,
+    ),
+  ).toEqual([]);
+  const snapshotWithoutNip70 = finalizeEvent(
+    {
+      kind: 13535,
+      created_at: 2,
+      content: "",
+      tags: [["p", archived]],
+    },
+    relaySecret,
+  );
+  expect(
+    archivedPubkeysFromSnapshot(snapshotWithoutNip70, relayPubkey),
+  ).toEqual([]);
+  const isArchived = archivedIdentityPredicate(
+    [archived, relayPubkey],
+    relayPubkey,
+  );
+  expect(isArchived(archived)).toBe(true);
+  expect(isArchived(relayPubkey)).toBe(false);
 });
 
 test("link previews use the desktop allowlist and ignore hidden content", () => {
@@ -481,6 +530,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   );
   let catalogImageRequests = 0;
   let externalGitRequests = 0;
+  let archiveSnapshotQueries = 0;
   let ownerPubkey = "";
   const managedAgents: Array<Record<string, unknown>> = [];
   const createdAgentInputs: Array<Record<string, unknown>> = [];
@@ -791,6 +841,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
             tags: [
               ["a", `30617:${catalogPubkey}:buzz-web`],
               ["p", ownerPubkey],
+              ["p", humanPubkey],
               ["subject", "Project inbox parity"],
             ],
           },
@@ -1474,7 +1525,8 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
                     tags: [
                       ["d", "44444444-4444-4444-8444-444444444444"],
                       ["p", ownerPubkey, "", "owner"],
-                      ...fixtureMemberTags(12),
+                      ["p", humanPubkey, "", "member"],
+                      ...fixtureMemberTags(11),
                     ],
                   },
                   signer,
@@ -1619,6 +1671,35 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
                       ["member", ownerPubkey, "owner"],
                       ["member", agentPubkey, "member"],
                       ["member", humanPubkey, "member"],
+                    ],
+                  },
+                  signer,
+                ),
+              ]),
+            );
+          }
+          if (filters.includes("13535")) {
+            archiveSnapshotQueries += 1;
+            const archived = new Set<string>();
+            for (const event of submittedEvents) {
+              if (event.kind !== 9035 && event.kind !== 9036) continue;
+              const target = event.tags.find((tag) => tag[0] === "p")?.[1];
+              if (!target) continue;
+              if (event.kind === 9035) archived.add(target);
+              else archived.delete(target);
+            }
+            socket.send(
+              JSON.stringify([
+                "EVENT",
+                subscriptionId,
+                finalizeEvent(
+                  {
+                    kind: 13535,
+                    created_at: Math.floor(Date.now() / 1000),
+                    content: "",
+                    tags: [
+                      ["-"],
+                      ...[...archived].map((pubkey) => ["p", pubkey]),
                     ],
                   },
                   signer,
@@ -2268,12 +2349,16 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await expect(page.getByText("Bob says hello.")).toBeVisible();
   await expect(page.getByText("Forged relay agent")).toHaveCount(0);
   await expect(page.getByLabel("Message #general")).toBeVisible();
+  await expect.poll(() => archiveSnapshotQueries).toBeGreaterThan(0);
   const humanArticle = page.locator(
     `article[id="message-${humanMessageEvent.id}"]`,
   );
   await humanArticle.getByRole("button", { name: "Open Bob profile" }).click();
   const humanProfile = page.getByRole("dialog", { name: "Bob profile" });
   await expect(humanProfile).toBeVisible();
+  await expect(
+    humanProfile.getByTestId("user-profile-settings-menu-trigger"),
+  ).toBeVisible();
   await humanProfile.screenshot({ path: "/tmp/buzz-web-profile-huddle.png" });
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(humanProfile).toBeVisible();
@@ -2356,6 +2441,122 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.getByRole("button", { name: /^general(?: \d+)?$/u }).click();
   await expect(page.getByRole("heading", { name: "general" })).toBeVisible();
+  await humanArticle.getByRole("button", { name: "Open Bob profile" }).click();
+  await expect(humanProfile).toBeVisible();
+  await humanProfile.getByTestId("user-profile-settings-menu-trigger").click();
+  await humanProfile.getByTestId("user-profile-archive-identity").click();
+  const archiveConfirm = page.getByTestId("archive-confirm-dialog");
+  await expect(archiveConfirm).toBeVisible();
+  await archiveConfirm.screenshot({
+    path: "/tmp/buzz-web-archive-confirm.png",
+  });
+  await archiveConfirm.getByTestId("archive-confirm-action").click();
+  await expect
+    .poll(() =>
+      submittedEvents.find(
+        (event) =>
+          event.kind === 9035 &&
+          event.tags.some((tag) => tag[0] === "p" && tag[1] === humanPubkey),
+      ),
+    )
+    .toMatchObject({
+      pubkey: ownerPubkey,
+      tags: expect.arrayContaining([["-"], ["p", humanPubkey]]),
+    });
+  await expect(
+    humanProfile.getByTestId("user-profile-archived-flair"),
+  ).toBeVisible();
+  await humanProfile.screenshot({ path: "/tmp/buzz-web-profile-archived.png" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+  await humanProfile.screenshot({
+    path: "/tmp/buzz-web-profile-archived-mobile.png",
+  });
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await humanProfile.getByRole("button", { name: "Close" }).click();
+
+  await expect(page.getByText("Bob says hello.")).toBeVisible();
+  await page.getByRole("button", { name: "Channel settings" }).click();
+  const channelSettings = page.getByRole("dialog", {
+    name: "Channel settings",
+  });
+  await expect(
+    channelSettings.getByTestId("members-sidebar-archived-count"),
+  ).toHaveText("(1)");
+  await expect(channelSettings.getByText("Bob")).toHaveCount(0);
+  await channelSettings.getByTestId("members-sidebar-archived-toggle").click();
+  await expect(
+    channelSettings.getByTestId("members-sidebar-archived-list"),
+  ).toContainText("Bob");
+  await channelSettings.getByRole("button", { name: "Close" }).click();
+
+  await page.getByRole("button", { name: "Add direct messages" }).click();
+  const archivedDmPicker = page.getByRole("dialog", { name: "New message" });
+  await archivedDmPicker
+    .getByRole("textbox", { name: "Find people and agents" })
+    .fill("Bob");
+  await expect(
+    archivedDmPicker.getByRole("button", { name: "Add Bob" }),
+  ).toHaveCount(0);
+  await archivedDmPicker.getByRole("button", { name: "Cancel" }).click();
+  const archivedMentionComposer = page.getByLabel("Message #general");
+  await archivedMentionComposer.fill("@Bo");
+  await expect(page.getByRole("button", { name: "Mention Bob" })).toHaveCount(
+    0,
+  );
+  await archivedMentionComposer.fill("");
+
+  await humanArticle.getByRole("button", { name: "Open Bob profile" }).click();
+  await expect(humanProfile).toBeVisible();
+  await humanProfile.getByTestId("user-profile-settings-menu-trigger").click();
+  await humanProfile.getByTestId("user-profile-unarchive-identity").click();
+  await expect
+    .poll(() =>
+      submittedEvents.find(
+        (event) =>
+          event.kind === 9036 &&
+          event.tags.some((tag) => tag[0] === "p" && tag[1] === humanPubkey),
+      ),
+    )
+    .toMatchObject({
+      pubkey: ownerPubkey,
+      tags: expect.arrayContaining([["-"], ["p", humanPubkey]]),
+    });
+  await expect(
+    humanProfile.getByTestId("user-profile-archived-flair"),
+  ).toHaveCount(0);
+  await humanProfile.getByRole("button", { name: "Close" }).click();
+  await page.getByRole("button", { name: "Add direct messages" }).click();
+  const restoredDmPicker = page.getByRole("dialog", { name: "New message" });
+  await restoredDmPicker
+    .getByRole("textbox", { name: "Find people and agents" })
+    .fill("Bob");
+  await expect(
+    restoredDmPicker.getByRole("button", { name: "Add Bob" }),
+  ).toBeVisible();
+  await restoredDmPicker.getByRole("button", { name: "Cancel" }).click();
+  const archiveRequestCount = submittedEvents.filter(
+    (event) => event.kind === 9035,
+  ).length;
+  await humanArticle.getByRole("button", { name: "Open Bob profile" }).click();
+  await humanProfile.getByTestId("user-profile-settings-menu-trigger").click();
+  await humanProfile.getByTestId("user-profile-archive-identity").click();
+  await page
+    .getByTestId("archive-confirm-dialog")
+    .getByTestId("archive-confirm-action")
+    .click();
+  await expect
+    .poll(() => submittedEvents.filter((event) => event.kind === 9035).length)
+    .toBeGreaterThan(archiveRequestCount);
+  await expect(
+    humanProfile.getByTestId("user-profile-archived-flair"),
+  ).toBeVisible();
+  await humanProfile.getByRole("button", { name: "Close" }).click();
+
   const unownedAgentArticle = page.locator(
     `article[id="message-${welcomeMessageEvent.id}"]`,
   );
@@ -4532,9 +4733,12 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
       .getByLabel("Status for Browser issue")
       .locator("option:checked"),
   ).toHaveText("Backlog");
-  await page
-    .getByLabel("Add a comment...")
-    .fill("Reviewed from the web issue view");
+  const projectIssueComment = page.getByLabel("Add a comment...");
+  await projectIssueComment.fill("@Bo");
+  await expect(page.getByRole("button", { name: "Mention Bob" })).toHaveCount(
+    0,
+  );
+  await projectIssueComment.fill("Reviewed from the web issue view");
   await page.getByRole("button", { name: "Comment", exact: true }).click();
   await expect
     .poll(() =>
@@ -4908,6 +5112,9 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await page.getByRole("button", { name: "Add reviewer" }).click();
   const addReviewerDialog = page.getByRole("dialog", { name: "Add reviewer" });
   const agentReviewerLabel = `${agentPubkey.slice(0, 8)}…${agentPubkey.slice(-4)}`;
+  await expect(addReviewerDialog.getByText("Bob", { exact: true })).toHaveCount(
+    0,
+  );
   await addReviewerDialog
     .getByText(agentReviewerLabel, { exact: true })
     .first()
@@ -5922,7 +6129,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await expect(managedChannelProfile).toBeVisible();
   const managedHuddleStartIndex = submittedEvents.length;
   await managedChannelProfile.getByRole("button", { name: "Huddle" }).click();
-  await expect.poll(() => huddleAudioAuths.length).toBe(2);
+  await expect.poll(() => huddleAudioAuths.length, { timeout: 15_000 }).toBe(2);
   await expect(page.getByLabel("Active huddle")).toBeVisible();
   expect(verifyEvent(huddleAudioAuths[1]?.event)).toBe(true);
   expect(huddleAudioAuths[1]).toMatchObject({
