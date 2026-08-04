@@ -80,13 +80,8 @@ import { ChannelFindBar } from "./ChannelFindBar";
 import { ChannelIcon } from "./ChannelIcon";
 import { ChannelsPrimarySidebar } from "./ChannelsPrimarySidebar";
 import { useActiveNotificationChannel } from "./ChannelNotifier";
-import {
-  ChannelBrowserDialog,
-  ChannelSettingsDialog,
-  NewDmDialog,
-  SearchDialog,
-  type SearchResult,
-} from "./ChannelDialogs";
+import * as ChannelDialogs from "./ChannelDialogs";
+import { ChannelBrowserDialog } from "./ChannelBrowserDialog";
 import { CreateChannelDialog } from "./CreateChannelDialog";
 import { CenteredMessage, TypingLine } from "./ChannelStatus";
 import { ForumView } from "./ForumView";
@@ -199,7 +194,8 @@ export function ChannelsWorkspace({
   });
   const allChannels = channelsQuery.data ?? [];
   const channels = useMemo(
-    () => allChannels.filter((channel) => !channel.archived),
+    () =>
+      allChannels.filter((channel) => !channel.archived && channel.isMember),
     [allChannels],
   );
   const { mutedChannelIds, setMuted } = useChannelMutes(ownerPubkey);
@@ -372,6 +368,7 @@ export function ChannelsWorkspace({
       });
       selectChannel(id);
       setCreateOpen(false);
+      setBrowserOpen(false);
       toast.success("Channel created");
       const template = templatesQuery.data?.find(
         (item) => item.id === input.templateId,
@@ -504,8 +501,8 @@ export function ChannelsWorkspace({
     },
     onError: mutationError("Search failed"),
   });
-  const searchResults: SearchResult[] = (searchMutation.data ?? []).map(
-    (event) => toMessageSearchResult(event, channels, agentNames, profiles),
+  const searchResults = (searchMutation.data ?? []).map((event) =>
+    toMessageSearchResult(event, channels, agentNames, profiles),
   );
   const { submitEdit, submitRoot } = createMessageSubmitters({
     activeTargetId: messageEdit.session?.message.id ?? null,
@@ -884,6 +881,8 @@ export function ChannelsWorkspace({
       />
       <ChannelBrowserDialog
         channels={allChannels}
+        createPending={createMutation.isPending}
+        lastActivity={lastActivity}
         open={browserOpen}
         pendingChannelId={
           restoreMutation.isPending
@@ -892,13 +891,15 @@ export function ChannelsWorkspace({
               ? joinMutation.variables
               : null
         }
+        templates={templatesQuery.data ?? []}
         onClose={() => setBrowserOpen(false)}
-        onJoin={(channelId) => joinMutation.mutate(channelId)}
+        onCreate={createMutation.mutateAsync}
+        onJoin={joinMutation.mutateAsync}
         onOpen={(channelId) => {
           selectChannel(channelId);
           setBrowserOpen(false);
         }}
-        onRestore={(channelId) => restoreMutation.mutate(channelId)}
+        onRestore={restoreMutation.mutateAsync}
       />
       {templateSetup && templateSetupDefinition ? (
         <TemplateDeployDialog
@@ -921,7 +922,7 @@ export function ChannelsWorkspace({
           }}
         />
       ) : null}
-      <NewDmDialog
+      <ChannelDialogs.NewDmDialog
         candidates={dmCandidates}
         open={dmOpen}
         ownerPubkey={ownerPubkey}
@@ -931,7 +932,7 @@ export function ChannelsWorkspace({
           dmMutation.mutateAsync(pubkeys).then(() => undefined)
         }
       />
-      <SearchDialog
+      <ChannelDialogs.SearchDialog
         open={searchOpen}
         pending={searchMutation.isPending}
         results={searchResults}
@@ -942,7 +943,7 @@ export function ChannelsWorkspace({
           setSearchOpen(false);
         }}
       />
-      <ChannelSettingsDialog
+      <ChannelDialogs.ChannelSettingsDialog
         channel={selected}
         isMuted={selected ? mutedChannelIds.has(selected.id) : false}
         open={settingsOpen}

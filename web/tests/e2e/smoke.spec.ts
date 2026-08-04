@@ -18,6 +18,12 @@ import {
   findChannelQuery,
 } from "../../src/features/channels/channel-links";
 import {
+  filterBrowserChannels,
+  scoreChannelMatch,
+  sortBrowserChannels,
+} from "../../src/features/channels/channel-browser";
+import type { Channel } from "../../src/features/channels/channel-api";
+import {
   extractSupportedLinkPreviews,
   parseSupportedLinkPreview,
 } from "../../src/features/channels/link-preview";
@@ -132,6 +138,71 @@ test("channel links autocomplete only non-DM channels at prefix boundaries", () 
   expect(findChannelQuery("See email#rel", 13, channels)).toBeNull();
   expect(channelSuggestions(channels, "rel")).toEqual([channels[1]]);
   expect(channelSuggestions(channels, "private")).toEqual([]);
+});
+
+test("channel browser matches and ranks channels like desktop", () => {
+  const channel = (id: string, overrides: Partial<Channel> = {}): Channel => ({
+    id,
+    name: id,
+    description: "",
+    topic: null,
+    purpose: null,
+    visibility: "open",
+    channelType: "stream",
+    isMember: false,
+    memberCount: 0,
+    participantPubkeys: [],
+    archived: false,
+    ...overrides,
+  });
+  const channels = [
+    channel("agents"),
+    channel("engineering", { memberCount: 8 }),
+    channel("general", { isMember: true, memberCount: 12 }),
+    channel("sales", { description: "Revenue pipeline", memberCount: 2 }),
+    channel("private", { visibility: "private" }),
+    channel("forum", { channelType: "forum" }),
+    channel("dm", { channelType: "dm" }),
+    channel("archived", { archived: true, isMember: true }),
+    channel("hidden-archive", { archived: true }),
+  ];
+
+  expect(scoreChannelMatch(channels[1], "engr")).toBe(6);
+  expect(scoreChannelMatch(channels[3], "sls")).toBe(6);
+  expect(scoreChannelMatch(channels[3], "pipeline")).toBe(7);
+
+  const all = filterBrowserChannels(channels, "all", "gen");
+  expect(
+    sortBrowserChannels(all.channels, "alpha", {}, all.scores).map(
+      ({ name }) => name,
+    ),
+  ).toEqual(["general", "agents", "engineering"]);
+  expect(
+    filterBrowserChannels(channels, "all", "").channels.map(({ name }) => name),
+  ).toEqual(["agents", "engineering", "general", "sales", "archived"]);
+  expect(
+    filterBrowserChannels(channels, "joined", "").channels.map(
+      ({ name }) => name,
+    ),
+  ).toEqual(["general"]);
+  expect(
+    filterBrowserChannels(channels, "archived", "").channels.map(
+      ({ name }) => name,
+    ),
+  ).toEqual(["archived"]);
+  expect(
+    sortBrowserChannels(channels.slice(0, 4), "members", {}).map(
+      ({ name }) => name,
+    ),
+  ).toEqual(["general", "engineering", "sales", "agents"]);
+  expect(
+    sortBrowserChannels(channels.slice(0, 4), "recent", {
+      agents: 4,
+      engineering: 2,
+      general: 3,
+      sales: 1,
+    }).map(({ name }) => name),
+  ).toEqual(["agents", "general", "engineering", "sales"]);
 });
 
 test("link previews use the desktop allowlist and ignore hidden content", () => {
@@ -433,6 +504,9 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     protocol_version: number;
   }> = [];
   let sendLiveChannelEvent:
+    | ((event: (typeof submittedEvents)[number]) => void)
+    | null = null;
+  let sendActiveChannelEvent:
     | ((event: (typeof submittedEvents)[number]) => void)
     | null = null;
   let capturedSearchFilter: Record<string, unknown> | null = null;
@@ -1243,49 +1317,118 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
             sendLiveChannelEvent = (event) =>
               socket.send(JSON.stringify(["EVENT", subscriptionId, event]));
           }
+          if (
+            requestFilters.some(
+              (filter) =>
+                filter.limit === undefined &&
+                filter.kinds?.includes(39000) &&
+                filter.kinds.includes(9002),
+            )
+          ) {
+            sendActiveChannelEvent = (event) =>
+              socket.send(JSON.stringify(["EVENT", subscriptionId, event]));
+          }
           const signer = catalogSecret;
           const createdAt = Math.floor(Date.now() / 1000) - 60;
           if (filters.includes("39000")) {
-            socket.send(
-              JSON.stringify([
-                "EVENT",
-                subscriptionId,
-                finalizeEvent(
-                  {
-                    kind: 39000,
-                    created_at: createdAt,
-                    content: "",
-                    tags: [
-                      ["d", "44444444-4444-4444-8444-444444444444"],
-                      ["name", "general"],
-                      ["about", "General conversation and community updates."],
-                      ["t", "stream"],
-                    ],
-                  },
-                  signer,
-                ),
-              ]),
-            );
-            socket.send(
-              JSON.stringify([
-                "EVENT",
-                subscriptionId,
-                finalizeEvent(
-                  {
-                    kind: 39000,
-                    created_at: createdAt,
-                    content: "",
-                    tags: [
-                      ["d", "55555555-5555-4555-8555-555555555555"],
-                      ["name", "web-forum"],
-                      ["about", "Focused design discussions."],
-                      ["t", "forum"],
-                    ],
-                  },
-                  signer,
-                ),
-              ]),
-            );
+            const catalogChannels = [
+              [
+                "44444444-4444-4444-8444-444444444444",
+                "general",
+                "General conversation and community updates.",
+                "stream",
+                "12",
+              ],
+              [
+                "55555555-5555-4555-8555-555555555555",
+                "web-forum",
+                "Focused design discussions.",
+                "forum",
+                "4",
+              ],
+              [
+                "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+                "product-design",
+                "Product design work.",
+                "stream",
+                "3",
+              ],
+              [
+                "77777777-7777-4777-8777-777777777777",
+                "sales",
+                "Revenue pipeline planning.",
+                "stream",
+                "2",
+              ],
+              [
+                "88888888-8888-4888-8888-888888888888",
+                "engineering",
+                "Engineering coordination.",
+                "stream",
+                "8",
+              ],
+              [
+                "99999999-9999-4999-8999-999999999999",
+                "secret-project",
+                "Private planning.",
+                "stream",
+                "1",
+                "private",
+              ],
+              [
+                "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+                "old-project",
+                "Archived project.",
+                "stream",
+                "5",
+                "open",
+                "true",
+              ],
+            ];
+            const createdChannels = submittedEvents
+              .filter(
+                (event) =>
+                  event.kind === 9007 &&
+                  !event.tags.some((tag) => tag[0] === "ttl"),
+              )
+              .map((event) => [
+                event.tags.find((tag) => tag[0] === "h")?.[1] ?? "",
+                event.tags.find((tag) => tag[0] === "name")?.[1] ?? "",
+                event.tags.find((tag) => tag[0] === "about")?.[1] ?? "",
+                event.tags.find((tag) => tag[0] === "channel_type")?.[1] ??
+                  "stream",
+                "1",
+                event.tags.find((tag) => tag[0] === "visibility")?.[1] ??
+                  "open",
+              ]);
+            for (const [id, name, about, type, count, visibility, archived] of [
+              ...catalogChannels,
+              ...createdChannels,
+            ]) {
+              socket.send(
+                JSON.stringify([
+                  "EVENT",
+                  subscriptionId,
+                  finalizeEvent(
+                    {
+                      kind: 39000,
+                      created_at: createdAt,
+                      content: "",
+                      tags: [
+                        ["d", id],
+                        ["name", name],
+                        ["about", about],
+                        ["t", type],
+                        ["member_count", count],
+                        ["visibility", visibility ?? "open"],
+                        ...(archived ? [["archived", archived]] : []),
+                      ],
+                    },
+                    signer,
+                  ),
+                ]),
+              );
+            }
             if (submittedEvents.some((event) => event.kind === 41010)) {
               socket.send(
                 JSON.stringify([
@@ -1312,6 +1455,13 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
             }
           }
           if (filters.includes("39002")) {
+            const fixtureMemberTags = (count: number) =>
+              Array.from({ length: count - 1 }, (_, index) => [
+                "p",
+                (index + 1).toString(16).padStart(64, "0"),
+                "",
+                "member",
+              ]);
             socket.send(
               JSON.stringify([
                 "EVENT",
@@ -1324,6 +1474,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
                     tags: [
                       ["d", "44444444-4444-4444-8444-444444444444"],
                       ["p", ownerPubkey, "", "owner"],
+                      ...fixtureMemberTags(12),
                     ],
                   },
                   signer,
@@ -1340,8 +1491,54 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
                     created_at: createdAt,
                     content: "",
                     tags: [
+                      ["d", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"],
+                      ["p", ownerPubkey, "", "owner"],
+                      ...fixtureMemberTags(5),
+                    ],
+                  },
+                  signer,
+                ),
+              ]),
+            );
+            for (const event of submittedEvents.filter(
+              (item) =>
+                [9007, 9021].includes(item.kind) &&
+                !item.tags.some((tag) => tag[0] === "ttl"),
+            )) {
+              const channelId = event.tags.find((tag) => tag[0] === "h")?.[1];
+              if (!channelId) continue;
+              socket.send(
+                JSON.stringify([
+                  "EVENT",
+                  subscriptionId,
+                  finalizeEvent(
+                    {
+                      kind: 39002,
+                      created_at: createdAt,
+                      content: "",
+                      tags: [
+                        ["d", channelId],
+                        ["p", ownerPubkey, "", "owner"],
+                      ],
+                    },
+                    signer,
+                  ),
+                ]),
+              );
+            }
+            socket.send(
+              JSON.stringify([
+                "EVENT",
+                subscriptionId,
+                finalizeEvent(
+                  {
+                    kind: 39002,
+                    created_at: createdAt,
+                    content: "",
+                    tags: [
                       ["d", "55555555-5555-4555-8555-555555555555"],
                       ["p", ownerPubkey, "", "owner"],
+                      ...fixtureMemberTags(4),
                     ],
                   },
                   signer,
@@ -3758,8 +3955,89 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     name: "Browse channels",
   });
   await expect(shortcutBrowser).toBeVisible();
-  await page.keyboard.press("Escape");
+  await page.screenshot({ path: "/tmp/buzz-web-channel-browser.png" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({ path: "/tmp/buzz-web-channel-browser-mobile.png" });
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await expect(
+    page.getByRole("button", { name: "product-design", exact: true }),
+  ).toHaveCount(0);
+  await expect(page.getByTestId("browse-channel-product-design")).toBeVisible();
+  await expect(page.getByTestId("browse-channel-general")).toBeVisible();
+  await expect(page.getByTestId("browse-channel-web-forum")).toHaveCount(0);
+  await expect(page.getByTestId("browse-channel-secret-project")).toHaveCount(
+    0,
+  );
+  await page.getByTestId("channel-browser-sort").selectOption("members");
+  await expect(page.getByTestId(/^browse-channel-/).first()).toHaveAttribute(
+    "data-testid",
+    "browse-channel-general",
+  );
+  const browserSearch = page.getByTestId("channel-browser-search");
+  await browserSearch.fill("engr");
+  await expect(page.getByTestId("browse-channel-engineering")).toBeVisible();
+  await browserSearch.fill("desig");
+  await expect(page.getByTestId("browse-channel-product-design")).toBeVisible();
+  const createRow = page.getByTestId("channel-browser-create-row");
+  await page.keyboard.press("ArrowDown");
+  await expect(createRow).toHaveAttribute("data-selected", "true");
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("create-channel-name")).toHaveValue("desig");
+  await page.getByTestId("channel-browser-create-back").click();
+  await browserSearch.fill("general");
+  await expect(createRow).toHaveCount(0);
+  await browserSearch.fill("");
+  await page.getByRole("tab", { name: "Joined" }).click();
+  await expect(page.getByTestId("browse-channel-general")).toBeVisible();
+  await expect(page.getByTestId("browse-channel-product-design")).toHaveCount(
+    0,
+  );
+  await page.getByRole("tab", { name: "Archived" }).click();
+  await expect(page.getByTestId("browse-channel-old-project")).toBeVisible();
+  await page.getByRole("tab", { name: "All channels" }).click();
+  await browserSearch.fill("design");
+  await page
+    .getByTestId("browse-channel-product-design")
+    .getByRole("button", { name: "Join" })
+    .click();
   await expect(shortcutBrowser).toBeHidden();
+  await expect(
+    page.getByRole("button", { name: "product-design", exact: true }),
+  ).toBeVisible();
+  await expect
+    .poll(() =>
+      submittedEvents.some(
+        (event) =>
+          event.kind === 9021 &&
+          event.tags.some(
+            (tag) =>
+              tag[0] === "h" &&
+              tag[1] === "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          ),
+      ),
+    )
+    .toBe(true);
+  await page.keyboard.press(`${shortcutModifier}+Shift+O`);
+  await browserSearch.fill("review-browser-room");
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("create-channel-name")).toHaveValue(
+    "review-browser-room",
+  );
+  await page.getByTestId("create-channel-submit").click();
+  await expect(page.getByTestId("channel-browser-dialog")).toBeHidden();
+  await expect(
+    page.getByRole("button", { name: "review-browser-room", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "review-browser-room", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: /^general\b/u }).click();
+  await expect(page.getByLabel("Message #general")).toBeVisible();
   await page.keyboard.press(`${shortcutModifier}+Shift+N`);
   const shortcutCreate = page.getByRole("dialog", { name: "Create channel" });
   await expect(shortcutCreate).toBeVisible();
@@ -3812,6 +4090,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     )
     .toMatchObject({ enabled: true });
   await page.getByRole("link", { name: "Channels" }).click();
+  await page.getByRole("button", { name: /^general\b/u }).click();
   const persistentRootContent = "@Relay agent Persistent audience root";
   const channelComposer = page.getByLabel("Message #general");
   await channelComposer.fill(persistentRootContent);
@@ -5469,6 +5748,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await page.keyboard.press("Escape");
   await expect(deleteTemplateDialog).toBeHidden();
   await page.getByRole("link", { name: "Channels" }).click();
+  await page.getByRole("button", { name: /^general\b/u }).click();
   await expect(page.getByRole("heading", { name: "general" })).toBeVisible();
   await page.getByRole("button", { name: "Create channel" }).click();
   await page.getByLabel("Channel name").fill("release-review");
@@ -5588,13 +5868,17 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     },
     agentSecret,
   );
+  sendActiveChannelEvent = null;
   submittedEvents.push(managedAgentMessage);
   await page.getByRole("link", { name: "Channels" }).click();
+  await page.getByRole("button", { name: /^general\b/u }).click();
   await expect(page.getByRole("heading", { name: "general" })).toBeVisible();
+  await expect.poll(() => sendActiveChannelEvent !== null).toBe(true);
+  sendActiveChannelEvent?.(managedAgentMessage);
   const managedAgentArticle = page.locator(
     `article[id="message-${managedAgentMessage.id}"]`,
   );
-  await expect(managedAgentArticle).toBeVisible();
+  await expect(managedAgentArticle).toBeVisible({ timeout: 15_000 });
   await managedAgentArticle.hover();
   await expect(
     managedAgentArticle.getByRole("button", { name: "Delete message" }),
@@ -5638,8 +5922,8 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await expect(managedChannelProfile).toBeVisible();
   const managedHuddleStartIndex = submittedEvents.length;
   await managedChannelProfile.getByRole("button", { name: "Huddle" }).click();
-  await expect(page.getByLabel("Active huddle")).toBeVisible();
   await expect.poll(() => huddleAudioAuths.length).toBe(2);
+  await expect(page.getByLabel("Active huddle")).toBeVisible();
   expect(verifyEvent(huddleAudioAuths[1]?.event)).toBe(true);
   expect(huddleAudioAuths[1]).toMatchObject({
     parent_channel_id: directMessageChannelId,

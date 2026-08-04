@@ -6,6 +6,14 @@ import { Input } from "@/shared/ui/input";
 import { useEscapeSurface } from "@/shared/hooks/use-escape-surface";
 import type { ChannelTemplate } from "@/features/channel-templates/channel-template-api";
 
+export type CreateChannelInput = {
+  name: string;
+  description: string;
+  channelType: "stream" | "forum";
+  visibility: "open" | "private";
+  templateId?: string;
+};
+
 export function CreateChannelDialog({
   open,
   pending,
@@ -17,36 +25,10 @@ export function CreateChannelDialog({
   pending: boolean;
   templates: ChannelTemplate[];
   onClose: () => void;
-  onSubmit: (input: {
-    name: string;
-    description: string;
-    channelType: "stream" | "forum";
-    visibility: "open" | "private";
-    templateId?: string;
-  }) => Promise<void>;
+  onSubmit: (input: CreateChannelInput) => Promise<unknown>;
 }) {
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [channelType, setChannelType] = useState<"stream" | "forum">("stream");
-  const [visibility, setVisibility] = useState<"open" | "private">("open");
-  const [templateId, setTemplateId] = useState("");
   useEscapeSurface(open, onClose, pending);
   if (!open) return null;
-
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    if (!name.trim()) return;
-    await onSubmit({
-      name: name.trim(),
-      description: description.trim(),
-      channelType,
-      visibility,
-      templateId: templateId || undefined,
-    });
-    setName("");
-    setDescription("");
-    setTemplateId("");
-  }
 
   return (
     <div
@@ -58,10 +40,7 @@ export function CreateChannelDialog({
         if (event.currentTarget === event.target && !pending) onClose();
       }}
     >
-      <form
-        className="w-full max-w-md rounded-lg bg-background p-6 shadow-2xl"
-        onSubmit={submit}
-      >
+      <div className="w-full max-w-md rounded-lg bg-background p-6 shadow-2xl">
         <header className="flex items-start justify-between gap-4">
           <div>
             <h2 className="text-lg font-semibold">Create channel</h2>
@@ -80,115 +59,164 @@ export function CreateChannelDialog({
             <X />
           </Button>
         </header>
-        <label
-          className="mt-5 block text-sm font-medium"
-          htmlFor="channel-name"
-        >
-          Channel name
-        </label>
-        <Input
-          autoFocus
-          className="mt-2"
-          disabled={pending}
-          id="channel-name"
-          maxLength={80}
-          placeholder="project-alpha"
-          value={name}
-          onChange={(event) => setName(event.target.value)}
+        <CreateChannelForm
+          onCancel={onClose}
+          onSubmit={onSubmit}
+          pending={pending}
+          templates={templates}
         />
-        {templates.length ? (
-          <label
-            className="mt-4 block text-sm font-medium"
-            htmlFor="channel-template"
-          >
-            Template
-            <select
-              className="mt-2 h-10 w-full rounded-md border bg-background px-3 text-sm"
-              disabled={pending}
-              id="channel-template"
-              value={templateId}
-              onChange={(event) => {
-                const value = event.target.value;
-                setTemplateId(value);
-                const template = templates.find((item) => item.id === value);
-                if (!template) return;
-                setDescription(template.description);
-                setChannelType(template.channelType);
-                setVisibility(template.visibility);
-              }}
-            >
-              <option value="">No template</option>
-              {templates.map((template) => (
-                <option key={template.id} value={template.id}>
-                  {template.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : null}
-        <fieldset className="mt-4">
-          <legend className="text-sm font-medium">Channel type</legend>
-          <div className="mt-2 grid grid-cols-2 gap-2">
-            <ChoiceButton
-              active={channelType === "stream"}
-              icon={<Hash />}
-              label="Stream"
-              description="Continuous conversation"
-              onClick={() => setChannelType("stream")}
-            />
-            <ChoiceButton
-              active={channelType === "forum"}
-              icon={<LayoutList />}
-              label="Forum"
-              description="Posts with focused replies"
-              onClick={() => setChannelType("forum")}
-            />
-          </div>
-        </fieldset>
-        <label className="mt-4 flex items-center justify-between gap-4 rounded-md border p-3 text-sm">
-          <span className="flex items-center gap-2">
-            <Lock className="h-4 w-4" />
-            Private channel
-          </span>
-          <input
-            checked={visibility === "private"}
-            disabled={pending}
-            type="checkbox"
-            onChange={(event) =>
-              setVisibility(event.target.checked ? "private" : "open")
-            }
-          />
-        </label>
+      </div>
+    </div>
+  );
+}
+
+export function CreateChannelForm({
+  initialName = "",
+  pending,
+  templates,
+  onCancel,
+  onSubmit,
+}: {
+  initialName?: string;
+  pending: boolean;
+  templates: ChannelTemplate[];
+  onCancel: () => void;
+  onSubmit: (input: CreateChannelInput) => Promise<unknown>;
+}) {
+  const [name, setName] = useState(initialName);
+  const [description, setDescription] = useState("");
+  const [channelType, setChannelType] = useState<"stream" | "forum">("stream");
+  const [visibility, setVisibility] = useState<"open" | "private">("open");
+  const [templateId, setTemplateId] = useState("");
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!name.trim()) return;
+    try {
+      await onSubmit({
+        name: name.trim(),
+        description: description.trim(),
+        channelType,
+        visibility,
+        templateId: templateId || undefined,
+      });
+    } catch {
+      // Mutation handlers surface the relay error and keep the form available.
+    }
+  }
+
+  return (
+    <form className="mt-5" onSubmit={submit}>
+      <label className="mt-5 block text-sm font-medium" htmlFor="channel-name">
+        Channel name
+      </label>
+      <Input
+        autoFocus
+        className="mt-2"
+        disabled={pending}
+        data-testid="create-channel-name"
+        id="channel-name"
+        maxLength={80}
+        placeholder="project-alpha"
+        value={name}
+        onChange={(event) => setName(event.target.value)}
+      />
+      {templates.length ? (
         <label
           className="mt-4 block text-sm font-medium"
-          htmlFor="channel-description"
+          htmlFor="channel-template"
         >
-          Description
-        </label>
-        <textarea
-          className="mt-2 min-h-24 w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-ring"
-          disabled={pending}
-          id="channel-description"
-          maxLength={500}
-          placeholder="What is this channel for?"
-          value={description}
-          onChange={(event) => setDescription(event.target.value)}
-        />
-        <div className="mt-6 flex justify-end gap-2">
-          <Button
+          Template
+          <select
+            className="mt-2 h-10 w-full rounded-md border bg-background px-3 text-sm"
             disabled={pending}
-            onClick={onClose}
-            type="button"
-            variant="outline"
+            id="channel-template"
+            value={templateId}
+            onChange={(event) => {
+              const value = event.target.value;
+              setTemplateId(value);
+              const template = templates.find((item) => item.id === value);
+              if (!template) return;
+              setDescription(template.description);
+              setChannelType(template.channelType);
+              setVisibility(template.visibility);
+            }}
           >
-            Cancel
-          </Button>
-          <Button disabled={pending || !name.trim()} type="submit">
-            {pending ? "Creating…" : "Create channel"}
-          </Button>
+            <option value="">No template</option>
+            {templates.map((template) => (
+              <option key={template.id} value={template.id}>
+                {template.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
+      <fieldset className="mt-4">
+        <legend className="text-sm font-medium">Channel type</legend>
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          <ChoiceButton
+            active={channelType === "stream"}
+            icon={<Hash />}
+            label="Stream"
+            description="Continuous conversation"
+            onClick={() => setChannelType("stream")}
+          />
+          <ChoiceButton
+            active={channelType === "forum"}
+            icon={<LayoutList />}
+            label="Forum"
+            description="Posts with focused replies"
+            onClick={() => setChannelType("forum")}
+          />
         </div>
-      </form>
-    </div>
+      </fieldset>
+      <label className="mt-4 flex items-center justify-between gap-4 rounded-md border p-3 text-sm">
+        <span className="flex items-center gap-2">
+          <Lock className="h-4 w-4" />
+          Private channel
+        </span>
+        <input
+          checked={visibility === "private"}
+          disabled={pending}
+          type="checkbox"
+          onChange={(event) =>
+            setVisibility(event.target.checked ? "private" : "open")
+          }
+        />
+      </label>
+      <label
+        className="mt-4 block text-sm font-medium"
+        htmlFor="channel-description"
+      >
+        Description
+      </label>
+      <textarea
+        className="mt-2 min-h-24 w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-ring"
+        disabled={pending}
+        id="channel-description"
+        maxLength={500}
+        placeholder="What is this channel for?"
+        value={description}
+        onChange={(event) => setDescription(event.target.value)}
+      />
+      <div className="mt-6 flex justify-end gap-2">
+        <Button
+          disabled={pending}
+          onClick={onCancel}
+          type="button"
+          variant="outline"
+        >
+          Cancel
+        </Button>
+        <Button
+          data-testid="create-channel-submit"
+          disabled={pending || !name.trim()}
+          type="submit"
+        >
+          {pending ? "Creating…" : "Create channel"}
+        </Button>
+      </div>
+    </form>
   );
 }
 

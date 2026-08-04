@@ -24,6 +24,7 @@ export type Channel = {
   isMember: boolean;
   memberCount: number;
   participantPubkeys: string[];
+  lastMessageAt?: number | null;
   archived: boolean;
 };
 
@@ -195,8 +196,55 @@ export async function listChannels(ownerPubkey: string): Promise<Channel[]> {
       memberCount:
         Number(tagValue(event, "member_count")) || participants.length,
       participantPubkeys: participants,
+      lastMessageAt: null,
       archived: tagValue(event, "archived") === "true",
     });
+  }
+  const listedChannels = [...channels.values()];
+  if (listedChannels.length) {
+    try {
+      const ids = listedChannels.map((channel) => channel.id);
+      const details = await queryEvents(
+        relayWsUrl(),
+        [
+          { kinds: [39002], "#d": ids, limit: ids.length },
+          ...ids.map((id) => ({
+            kinds: [9, 40002],
+            "#h": [id],
+            limit: 1,
+          })),
+        ],
+        { requireNip07: true },
+      );
+      const memberPubkeys = new Map<string, Set<string>>();
+      const lastMessages = new Map<string, number>();
+      for (const event of details) {
+        const channelId = tagValue(event, event.kind === 39002 ? "d" : "h");
+        if (!channelId || !channels.has(channelId)) continue;
+        if (event.kind === 39002) {
+          const members = memberPubkeys.get(channelId) ?? new Set<string>();
+          for (const pubkey of tagValues(event, "p")) members.add(pubkey);
+          memberPubkeys.set(channelId, members);
+          continue;
+        }
+        if ([9, 40002].includes(event.kind)) {
+          lastMessages.set(
+            channelId,
+            Math.max(lastMessages.get(channelId) ?? 0, event.created_at),
+          );
+        }
+      }
+      for (const channel of listedChannels) {
+        const members = memberPubkeys.get(channel.id);
+        if (members) {
+          channel.memberCount = members.size;
+          channel.participantPubkeys = [...members];
+        }
+        channel.lastMessageAt = lastMessages.get(channel.id) ?? null;
+      }
+    } catch {
+      // Directory enrichment is best-effort; metadata remains browseable.
+    }
   }
   return [...channels.values()].sort((a, b) => {
     if (a.channelType === "dm" && b.channelType !== "dm") return 1;
