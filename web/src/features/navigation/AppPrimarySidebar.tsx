@@ -6,7 +6,6 @@ import {
   FolderKanban,
   GitFork,
   Inbox,
-  LogOut,
   MessageSquare,
   Settings,
   Zap,
@@ -22,7 +21,7 @@ import {
 } from "@/features/home/home-api";
 import { listReminders } from "@/features/reminders/reminder-api";
 import { readNotificationSettings } from "@/features/settings/notification-settings";
-import { truncatePubkey } from "@/shared/lib/pubkey";
+import { SidebarOwnerProfileMenu } from "./SidebarOwnerProfileMenu";
 
 export type AppSection =
   | "inbox"
@@ -124,16 +123,10 @@ export function AppPrimarySidebar({
         />
       </nav>
       <div className="mt-auto border-t border-sidebar-border pt-3">
-        <button
-          className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-xs text-muted-foreground hover:bg-sidebar-accent"
-          onClick={onDisconnect}
-          type="button"
-        >
-          <LogOut className="h-4 w-4" />
-          <span className="min-w-0 flex-1 truncate">
-            {truncatePubkey(ownerPubkey)}
-          </span>
-        </button>
+        <SidebarOwnerProfileMenu
+          onLock={onDisconnect}
+          ownerPubkey={ownerPubkey}
+        />
       </div>
     </aside>
   );

@@ -1,6 +1,5 @@
-import { useState } from "react";
-
 import { OwnerConnection } from "@/features/agents/ui/OwnerConnection";
+import { useOwnerSessionState } from "@/features/owner-vault/lib/use-owner-session-state";
 import { lockOwnerVault } from "@/features/owner-vault/lib/vault-worker-client";
 import type { ChannelAction } from "../channel-actions";
 import type {
@@ -28,7 +27,7 @@ export function ChannelsPage({
   onProfileTabChange?: (tab: ProfilePanelTab) => void;
   onProfileViewChange?: (view: ProfilePanelView) => void;
 } = {}) {
-  const [ownerPubkey, setOwnerPubkey] = useState<string | null>(null);
+  const [ownerPubkey, setOwnerPubkey] = useOwnerSessionState();
   if (!ownerPubkey) return <OwnerConnection onConnected={setOwnerPubkey} />;
   return (
     <ChannelsWorkspace
@@ -42,8 +41,7 @@ export function ChannelsPage({
       onProfileViewChange={onProfileViewChange}
       ownerPubkey={ownerPubkey}
       onDisconnect={() => {
-        void lockOwnerVault();
-        setOwnerPubkey(null);
+        void lockOwnerVault().catch(() => undefined);
       }}
     />
   );

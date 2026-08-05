@@ -21,6 +21,7 @@ import { ManagedUserProfileDialog } from "@/features/agents/ui/ManagedUserProfil
 import { openDm } from "@/features/channels/channel-api";
 import { AppPrimarySidebar } from "@/features/navigation/AppPrimarySidebar";
 import { lockOwnerVault } from "@/features/owner-vault/lib/vault-worker-client";
+import { useOwnerSessionState } from "@/features/owner-vault/lib/use-owner-session-state";
 import {
   profileFollowsQueryKey,
   setProfileFollowing,
@@ -63,7 +64,7 @@ export function PulsePage({
   onProfileTabChange?: (tab: ProfilePanelTab) => void;
   onProfileViewChange?: (view: ProfilePanelView) => void;
 } = {}) {
-  const [ownerPubkey, setOwnerPubkey] = useState<string | null>(null);
+  const [ownerPubkey, setOwnerPubkey] = useOwnerSessionState();
   if (!ownerPubkey) return <OwnerConnection onConnected={setOwnerPubkey} />;
   return (
     <PulseWorkspace
@@ -74,8 +75,7 @@ export function PulsePage({
       onProfileTabChange={onProfileTabChange}
       onProfileViewChange={onProfileViewChange}
       onDisconnect={() => {
-        void lockOwnerVault();
-        setOwnerPubkey(null);
+        void lockOwnerVault().catch(() => undefined);
       }}
       ownerPubkey={ownerPubkey}
     />

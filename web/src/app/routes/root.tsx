@@ -4,7 +4,7 @@ import {
   useNavigate,
   useRouterState,
 } from "@tanstack/react-router";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect } from "react";
 
 import {
   CHANNEL_ACTION_EVENT,
@@ -12,7 +12,9 @@ import {
 } from "@/features/channels/channel-actions";
 import { ChannelNotifier } from "@/features/channels/ui/ChannelNotifier";
 import { hasUnlockedOwnerVault } from "@/features/owner-vault/lib/vault-worker-client";
+import { useOwnerSessionState } from "@/features/owner-vault/lib/use-owner-session-state";
 import { ReminderNotifier } from "@/features/reminders/ui/ReminderNotifier";
+import { PresenceSessionProvider } from "@/features/presence/presence-session";
 import {
   SidebarVisibilityProvider,
   useSidebarVisibility,
@@ -36,28 +38,12 @@ function RootLayout() {
 }
 
 function RootLayoutContent() {
-  const [ownerPubkey, setOwnerPubkey] = useState<string | null>(null);
+  const [ownerPubkey] = useOwnerSessionState();
   const sidebar = useSidebarVisibility();
   const navigate = useNavigate();
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   });
-
-  useEffect(() => {
-    const connected = (event: Event) => {
-      const pubkey = (event as CustomEvent<unknown>).detail;
-      if (typeof pubkey === "string" && /^[0-9a-f]{64}$/.test(pubkey)) {
-        setOwnerPubkey(pubkey);
-      }
-    };
-    const disconnected = () => setOwnerPubkey(null);
-    window.addEventListener("buzz-web:owner-connected", connected);
-    window.addEventListener("buzz-web:owner-disconnected", disconnected);
-    return () => {
-      window.removeEventListener("buzz-web:owner-connected", connected);
-      window.removeEventListener("buzz-web:owner-disconnected", disconnected);
-    };
-  }, []);
 
   useEffect(() => {
     const openChannelAction = (action: ChannelAction) => {
@@ -135,20 +121,25 @@ function RootLayoutContent() {
   }, [navigate, pathname, sidebar]);
 
   return (
-    <div className="flex min-h-dvh flex-col">
-      <ChannelNotifier ownerPubkey={ownerPubkey} />
-      <ReminderNotifier ownerPubkey={ownerPubkey} />
-      <main className="flex flex-1 flex-col">
-        <Suspense
-          fallback={
-            <div className="flex min-h-dvh items-center justify-center text-sm text-muted-foreground">
-              Loading…
-            </div>
-          }
-        >
-          <Outlet />
-        </Suspense>
-      </main>
-    </div>
+    <PresenceSessionProvider
+      key={ownerPubkey ?? "locked"}
+      ownerPubkey={ownerPubkey}
+    >
+      <div className="flex min-h-dvh flex-col">
+        <ChannelNotifier ownerPubkey={ownerPubkey} />
+        <ReminderNotifier ownerPubkey={ownerPubkey} />
+        <main className="flex flex-1 flex-col">
+          <Suspense
+            fallback={
+              <div className="flex min-h-dvh items-center justify-center text-sm text-muted-foreground">
+                Loading…
+              </div>
+            }
+          >
+            <Outlet />
+          </Suspense>
+        </main>
+      </div>
+    </PresenceSessionProvider>
   );
 }

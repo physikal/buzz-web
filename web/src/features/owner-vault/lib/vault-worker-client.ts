@@ -56,8 +56,11 @@ function signerWorker(): Worker {
       );
     }
     pending.clear();
+    if (autoLockTimer) clearTimeout(autoLockTimer);
+    autoLockTimer = null;
     activePubkey = null;
     worker = null;
+    window.dispatchEvent(new Event("buzz-web:owner-disconnected"));
   });
   return worker;
 }

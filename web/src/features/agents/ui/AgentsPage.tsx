@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { listProfiles, openDm } from "@/features/channels/channel-api";
 import { AppPrimarySidebar } from "@/features/navigation/AppPrimarySidebar";
 import { lockOwnerVault } from "@/features/owner-vault/lib/vault-worker-client";
+import { useOwnerSessionState } from "@/features/owner-vault/lib/use-owner-session-state";
 import { useWorkspacePresence } from "@/features/presence/use-presence";
 import { UserProfileDialog } from "@/features/profile/UserProfileDialog";
 import { useProfileFollow } from "@/features/profile/profile-follow";
@@ -141,7 +142,7 @@ export function AgentsPage({
     previewMode === "agents" ||
     previewMode === "create-agent" ||
     previewMode === "add-agent-to-channel";
-  const [ownerPubkey, setOwnerPubkey] = useState<string | null>(() =>
+  const [ownerPubkey, setOwnerPubkey] = useOwnerSessionState(
     preview ? PREVIEW_AGENTS[0].owner_pubkey : null,
   );
   const [createOpen, setCreateOpen] = useState(previewMode === "create-agent");
@@ -169,8 +170,7 @@ export function AgentsPage({
       createOpen={createOpen}
       onCreateOpenChange={setCreateOpen}
       onDisconnect={() => {
-        void lockOwnerVault();
-        setOwnerPubkey(null);
+        void lockOwnerVault().catch(() => undefined);
       }}
     />
   );

@@ -34,7 +34,7 @@ import {
 } from "../message-mentions";
 import remarkChannelLinks from "../remark-channel-links";
 import remarkMentions from "../remark-mentions";
-import { PresenceDot } from "@/features/profile/UserProfileDialog";
+import { PresenceDot } from "@/features/presence/PresenceDot";
 import type { PresenceStatus } from "@/features/presence/presence-api";
 import type {
   Channel,

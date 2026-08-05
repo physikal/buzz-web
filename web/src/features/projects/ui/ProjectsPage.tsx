@@ -16,6 +16,7 @@ import { ManagedUserProfileDialog } from "@/features/agents/ui/ManagedUserProfil
 import { listProfiles, openDm } from "@/features/channels/channel-api";
 import { AppPrimarySidebar } from "@/features/navigation/AppPrimarySidebar";
 import { lockOwnerVault } from "@/features/owner-vault/lib/vault-worker-client";
+import { useOwnerSessionState } from "@/features/owner-vault/lib/use-owner-session-state";
 import { useWorkspacePresence } from "@/features/presence/use-presence";
 import { useProfileFollow } from "@/features/profile/profile-follow";
 import { truncatePubkey } from "@/shared/lib/pubkey";
@@ -76,7 +77,7 @@ export function ProjectsPage({
   onProfileViewChange?: (view: ProfilePanelView) => void;
   projectId?: string;
 }) {
-  const [ownerPubkey, setOwnerPubkey] = useState<string | null>(null);
+  const [ownerPubkey, setOwnerPubkey] = useOwnerSessionState();
   if (!ownerPubkey) return <OwnerConnection onConnected={setOwnerPubkey} />;
   return (
     <ProjectsWorkspace
@@ -92,8 +93,7 @@ export function ProjectsPage({
       onProfileViewChange={onProfileViewChange}
       projectId={projectId}
       onDisconnect={() => {
-        void lockOwnerVault();
-        setOwnerPubkey(null);
+        void lockOwnerVault().catch(() => undefined);
       }}
     />
   );

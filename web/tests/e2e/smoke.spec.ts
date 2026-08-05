@@ -2896,6 +2896,43 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     .toBe(true);
   await page.getByLabel("Message #general").fill("");
   expect(submittedEvents.some((event) => event.kind === 20001)).toBe(true);
+  await page.getByTestId("sidebar-profile-card").click();
+  await expect(page.getByTestId("profile-popover")).toBeVisible();
+  await expect(
+    page.getByTestId("profile-popover-presence-trigger"),
+  ).toContainText("Online");
+  await page.getByTestId("profile-popover-presence-trigger").click();
+  await page.getByTestId("profile-popover-status-away").click();
+  await expect
+    .poll(
+      () =>
+        submittedEvents.filter((event) => event.kind === 20001).at(-1)?.content,
+    )
+    .toBe("away");
+  await page.getByTestId("sidebar-profile-card").click();
+  await expect(
+    page.getByTestId("profile-popover-presence-trigger"),
+  ).toContainText("Away");
+  await page.getByTestId("profile-popover-presence-trigger").click();
+  await page.getByTestId("profile-popover-status-offline").click();
+  await expect
+    .poll(
+      () =>
+        submittedEvents.filter((event) => event.kind === 20001).at(-1)?.content,
+    )
+    .toBe("offline");
+  await page.getByTestId("sidebar-profile-card").click();
+  await expect(
+    page.getByTestId("profile-popover-presence-trigger"),
+  ).toContainText("Offline");
+  await page.getByTestId("profile-popover-presence-trigger").click();
+  await page.getByTestId("profile-popover-status-online").click();
+  await expect
+    .poll(
+      () =>
+        submittedEvents.filter((event) => event.kind === 20001).at(-1)?.content,
+    )
+    .toBe("online");
   const composer = page.getByLabel("Message #general");
   await composer.fill("format me");
   await composer.selectText();
@@ -4263,7 +4300,8 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await expect(page.getByRole("link", { name: "Inbox" })).toBeHidden();
   await page.keyboard.press(`${shortcutModifier}+S`);
   await expect(page.getByRole("link", { name: "Inbox" })).toBeVisible();
-  await page.keyboard.press(`${shortcutModifier}+,`);
+  await page.getByTestId("sidebar-profile-card").click();
+  await page.getByTestId("profile-popover-settings").click();
   await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Profile" })).toBeVisible();
   await page.keyboard.press("Escape");
@@ -4307,6 +4345,16 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await expect(
     page.getByTestId("settings-set-status").locator('img[alt=":shipit:"]'),
   ).toBeVisible();
+  await page.getByTestId("sidebar-profile-card").click();
+  await expect(page.getByTestId("profile-popover-set-status")).toContainText(
+    "Reviewing the web client",
+  );
+  await expect(
+    page
+      .getByTestId("profile-popover-set-status")
+      .locator('img[alt=":shipit:"]'),
+  ).toBeVisible();
+  await page.keyboard.press("Escape");
   await page.getByTestId("settings-set-status").click();
   await page.getByTestId("set-status-clear").click();
   await expect(page.getByTestId("set-status-dialog")).toBeHidden();
@@ -6205,6 +6253,14 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await page.getByRole("button", { name: "Leave huddle" }).click();
   await expect(page.getByLabel("Active huddle")).toBeHidden();
   await page.getByRole("button", { name: /^general\b/u }).click();
+
+  await page.getByTestId("sidebar-profile-card").click();
+  await page.getByTestId("profile-popover-lock").click();
+  await expect(
+    page.getByRole("heading", { name: "Connect to Buzz" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Unlock with passkey" }).click();
+  await expect(page.getByRole("heading", { name: "general" })).toBeVisible();
 
   const { credentials } = await cdp.send("WebAuthn.getCredentials", {
     authenticatorId,

@@ -33,6 +33,7 @@ import {
   subscribeDrafts,
 } from "@/features/channels/draft-store";
 import { lockOwnerVault } from "@/features/owner-vault/lib/vault-worker-client";
+import { useOwnerSessionState } from "@/features/owner-vault/lib/use-owner-session-state";
 import { AppPrimarySidebar } from "@/features/navigation/AppPrimarySidebar";
 import { useWorkspacePresence } from "@/features/presence/use-presence";
 import { ManagedUserProfileDialog } from "@/features/agents/ui/ManagedUserProfileDialog";
@@ -93,7 +94,7 @@ export function HomePage({
   onProfileTabChange?: (tab: ProfilePanelTab) => void;
   onProfileViewChange?: (view: ProfilePanelView) => void;
 } = {}) {
-  const [ownerPubkey, setOwnerPubkey] = useState<string | null>(null);
+  const [ownerPubkey, setOwnerPubkey] = useOwnerSessionState();
   if (!ownerPubkey) return <OwnerConnection onConnected={setOwnerPubkey} />;
   return (
     <HomeWorkspace
@@ -107,8 +108,7 @@ export function HomePage({
       onProfileViewChange={onProfileViewChange}
       ownerPubkey={ownerPubkey}
       onDisconnect={() => {
-        void lockOwnerVault();
-        setOwnerPubkey(null);
+        void lockOwnerVault().catch(() => undefined);
       }}
     />
   );

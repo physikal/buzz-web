@@ -23,11 +23,13 @@ import { OwnerConnection } from "@/features/agents/ui/OwnerConnection";
 import { ChannelTemplatesPanel } from "@/features/channel-templates/ui/ChannelTemplatesPanel";
 import { AppPrimarySidebar } from "@/features/navigation/AppPrimarySidebar";
 import { lockOwnerVault } from "@/features/owner-vault/lib/vault-worker-client";
+import { useOwnerSessionState } from "@/features/owner-vault/lib/use-owner-session-state";
 import { OwnerBackupPanel } from "@/features/owner-vault/ui/OwnerBackupPanel";
 import { OwnerPasskeysPanel } from "@/features/owner-vault/ui/OwnerPasskeysPanel";
 import { RemindersPanel } from "@/features/reminders/ui/RemindersPanel";
 import { SetStatusDialog } from "@/features/user-status/SetStatusDialog";
 import { StatusEmoji } from "@/features/user-status/StatusEmoji";
+import { useOwnerStatus } from "@/features/user-status/use-owner-status";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { CommunityMembersPanel } from "./CommunityMembersPanel";
@@ -40,15 +42,12 @@ import { ModerationPanel } from "./ModerationPanel";
 import { AppearancePanel } from "./AppearancePanel";
 import { NotificationsPanel } from "./NotificationsPanel";
 import { VoicePanel } from "./VoicePanel";
-import { getCustomEmoji, type CustomEmoji } from "../custom-emoji-api";
+import type { CustomEmoji } from "../custom-emoji-api";
 import type { SettingsSection } from "../settings-sections";
 import {
   getOwnerProfile,
-  getUserStatus,
   type ProfileInput,
-  type UserStatus,
   updateOwnerProfile,
-  setUserStatus,
   uploadAvatar,
 } from "../settings-api";
 
@@ -73,7 +72,7 @@ export function SettingsPage({
   initialSection?: SettingsSection;
   onSectionChange?: (section: SettingsSection) => void;
 } = {}) {
-  const [ownerPubkey, setOwnerPubkey] = useState<string | null>(null);
+  const [ownerPubkey, setOwnerPubkey] = useOwnerSessionState();
   if (!ownerPubkey) return <OwnerConnection onConnected={setOwnerPubkey} />;
   return (
     <SettingsWorkspace
@@ -81,8 +80,7 @@ export function SettingsPage({
       initialSection={initialSection}
       onSectionChange={onSectionChange}
       onDisconnect={() => {
-        void lockOwnerVault();
-        setOwnerPubkey(null);
+        void lockOwnerVault().catch(() => undefined);
       }}
     />
   );
@@ -412,41 +410,18 @@ function IdentityValueRow({
 }
 
 function UserStatusPanel({ ownerPubkey }: { ownerPubkey: string }) {
-  const queryClient = useQueryClient();
-  const [localStatus, setLocalStatus] = useState<UserStatus | null | undefined>(
-    undefined,
-  );
-  const query = useQuery({
-    queryKey: ["user-status", ownerPubkey],
-    queryFn: () => getUserStatus(ownerPubkey),
-  });
-  const customEmojiQuery = useQuery({
-    queryKey: ["custom-emoji", ownerPubkey],
-    queryFn: () => getCustomEmoji(ownerPubkey),
-  });
-  useEffect(() => setLocalStatus(query.data ?? null), [query.data]);
-  if (query.isLoading)
+  const ownerStatus = useOwnerStatus(ownerPubkey);
+  if (ownerStatus.isLoading)
     return <p className="text-sm text-muted-foreground">Loading status…</p>;
-  const status = localStatus === undefined ? query.data : localStatus;
+  const status = ownerStatus.status;
   return (
     <UserStatusEditor
       key={`${status?.updatedAt ?? 0}:${status?.text ?? ""}:${status?.emoji ?? ""}`}
-      customEmoji={customEmojiQuery.data?.community ?? []}
+      customEmoji={ownerStatus.customEmoji}
       emoji={status?.emoji ?? ""}
+      onSaved={ownerStatus.setStatus}
+      pending={ownerStatus.isPending}
       text={status?.text ?? ""}
-      onSaved={async (text, emoji) => {
-        const nextStatus =
-          text || emoji
-            ? {
-                text,
-                emoji,
-                updatedAt: Math.floor(Date.now() / 1_000),
-              }
-            : null;
-        setLocalStatus(nextStatus);
-        queryClient.setQueryData(["user-status", ownerPubkey], nextStatus);
-        await queryClient.invalidateQueries({ queryKey: ["user-statuses"] });
-      }}
     />
   );
 }
@@ -456,25 +431,15 @@ function UserStatusEditor({
   text: initialText,
   emoji: initialEmoji,
   onSaved,
+  pending,
 }: {
   customEmoji: CustomEmoji[];
   text: string;
   emoji: string;
-  onSaved: (text: string, emoji: string) => Promise<unknown>;
+  onSaved: (text: string, emoji: string) => Promise<void>;
+  pending: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const mutation = useMutation({
-    mutationFn: ({ text, emoji }: { text: string; emoji: string }) =>
-      setUserStatus(text, emoji),
-    onSuccess: async (_, input) => {
-      await onSaved(input.text, input.emoji);
-      toast.success(
-        input.text || input.emoji ? "Status updated" : "Status cleared",
-      );
-    },
-    onError: (error) =>
-      toast.error("Could not update status", { description: error.message }),
-  });
   const hasStatus = Boolean(initialText || initialEmoji);
   return (
     <div className="rounded-md border p-4">
@@ -487,7 +452,7 @@ function UserStatusEditor({
       <button
         className="mt-3 flex min-h-10 w-full items-center gap-2 rounded-md border border-input px-3 py-2 text-left text-sm hover:bg-accent"
         data-testid="settings-set-status"
-        disabled={mutation.isPending}
+        disabled={pending}
         onClick={() => setOpen(true)}
         type="button"
       >
@@ -513,11 +478,11 @@ function UserStatusEditor({
         hasExistingStatus={hasStatus}
         initialEmoji={initialEmoji}
         initialText={initialText}
-        onClear={() => mutation.mutateAsync({ text: "", emoji: "" })}
+        onClear={() => onSaved("", "")}
         onClose={() => setOpen(false)}
-        onSave={(text, emoji) => mutation.mutateAsync({ text, emoji })}
+        onSave={onSaved}
         open={open}
-        pending={mutation.isPending}
+        pending={pending}
       />
     </div>
   );

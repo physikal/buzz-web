@@ -16,6 +16,7 @@ import { OwnerConnection } from "@/features/agents/ui/OwnerConnection";
 import { listChannels } from "@/features/channels/channel-api";
 import { AppPrimarySidebar } from "@/features/navigation/AppPrimarySidebar";
 import { lockOwnerVault } from "@/features/owner-vault/lib/vault-worker-client";
+import { useOwnerSessionState } from "@/features/owner-vault/lib/use-owner-session-state";
 import { useEscapeSurface } from "@/shared/hooks/use-escape-surface";
 import { useSidebarVisibility } from "@/shared/hooks/use-sidebar-visibility";
 import { relayHttpBaseUrl } from "@/shared/lib/relay-url";
@@ -45,13 +46,12 @@ export function WorkflowsPage({
 }: {
   initialWorkflowId?: string;
 } = {}) {
-  const [ownerPubkey, setOwnerPubkey] = useState<string | null>(null);
+  const [ownerPubkey, setOwnerPubkey] = useOwnerSessionState();
   if (!ownerPubkey) return <OwnerConnection onConnected={setOwnerPubkey} />;
   return (
     <WorkflowWorkspace
       onDisconnect={() => {
-        void lockOwnerVault();
-        setOwnerPubkey(null);
+        void lockOwnerVault().catch(() => undefined);
       }}
       initialWorkflowId={initialWorkflowId}
       ownerPubkey={ownerPubkey}
