@@ -26,6 +26,8 @@ import { lockOwnerVault } from "@/features/owner-vault/lib/vault-worker-client";
 import { OwnerBackupPanel } from "@/features/owner-vault/ui/OwnerBackupPanel";
 import { OwnerPasskeysPanel } from "@/features/owner-vault/ui/OwnerPasskeysPanel";
 import { RemindersPanel } from "@/features/reminders/ui/RemindersPanel";
+import { SetStatusDialog } from "@/features/user-status/SetStatusDialog";
+import { StatusEmoji } from "@/features/user-status/StatusEmoji";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { CommunityMembersPanel } from "./CommunityMembersPanel";
@@ -38,11 +40,13 @@ import { ModerationPanel } from "./ModerationPanel";
 import { AppearancePanel } from "./AppearancePanel";
 import { NotificationsPanel } from "./NotificationsPanel";
 import { VoicePanel } from "./VoicePanel";
+import { getCustomEmoji, type CustomEmoji } from "../custom-emoji-api";
 import type { SettingsSection } from "../settings-sections";
 import {
   getOwnerProfile,
   getUserStatus,
   type ProfileInput,
+  type UserStatus,
   updateOwnerProfile,
   setUserStatus,
   uploadAvatar,
@@ -409,42 +413,61 @@ function IdentityValueRow({
 
 function UserStatusPanel({ ownerPubkey }: { ownerPubkey: string }) {
   const queryClient = useQueryClient();
+  const [localStatus, setLocalStatus] = useState<UserStatus | null | undefined>(
+    undefined,
+  );
   const query = useQuery({
     queryKey: ["user-status", ownerPubkey],
     queryFn: () => getUserStatus(ownerPubkey),
   });
+  const customEmojiQuery = useQuery({
+    queryKey: ["custom-emoji", ownerPubkey],
+    queryFn: () => getCustomEmoji(ownerPubkey),
+  });
+  useEffect(() => setLocalStatus(query.data ?? null), [query.data]);
   if (query.isLoading)
     return <p className="text-sm text-muted-foreground">Loading status…</p>;
+  const status = localStatus === undefined ? query.data : localStatus;
   return (
     <UserStatusEditor
-      key={`${query.data?.updatedAt ?? 0}:${query.data?.text ?? ""}:${query.data?.emoji ?? ""}`}
-      emoji={query.data?.emoji ?? ""}
-      text={query.data?.text ?? ""}
-      onSaved={() =>
-        queryClient.invalidateQueries({
-          queryKey: ["user-status", ownerPubkey],
-        })
-      }
+      key={`${status?.updatedAt ?? 0}:${status?.text ?? ""}:${status?.emoji ?? ""}`}
+      customEmoji={customEmojiQuery.data?.community ?? []}
+      emoji={status?.emoji ?? ""}
+      text={status?.text ?? ""}
+      onSaved={async (text, emoji) => {
+        const nextStatus =
+          text || emoji
+            ? {
+                text,
+                emoji,
+                updatedAt: Math.floor(Date.now() / 1_000),
+              }
+            : null;
+        setLocalStatus(nextStatus);
+        queryClient.setQueryData(["user-status", ownerPubkey], nextStatus);
+        await queryClient.invalidateQueries({ queryKey: ["user-statuses"] });
+      }}
     />
   );
 }
 
 function UserStatusEditor({
+  customEmoji,
   text: initialText,
   emoji: initialEmoji,
   onSaved,
 }: {
+  customEmoji: CustomEmoji[];
   text: string;
   emoji: string;
-  onSaved: () => Promise<unknown>;
+  onSaved: (text: string, emoji: string) => Promise<unknown>;
 }) {
-  const [text, setText] = useState(initialText);
-  const [emoji, setEmoji] = useState(initialEmoji);
+  const [open, setOpen] = useState(false);
   const mutation = useMutation({
     mutationFn: ({ text, emoji }: { text: string; emoji: string }) =>
       setUserStatus(text, emoji),
     onSuccess: async (_, input) => {
-      await onSaved();
+      await onSaved(input.text, input.emoji);
       toast.success(
         input.text || input.emoji ? "Status updated" : "Status cleared",
       );
@@ -452,6 +475,7 @@ function UserStatusEditor({
     onError: (error) =>
       toast.error("Could not update status", { description: error.message }),
   });
+  const hasStatus = Boolean(initialText || initialEmoji);
   return (
     <div className="rounded-md border p-4">
       <div>
@@ -460,49 +484,41 @@ function UserStatusEditor({
           Shown beside your profile across Buzz clients.
         </p>
       </div>
-      <div className="mt-3 flex gap-2">
-        <Input
-          aria-label="Status emoji"
-          className="w-16 shrink-0 text-center"
-          maxLength={64}
-          placeholder="🙂"
-          value={emoji}
-          onChange={(event) => setEmoji(event.target.value)}
-        />
-        <Input
-          aria-label="Status text"
-          maxLength={160}
-          placeholder="What are you working on?"
-          value={text}
-          onChange={(event) => setText(event.target.value)}
-        />
-      </div>
-      <div className="mt-3 flex gap-2">
-        <Button
-          disabled={mutation.isPending || (!text.trim() && !emoji.trim())}
-          onClick={() => mutation.mutate({ text, emoji })}
-          size="sm"
-          type="button"
-          variant="outline"
+      <button
+        className="mt-3 flex min-h-10 w-full items-center gap-2 rounded-md border border-input px-3 py-2 text-left text-sm hover:bg-accent"
+        data-testid="settings-set-status"
+        disabled={mutation.isPending}
+        onClick={() => setOpen(true)}
+        type="button"
+      >
+        {initialEmoji ? (
+          <StatusEmoji
+            className="h-5 w-5 shrink-0 text-base"
+            customEmoji={customEmoji}
+            value={initialEmoji}
+          />
+        ) : (
+          <Smile className="h-4 w-4 shrink-0 text-muted-foreground" />
+        )}
+        <span
+          className={
+            hasStatus ? "min-w-0 flex-1 truncate" : "text-muted-foreground"
+          }
         >
-          {mutation.isPending ? "Saving…" : "Set status"}
-        </Button>
-        {initialText || initialEmoji ? (
-          <Button
-            disabled={mutation.isPending}
-            onClick={() => {
-              setText("");
-              setEmoji("");
-              mutation.mutate({ text: "", emoji: "" });
-            }}
-            size="sm"
-            type="button"
-            variant="ghost"
-          >
-            Clear
-          </Button>
-        ) : null}
-      </div>
+          {hasStatus ? initialText || "Emoji only" : "Update your status"}
+        </span>
+      </button>
+      <SetStatusDialog
+        customEmoji={customEmoji}
+        hasExistingStatus={hasStatus}
+        initialEmoji={initialEmoji}
+        initialText={initialText}
+        onClear={() => mutation.mutateAsync({ text: "", emoji: "" })}
+        onClose={() => setOpen(false)}
+        onSave={(text, emoji) => mutation.mutateAsync({ text, emoji })}
+        open={open}
+        pending={mutation.isPending}
+      />
     </div>
   );
 }

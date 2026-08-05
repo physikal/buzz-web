@@ -1,3 +1,4 @@
+import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
   ArrowLeft,
@@ -34,6 +35,11 @@ import type {
   UserStatus,
 } from "@/features/presence/presence-api";
 import { useIdentityArchive } from "@/features/identity-archive/use-identity-archive";
+import {
+  getCustomEmoji,
+  type CustomEmoji,
+} from "@/features/settings/custom-emoji-api";
+import { StatusEmoji } from "@/features/user-status/StatusEmoji";
 import { useEscapeSurface } from "@/shared/hooks/use-escape-surface";
 import { truncatePubkey } from "@/shared/lib/pubkey";
 import { Badge } from "@/shared/ui/badge";
@@ -126,6 +132,11 @@ export function UserProfileDialog({
   onViewChange,
 }: UserProfileDialogProps) {
   const archiveActions = useIdentityArchive(pubkey, ownerPubkey);
+  const customEmojiQuery = useQuery({
+    enabled: Boolean(pubkey),
+    queryKey: ["custom-emoji", ownerPubkey],
+    queryFn: () => getCustomEmoji(ownerPubkey),
+  });
   useEscapeSurface(Boolean(pubkey), onClose, archiveActions.isPending);
   if (!pubkey) return null;
   const displayName =
@@ -190,6 +201,7 @@ export function UserProfileDialog({
               agentChannelsLoading={agentChannelsLoading}
               agentName={agentName}
               agentRunning={agentRunning}
+              customEmoji={customEmojiQuery.data?.community ?? []}
               displayName={displayName}
               following={following}
               followPending={followPending}
@@ -249,6 +261,7 @@ function ProfileSummary({
   agentChannelsLoading,
   agentName,
   agentRunning,
+  customEmoji,
   displayName,
   following,
   followPending,
@@ -279,6 +292,7 @@ function ProfileSummary({
   agentChannelsLoading: boolean;
   agentName?: string;
   agentRunning?: boolean;
+  customEmoji: CustomEmoji[];
   displayName: string;
   following?: boolean;
   followPending: boolean;
@@ -308,6 +322,7 @@ function ProfileSummary({
     <div className="space-y-5">
       <ProfileHero
         agentName={agentName}
+        customEmoji={customEmoji}
         displayName={displayName}
         isArchived={isArchived}
         presence={presence}
@@ -425,6 +440,7 @@ function ProfileSummary({
 
 function ProfileHero({
   agentName,
+  customEmoji,
   displayName,
   isArchived,
   presence,
@@ -432,6 +448,7 @@ function ProfileHero({
   userStatus,
 }: {
   agentName?: string;
+  customEmoji: CustomEmoji[];
   displayName: string;
   isArchived: boolean;
   presence: PresenceStatus;
@@ -500,9 +517,15 @@ function ProfileHero({
         </p>
       ) : null}
       {userStatus ? (
-        <p className="mt-2 break-words text-sm">
-          {userStatus.emoji ? `${userStatus.emoji} ` : ""}
-          {userStatus.text}
+        <p className="mt-2 flex max-w-full items-center justify-center gap-1 break-words text-sm">
+          {userStatus.emoji ? (
+            <StatusEmoji
+              className="h-5 w-5 shrink-0 text-base"
+              customEmoji={customEmoji}
+              value={userStatus.emoji}
+            />
+          ) : null}
+          {userStatus.text ? <span>{userStatus.text}</span> : null}
         </p>
       ) : null}
     </div>

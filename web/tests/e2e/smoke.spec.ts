@@ -393,6 +393,15 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"], {
     origin: testOrigin,
   });
+  await page.route("https://example.com/shipit.png", (route) =>
+    route.fulfill({
+      body: Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAGUlEQVR4nGMwuBPxnxLMMGrAqAGjBgwXAwBwOGMf1PPhVwAAAABJRU5ErkJggg==",
+        "base64",
+      ),
+      contentType: "image/png",
+    }),
+  );
   await page.addInitScript(() => {
     class TestNotification {
       static permission: NotificationPermission = "granted";
@@ -869,7 +878,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
             content: "Reviewing builds",
             tags: [
               ["d", "general"],
-              ["emoji", "🔎"],
+              ["emoji", ":shipit:"],
             ],
           },
           catalogSecret,
@@ -3210,6 +3219,11 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await expect(
     page
       .getByRole("dialog", { name: "Relay agent profile" })
+      .locator('img[alt=":shipit:"]'),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByRole("dialog", { name: "Relay agent profile" })
       .getByRole("img", { name: "online" }),
   ).toBeVisible();
   await expect(
@@ -4260,19 +4274,56 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await expect(page.getByRole("heading", { name: "Inbox" })).toBeVisible();
   await page.keyboard.press(`${shortcutModifier}+,`);
   await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
-  await page.getByLabel("Status emoji").fill("focus");
-  await page.getByLabel("Status text").fill("Reviewing the web client");
-  await page.getByRole("button", { name: "Set status" }).click();
+  await page.getByTestId("settings-set-status").click();
+  await expect(page.getByTestId("set-status-dialog")).toBeVisible();
+  await page.getByTestId("set-status-preset-working-remotely").click();
+  await expect(page.getByTestId("set-status-input")).toHaveValue(
+    "Working remotely",
+  );
+  await page.getByLabel("Clear status emoji").click();
+  await page.getByTestId("set-status-input").fill("");
+  await page.getByLabel("Choose status emoji").click();
+  await expect(page.getByTestId("status-emoji-picker")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("status-emoji-picker")).toBeHidden();
+  await expect(page.getByTestId("set-status-dialog")).toBeVisible();
+  await page.getByLabel("Choose status emoji").click();
+  const statusPicker = page.locator("em-emoji-picker");
+  await statusPicker.locator('input[type="search"]').fill("shipit");
+  await statusPicker.getByRole("button", { name: ":shipit:" }).first().click();
+  await page.getByTestId("set-status-input").fill("Reviewing the web client");
+  await page.getByTestId("set-status-save").click();
+  await expect(page.getByTestId("set-status-dialog")).toBeHidden();
   await expect
     .poll(() => {
       const status = submittedEvents.find((event) => event.kind === 30315);
       return (
         status?.content === "Reviewing the web client" &&
         status.tags.some((tag) => tag[0] === "d" && tag[1] === "general") &&
-        status.tags.some((tag) => tag[0] === "emoji" && tag[1] === "focus")
+        status.tags.some((tag) => tag[0] === "emoji" && tag[1] === ":shipit:")
       );
     })
     .toBe(true);
+  await expect(
+    page.getByTestId("settings-set-status").locator('img[alt=":shipit:"]'),
+  ).toBeVisible();
+  await page.getByTestId("settings-set-status").click();
+  await page.getByTestId("set-status-clear").click();
+  await expect(page.getByTestId("set-status-dialog")).toBeHidden();
+  await expect
+    .poll(() => {
+      const statuses = submittedEvents.filter((event) => event.kind === 30315);
+      const latest = statuses.at(-1);
+      return (
+        statuses.length >= 2 &&
+        latest?.content === "" &&
+        !latest.tags.some((tag) => tag[0] === "emoji")
+      );
+    })
+    .toBe(true);
+  await expect(page.getByTestId("settings-set-status")).toContainText(
+    "Update your status",
+  );
   await page.getByRole("button", { name: "Agents" }).click();
   const persistentAudienceSetting = page.getByRole("checkbox", {
     name: "Keep addressed agents active",
