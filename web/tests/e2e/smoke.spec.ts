@@ -422,7 +422,7 @@ test("product feedback keeps desktop categories and attachment metadata", () => 
 test("owner setup creates a passkey-wrapped signer and enters Channels", async ({
   page,
 }) => {
-  test.setTimeout(240_000);
+  test.setTimeout(300_000);
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"], {
     origin: testOrigin,
   });
@@ -3167,6 +3167,10 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await page
     .getByLabel("Move #general to section")
     .selectOption({ label: "Launch" });
+  const launchSectionId = await page
+    .getByLabel("Move #general to section")
+    .inputValue();
+  expect(launchSectionId).toMatch(/^[0-9a-f-]{36}$/u);
   await expect
     .poll(() =>
       submittedEvents.some(
@@ -3183,6 +3187,125 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
       ),
     )
     .toBe(true);
+  const generalSidebarRow = page.getByTestId(
+    "channel-sidebar-row-44444444-4444-4444-8444-444444444444",
+  );
+  const openGeneralContextMenu = async () => {
+    await generalSidebarRow.click({ button: "right" });
+    const menu = page.getByRole("menu", {
+      name: "Channel actions for general",
+    });
+    await expect(menu).toBeVisible();
+    return menu;
+  };
+  let channelContextMenu = await openGeneralContextMenu();
+  await page.screenshot({ path: "/tmp/buzz-web-channel-context-menu.png" });
+  await channelContextMenu.getByRole("menuitem", { name: "Copy" }).click();
+  await expect(
+    channelContextMenu.getByRole("menuitem", { name: "Copy channel ID" }),
+  ).toBeVisible();
+  await channelContextMenu
+    .getByRole("menuitem", { name: "Copy channel ID" })
+    .click();
+  await expect
+    .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+    .toBe("44444444-4444-4444-8444-444444444444");
+  channelContextMenu = await openGeneralContextMenu();
+  await channelContextMenu
+    .getByRole("menuitem", { name: "Move to section" })
+    .click();
+  await expect(
+    channelContextMenu.getByRole("menuitem", { name: "Launch" }),
+  ).toHaveAttribute("aria-current", "true");
+  await page.keyboard.press("ArrowLeft");
+  await expect(
+    channelContextMenu.getByRole("menuitem", { name: "Mute channel" }),
+  ).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(channelContextMenu).toBeHidden();
+  channelContextMenu = await openGeneralContextMenu();
+  await channelContextMenu
+    .getByRole("menuitem", { name: "Mark unread" })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Mark read #general" }),
+  ).toBeVisible();
+  channelContextMenu = await openGeneralContextMenu();
+  await channelContextMenu
+    .getByRole("menuitem", { name: "Mark as read" })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Mark unread #general" }),
+  ).toBeVisible();
+  channelContextMenu = await openGeneralContextMenu();
+  await channelContextMenu
+    .getByRole("menuitem", { name: "Move to section" })
+    .click();
+  await channelContextMenu
+    .getByRole("menuitem", { name: "New section..." })
+    .click();
+  const contextSectionDialog = page.getByRole("dialog", {
+    name: "Create section",
+  });
+  await contextSectionDialog.getByLabel("Name").fill("Context");
+  await contextSectionDialog
+    .getByRole("button", { name: "Create", exact: true })
+    .click();
+  const deleteContextButton = page.getByRole("button", {
+    name: "Delete Context",
+  });
+  await expect(deleteContextButton).toBeVisible();
+  await expect(page.getByLabel("Move #general to section")).toHaveValue(
+    /^[0-9a-f-]{36}$/u,
+  );
+  expect(
+    await page.getByLabel("Move #general to section").inputValue(),
+  ).not.toBe(launchSectionId);
+  channelContextMenu = await openGeneralContextMenu();
+  await channelContextMenu
+    .getByRole("menuitem", { name: "Move to section" })
+    .click();
+  await channelContextMenu.getByRole("menuitem", { name: "Launch" }).click();
+  await expect(page.getByLabel("Move #general to section")).toHaveValue(
+    launchSectionId,
+  );
+  await deleteContextButton.click();
+  const deleteContextDialog = page.getByRole("dialog", {
+    name: "Delete section",
+  });
+  await expect(deleteContextDialog).toContainText("It has no channels.");
+  await deleteContextDialog
+    .getByRole("button", { name: "Delete", exact: true })
+    .click();
+  await expect(deleteContextButton).toBeHidden();
+  channelContextMenu = await openGeneralContextMenu();
+  await channelContextMenu
+    .getByRole("menuitem", { name: "Mute channel" })
+    .click();
+  await expect(page.getByRole("img", { name: "Muted" })).toBeVisible();
+  channelContextMenu = await openGeneralContextMenu();
+  await channelContextMenu
+    .getByRole("menuitem", { name: "Unmute channel" })
+    .click();
+  await expect(page.getByRole("img", { name: "Muted" })).toBeHidden();
+  channelContextMenu = await openGeneralContextMenu();
+  await channelContextMenu
+    .getByRole("menuitem", { name: "Star channel" })
+    .click();
+  channelContextMenu = await openGeneralContextMenu();
+  await channelContextMenu
+    .getByRole("menuitem", { name: "Unstar channel" })
+    .click();
+  channelContextMenu = await openGeneralContextMenu();
+  await channelContextMenu
+    .getByRole("menuitem", { name: "Channel settings" })
+    .click();
+  const contextChannelSettings = page.getByRole("dialog", {
+    name: "Channel settings",
+  });
+  await expect(contextChannelSettings).toBeVisible();
+  await contextChannelSettings.getByRole("button", { name: "Close" }).click();
+  await expect(contextChannelSettings).toBeHidden();
   await page.getByRole("button", { name: "Rename 🚀 Launch" }).click();
   const renameSectionDialog = page.getByRole("dialog", {
     name: "Rename section",

@@ -622,7 +622,7 @@ export function ChannelsWorkspace({
         onNewDm={() => setDmOpen(true)}
         onBrowse={() => setBrowserOpen(true)}
         onSelect={selectChannel}
-        onStarredChange={setStarred}
+        contextActions={{ setMuted, setSettingsOpen, setStarred }}
         onMarkRead={markChannelRead}
         onMarkUnread={markChannelUnread}
       />

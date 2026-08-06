@@ -24,6 +24,10 @@ import type { Channel } from "../channel-api";
 import type { ChannelSortGroup, ChannelSortMode } from "../use-channel-sort";
 import type { ChannelSection } from "../use-channel-sections";
 import { ChannelSectionDialog } from "./ChannelSectionDialog";
+import {
+  ChannelContextMenu,
+  type ChannelContextTarget,
+} from "./ChannelContextMenu";
 
 export function ChannelSidebar({
   open,
@@ -38,7 +42,7 @@ export function ChannelSidebar({
   onCreate,
   onNewDm,
   onBrowse,
-  onStarredChange,
+  contextActions,
   onMarkRead,
   onMarkUnread,
   onSortModeChange,
@@ -62,7 +66,11 @@ export function ChannelSidebar({
   onCreate: () => void;
   onNewDm: () => void;
   onBrowse: () => void;
-  onStarredChange: (id: string, starred: boolean) => void;
+  contextActions: {
+    setMuted: (id: string, muted: boolean) => void;
+    setSettingsOpen: (open: boolean) => void;
+    setStarred: (id: string, starred: boolean) => void;
+  };
   onMarkRead: (id: string) => void;
   onMarkUnread: (id: string) => void;
   onSortModeChange: (group: ChannelSortGroup, mode: ChannelSortMode) => void;
@@ -77,7 +85,10 @@ export function ChannelSidebar({
   const [sectionDialog, setSectionDialog] = useState<{
     open: boolean;
     section: ChannelSection | null;
+    assignChannelId?: string;
   }>({ open: false, section: null });
+  const [contextTarget, setContextTarget] =
+    useState<ChannelContextTarget | null>(null);
   const [deleteSectionTarget, setDeleteSectionTarget] = useState<{
     id: string;
     name: string;
@@ -147,12 +158,15 @@ export function ChannelSidebar({
                   key={channel.id}
                   muted={mutedChannelIds.has(channel.id)}
                   onClick={() => onSelect(channel.id)}
+                  onContextMenu={(x, y) => setContextTarget({ channel, x, y })}
                   onReadChange={() =>
                     (unread[channel.id] ?? 0)
                       ? onMarkRead(channel.id)
                       : onMarkUnread(channel.id)
                   }
-                  onStarredChange={() => onStarredChange(channel.id, false)}
+                  onStarredChange={() =>
+                    contextActions.setStarred(channel.id, false)
+                  }
                   sections={sections}
                   assignedSectionId={assignments[channel.id]}
                   onAssignSection={(sectionId) =>
@@ -202,12 +216,17 @@ export function ChannelSidebar({
                       onAssignChannel(channel.id, sectionId)
                     }
                     onClick={() => onSelect(channel.id)}
+                    onContextMenu={(x, y) =>
+                      setContextTarget({ channel, x, y })
+                    }
                     onReadChange={() =>
                       (unread[channel.id] ?? 0)
                         ? onMarkRead(channel.id)
                         : onMarkUnread(channel.id)
                     }
-                    onStarredChange={() => onStarredChange(channel.id, true)}
+                    onStarredChange={() =>
+                      contextActions.setStarred(channel.id, true)
+                    }
                     sections={sections}
                     selected={selectedId === channel.id}
                     unread={unread[channel.id] ?? 0}
@@ -230,7 +249,9 @@ export function ChannelSidebar({
               key={channel.id}
               selected={selectedId === channel.id}
               muted={mutedChannelIds.has(channel.id)}
-              onStarredChange={() => onStarredChange(channel.id, true)}
+              onStarredChange={() =>
+                contextActions.setStarred(channel.id, true)
+              }
               sections={sections}
               assignedSectionId={assignments[channel.id]}
               onAssignSection={(sectionId) =>
@@ -238,6 +259,7 @@ export function ChannelSidebar({
               }
               unread={unread[channel.id] ?? 0}
               onClick={() => onSelect(channel.id)}
+              onContextMenu={(x, y) => setContextTarget({ channel, x, y })}
               onReadChange={() =>
                 (unread[channel.id] ?? 0)
                   ? onMarkRead(channel.id)
@@ -262,6 +284,7 @@ export function ChannelSidebar({
               key={channel.id}
               muted={mutedChannelIds.has(channel.id)}
               onClick={() => onSelect(channel.id)}
+              onContextMenu={(x, y) => setContextTarget({ channel, x, y })}
               onReadChange={() =>
                 (unread[channel.id] ?? 0)
                   ? onMarkRead(channel.id)
@@ -288,6 +311,7 @@ export function ChannelSidebar({
               muted={mutedChannelIds.has(channel.id)}
               unread={unread[channel.id] ?? 0}
               onClick={() => onSelect(channel.id)}
+              onContextMenu={(x, y) => setContextTarget({ channel, x, y })}
               onReadChange={() =>
                 (unread[channel.id] ?? 0)
                   ? onMarkRead(channel.id)
@@ -310,13 +334,75 @@ export function ChannelSidebar({
       <ChannelSectionDialog
         onClose={() => setSectionDialog({ open: false, section: null })}
         onSave={(name, icon) => {
-          if (sectionDialog.section)
+          if (sectionDialog.section) {
             onRenameSection(sectionDialog.section.id, name, icon);
-          else onCreateSection(name, icon);
+          } else {
+            const created = onCreateSection(name, icon);
+            if (sectionDialog.assignChannelId) {
+              onAssignChannel(sectionDialog.assignChannelId, created.id);
+            }
+          }
           setSectionDialog({ open: false, section: null });
         }}
         open={sectionDialog.open}
         section={sectionDialog.section}
+      />
+      <ChannelContextMenu
+        assignedSectionId={
+          contextTarget ? assignments[contextTarget.channel.id] : undefined
+        }
+        muted={
+          contextTarget ? mutedChannelIds.has(contextTarget.channel.id) : false
+        }
+        onAssignSection={
+          contextTarget?.channel.channelType === "stream"
+            ? (sectionId) =>
+                onAssignChannel(contextTarget.channel.id, sectionId)
+            : undefined
+        }
+        onClose={() => setContextTarget(null)}
+        onCreateSection={
+          contextTarget?.channel.channelType === "stream"
+            ? () =>
+                setSectionDialog({
+                  open: true,
+                  section: null,
+                  assignChannelId: contextTarget.channel.id,
+                })
+            : undefined
+        }
+        onMutedChange={(muted) => {
+          if (contextTarget)
+            contextActions.setMuted(contextTarget.channel.id, muted);
+        }}
+        onOpenSettings={
+          contextTarget && contextTarget.channel.channelType !== "dm"
+            ? () => {
+                onSelect(contextTarget.channel.id);
+                contextActions.setSettingsOpen(true);
+              }
+            : undefined
+        }
+        onReadChange={() => {
+          if (!contextTarget) return;
+          if (unread[contextTarget.channel.id] ?? 0)
+            onMarkRead(contextTarget.channel.id);
+          else onMarkUnread(contextTarget.channel.id);
+        }}
+        onStarredChange={
+          contextTarget?.channel.channelType === "stream"
+            ? (starred) =>
+                contextActions.setStarred(contextTarget.channel.id, starred)
+            : undefined
+        }
+        sections={sections}
+        starred={
+          contextTarget
+            ? starredChannelIds.has(contextTarget.channel.id)
+            : false
+        }
+        target={contextTarget}
+        unread={contextTarget ? (unread[contextTarget.channel.id] ?? 0) : 0}
       />
       <DestructiveConfirmDialog
         confirmLabel="Delete"
@@ -473,6 +559,7 @@ function ChannelButton({
   muted,
   starred = false,
   onClick,
+  onContextMenu,
   onStarredChange,
   onReadChange,
   sections,
@@ -485,6 +572,7 @@ function ChannelButton({
   muted: boolean;
   starred?: boolean;
   onClick: () => void;
+  onContextMenu: (x: number, y: number) => void;
   onStarredChange?: () => void;
   onReadChange?: () => void;
   sections?: ChannelSection[];
@@ -503,7 +591,12 @@ function ChannelButton({
     >
       <button
         className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left"
+        data-testid={`channel-sidebar-row-${channel.id}`}
         onClick={onClick}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          onContextMenu(event.clientX, event.clientY);
+        }}
         type="button"
       >
         <Icon className="h-4 w-4 shrink-0" />
