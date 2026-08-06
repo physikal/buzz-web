@@ -1,4 +1,5 @@
 import {
+  Archive,
   Bell,
   BellOff,
   CheckCircle2,
@@ -7,10 +8,14 @@ import {
   CircleDot,
   Copy,
   FolderInput,
+  LoaderCircle,
+  LogOut,
   Plus,
   Settings,
   Star,
   StarOff,
+  Trash2,
+  TriangleAlert,
 } from "lucide-react";
 import {
   type KeyboardEvent,
@@ -26,6 +31,7 @@ import { toast } from "sonner";
 import { useEscapeSurface } from "@/shared/hooks/use-escape-surface";
 import type { Channel } from "../channel-api";
 import type { ChannelSection } from "../use-channel-sections";
+import { useChannelModerationCapabilities } from "../use-channel-moderation-capabilities";
 
 type MenuPage = "root" | "copy" | "move";
 
@@ -37,10 +43,15 @@ export type ChannelContextTarget = {
 
 export function ChannelContextMenu({
   assignedSectionId,
+  currentPubkey,
+  lifecyclePending,
   muted,
+  onArchive,
   onAssignSection,
   onClose,
   onCreateSection,
+  onDelete,
+  onLeave,
   onMutedChange,
   onOpenSettings,
   onReadChange,
@@ -51,10 +62,15 @@ export function ChannelContextMenu({
   unread,
 }: {
   assignedSectionId?: string;
+  currentPubkey: string;
+  lifecyclePending: boolean;
   muted: boolean;
+  onArchive?: () => void;
   onAssignSection?: (sectionId: string | null) => void;
   onClose: () => void;
   onCreateSection?: () => void;
+  onDelete?: () => void;
+  onLeave?: () => void;
   onMutedChange: (muted: boolean) => void;
   onOpenSettings?: () => void;
   onReadChange: () => void;
@@ -67,6 +83,13 @@ export function ChannelContextMenu({
   const menuRef = useRef<HTMLDivElement>(null);
   const [page, setPage] = useState<MenuPage>("root");
   const [position, setPosition] = useState({ left: 0, top: 0 });
+  const canLoadOwnerActions =
+    target?.channel.channelType !== "dm" && Boolean(onArchive || onDelete);
+  const capabilities = useChannelModerationCapabilities(
+    target?.channel.id ?? null,
+    currentPubkey,
+    canLoadOwnerActions,
+  );
   useEscapeSurface(Boolean(target), onClose);
 
   useEffect(() => {
@@ -122,6 +145,13 @@ export function ChannelContextMenu({
     }
   };
   const canMove = Boolean(onAssignSection && onCreateSection);
+  const showChannelActions = Boolean(
+    onLeave ||
+      capabilities.isLoading ||
+      capabilities.error ||
+      capabilities.canManageChannel ||
+      capabilities.canDeleteChannel,
+  );
 
   return createPortal(
     <div
@@ -228,6 +258,48 @@ export function ChannelContextMenu({
               />
             </>
           ) : null}
+          {showChannelActions ? <MenuSeparator /> : null}
+          {onLeave ? (
+            <MenuItem
+              className="text-destructive"
+              disabled={lifecyclePending}
+              icon={<LogOut />}
+              label="Leave channel"
+              onClick={() => run(onLeave)}
+            />
+          ) : null}
+          {capabilities.isLoading ? (
+            <MenuItem
+              disabled
+              icon={<LoaderCircle className="animate-spin" />}
+              label="Loading channel actions..."
+              onClick={() => {}}
+            />
+          ) : capabilities.error ? (
+            <MenuItem
+              disabled
+              icon={<TriangleAlert />}
+              label="Channel actions unavailable"
+              onClick={() => {}}
+            />
+          ) : null}
+          {capabilities.canManageChannel && onArchive ? (
+            <MenuItem
+              disabled={lifecyclePending}
+              icon={<Archive />}
+              label="Archive channel"
+              onClick={() => run(onArchive)}
+            />
+          ) : null}
+          {capabilities.canDeleteChannel && onDelete ? (
+            <MenuItem
+              className="text-destructive"
+              disabled={lifecyclePending}
+              icon={<Trash2 />}
+              label="Delete channel"
+              onClick={() => run(onDelete)}
+            />
+          ) : null}
         </>
       )}
     </div>,
@@ -269,12 +341,16 @@ function MenuBack({ label, onClick }: { label: string; onClick: () => void }) {
 
 function MenuItem({
   active = false,
+  className = "",
+  disabled = false,
   endIcon,
   icon,
   label,
   onClick,
 }: {
   active?: boolean;
+  className?: string;
+  disabled?: boolean;
   endIcon?: ReactNode;
   icon?: ReactNode;
   label: string;
@@ -283,7 +359,8 @@ function MenuItem({
   return (
     <button
       aria-current={active ? "true" : undefined}
-      className="flex min-h-9 w-full items-center gap-2 rounded px-2 text-left text-sm hover:bg-accent focus-visible:bg-accent focus-visible:outline-hidden"
+      className={`flex min-h-9 w-full items-center gap-2 rounded px-2 text-left text-sm hover:bg-accent focus-visible:bg-accent focus-visible:outline-hidden disabled:cursor-not-allowed disabled:opacity-60 ${className}`}
+      disabled={disabled}
       onClick={onClick}
       role="menuitem"
       type="button"

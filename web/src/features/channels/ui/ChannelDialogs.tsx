@@ -8,6 +8,7 @@ import { Input } from "@/shared/ui/input";
 import { useEscapeSurface } from "@/shared/hooks/use-escape-surface";
 import type { Channel } from "../channel-api";
 import type { DmCandidate } from "../dm-candidates";
+import { useChannelModerationCapabilities } from "../use-channel-moderation-capabilities";
 import { ChannelCanvas } from "./ChannelCanvas";
 import { ChannelMembersSection } from "./ChannelMembersSection";
 
@@ -444,6 +445,13 @@ function ChannelSettingsForm({
   const [confirmAction, setConfirmAction] = useState<"leave" | "delete" | null>(
     null,
   );
+  const capabilities = useChannelModerationCapabilities(
+    channel.id,
+    ownerPubkey,
+    open && channel.channelType !== "dm",
+  );
+  const canLeave =
+    channel.channelType !== "dm" && capabilities.selfRole !== undefined;
   return (
     <DialogFrame
       open={open}
@@ -462,7 +470,7 @@ function ChannelSettingsForm({
           Name
           <Input
             className="mt-2"
-            disabled={channel.channelType === "dm"}
+            disabled={!capabilities.canManageChannel}
             id="settings-name"
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -472,6 +480,7 @@ function ChannelSettingsForm({
           Topic
           <Input
             className="mt-2"
+            disabled={!capabilities.canManageChannel}
             id="settings-topic"
             value={topic}
             onChange={(e) => setTopic(e.target.value)}
@@ -481,12 +490,16 @@ function ChannelSettingsForm({
           Description
           <textarea
             className="mt-2 min-h-20 w-full rounded-md border bg-background px-3 py-2 text-sm"
+            disabled={!capabilities.canManageChannel}
             value={description}
             onChange={(e) => setDescription(e.target.value)}
           />
         </label>
         <div className="flex justify-end">
-          <Button disabled={pending || !name.trim()} type="submit">
+          <Button
+            disabled={pending || !name.trim() || !capabilities.canManageChannel}
+            type="submit"
+          >
             Save changes
           </Button>
         </div>
@@ -511,17 +524,32 @@ function ChannelSettingsForm({
           <ChannelCanvas channelId={channel.id} />
         </section>
       ) : null}
-      <ChannelMembersSection channel={channel} ownerPubkey={ownerPubkey} />
+      <ChannelMembersSection
+        canManageOverride={capabilities.canManageChannel}
+        channel={channel}
+        ownerPubkey={ownerPubkey}
+      />
       <div className="mt-6 flex flex-wrap gap-2 border-t pt-4">
-        <Button onClick={() => setConfirmAction("leave")} variant="outline">
-          Leave
-        </Button>
-        {channel.channelType !== "dm" ? (
+        {capabilities.isLoading ? (
+          <span className="text-sm text-muted-foreground">
+            Loading channel actions...
+          </span>
+        ) : capabilities.error ? (
+          <span className="text-sm text-destructive">
+            Channel actions unavailable
+          </span>
+        ) : null}
+        {canLeave ? (
+          <Button onClick={() => setConfirmAction("leave")} variant="outline">
+            Leave
+          </Button>
+        ) : null}
+        {capabilities.canManageChannel ? (
           <Button onClick={onArchive} variant="outline">
             Archive
           </Button>
         ) : null}
-        {channel.channelType !== "dm" ? (
+        {capabilities.canDeleteChannel ? (
           <Button
             onClick={() => setConfirmAction("delete")}
             variant="destructive"

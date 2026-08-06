@@ -28,9 +28,11 @@ import {
 export function ChannelMembersSection({
   channel,
   ownerPubkey,
+  canManageOverride = false,
 }: {
   channel: Channel;
   ownerPubkey: string;
+  canManageOverride?: boolean;
 }) {
   const queryClient = useQueryClient();
   const isArchived = useArchivedIdentityPredicate(ownerPubkey);
@@ -66,7 +68,8 @@ export function ChannelMembersSection({
   const currentRole = members.find(
     (member) => member.pubkey === ownerPubkey.toLowerCase(),
   )?.role;
-  const canManage = currentRole === "owner" || currentRole === "admin";
+  const canManage =
+    canManageOverride || currentRole === "owner" || currentRole === "admin";
   const refresh = () => queryClient.invalidateQueries({ queryKey: key });
   const mutation = useMutation({
     mutationFn: async (input: {

@@ -8,6 +8,7 @@ import {
 import { submitEvent } from "@/shared/lib/relay-events";
 import { relayHttpBaseUrl, relayWsUrl } from "@/shared/lib/relay-url";
 import { signNostrEvent } from "@/shared/lib/nostr-signer";
+import { verifiedAgentOwnerPubkey } from "@/shared/lib/nip-oa";
 import { findSpoileredAttachmentUrls } from "./attachment-markdown";
 import { applyEditTagOverlay } from "./edit-tag-overlay";
 
@@ -69,6 +70,7 @@ export type UserProfile = {
   avatarUrl: string | null;
   about: string | null;
   nip05Handle: string | null;
+  ownerPubkey: string | null;
 };
 
 export type ChannelMember = {
@@ -157,6 +159,7 @@ export async function listChannels(ownerPubkey: string): Promise<Channel[]> {
     [
       { kinds: [39000], limit: 1000 },
       { kinds: [39002], "#p": [ownerPubkey], limit: 1000 },
+      { kinds: [30622], "#p": [ownerPubkey], limit: 1 },
     ],
     { requireNip07: true },
   );
@@ -166,6 +169,14 @@ export async function listChannels(ownerPubkey: string): Promise<Channel[]> {
       .map((event) => tagValue(event, "d"))
       .filter((id): id is string => Boolean(id)),
   );
+  const latestVisibility = events
+    .filter((event) => event.kind === 30622)
+    .sort((a, b) => b.created_at - a.created_at)[0];
+  const hiddenDmIds = new Set(
+    (latestVisibility?.tags ?? [])
+      .filter((tag) => tag[0] === "h" && tag[1])
+      .map((tag) => tag[1]),
+  );
   const channels = new Map<string, Channel>();
   for (const event of events) {
     if (event.kind !== 39000) continue;
@@ -174,6 +185,7 @@ export async function listChannels(ownerPubkey: string): Promise<Channel[]> {
     if (
       !id ||
       !["stream", "forum", "dm"].includes(channelType) ||
+      (channelType === "dm" && hiddenDmIds.has(id)) ||
       event.tags.some((tag) => tag[0] === "hidden")
     )
       continue;
@@ -340,6 +352,10 @@ export async function joinChannel(channelId: string): Promise<void> {
 
 export async function leaveChannel(channelId: string): Promise<void> {
   await submitEvent({ kind: 9022, content: "", tags: [["h", channelId]] });
+}
+
+export async function hideDm(channelId: string): Promise<void> {
+  await submitEvent({ kind: 41012, content: "", tags: [["h", channelId]] });
 }
 
 export async function updateChannel(input: {
@@ -662,33 +678,48 @@ export async function listProfiles(pubkeys: string[]): Promise<UserProfile[]> {
     if (!current || current.created_at < event.created_at)
       latest.set(event.pubkey, event);
   }
-  return [...latest.values()].map((event) => {
-    let profile: Record<string, unknown> = {};
-    try {
-      const value = JSON.parse(event.content) as unknown;
-      if (value && typeof value === "object" && !Array.isArray(value)) {
-        profile = value as Record<string, unknown>;
+  return Promise.all(
+    [...latest.values()].map(async (event) => {
+      let profile: Record<string, unknown> = {};
+      try {
+        const value = JSON.parse(event.content) as unknown;
+        if (value && typeof value === "object" && !Array.isArray(value)) {
+          profile = value as Record<string, unknown>;
+        }
+      } catch {
+        // Preserve a pubkey fallback for malformed legacy metadata.
       }
-    } catch {
-      // Preserve a pubkey fallback for malformed legacy metadata.
-    }
-    return {
-      pubkey: event.pubkey,
-      name: typeof profile.name === "string" ? profile.name : null,
-      displayName:
-        typeof profile.display_name === "string"
-          ? profile.display_name
-          : typeof profile.name === "string"
-            ? profile.name
+      return {
+        pubkey: event.pubkey,
+        name: typeof profile.name === "string" ? profile.name : null,
+        displayName:
+          typeof profile.display_name === "string"
+            ? profile.display_name
+            : typeof profile.name === "string"
+              ? profile.name
+              : null,
+        avatarUrl: typeof profile.picture === "string" ? profile.picture : null,
+        about: typeof profile.about === "string" ? profile.about : null,
+        nip05Handle:
+          typeof profile.nip05 === "string" && profile.nip05.length <= 320
+            ? profile.nip05
             : null,
-      avatarUrl: typeof profile.picture === "string" ? profile.picture : null,
-      about: typeof profile.about === "string" ? profile.about : null,
-      nip05Handle:
-        typeof profile.nip05 === "string" && profile.nip05.length <= 320
-          ? profile.nip05
-          : null,
-    };
-  });
+        ownerPubkey: await verifiedAgentOwnerPubkey(event),
+      };
+    }),
+  );
+}
+
+export type ChannelLifecycleAction = "leave" | "archive" | "delete" | "hide";
+
+export async function mutateChannelLifecycle(input: {
+  action: ChannelLifecycleAction;
+  channelId: string;
+}): Promise<void> {
+  if (input.action === "leave") return leaveChannel(input.channelId);
+  if (input.action === "archive") return archiveChannel(input.channelId);
+  if (input.action === "delete") return deleteChannel(input.channelId);
+  return hideDm(input.channelId);
 }
 
 export async function listChannelMembers(

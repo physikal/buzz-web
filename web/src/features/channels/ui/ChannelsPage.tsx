@@ -43,14 +43,11 @@ import { SidebarToggleButton } from "@/shared/ui/sidebar-toggle-button";
 import type { ChannelAction } from "../channel-actions";
 import {
   addReaction,
-  archiveChannel,
   createChannel,
-  deleteChannel,
   deleteMessage,
   editMessage,
   ensureStarterChannels,
   joinChannel,
-  leaveChannel,
   listChannelMessages,
   removeReaction,
   restoreChannel,
@@ -75,6 +72,7 @@ import { createMessageSubmitters } from "../message-edit-submit";
 import { editLastOwnMessage } from "../message-management";
 import { createChannelMessageActions } from "../channel-message-actions";
 import { useProfileMessaging } from "../use-profile-messaging";
+import { useChannelLifecycle } from "../use-channel-lifecycle";
 import { ChannelSidebar } from "./ChannelSidebar";
 import { ChannelFindBar } from "./ChannelFindBar";
 import { ChannelIcon } from "./ChannelIcon";
@@ -469,21 +467,13 @@ export function ChannelsWorkspace({
     },
     onError: mutationError("Could not update channel"),
   });
-  const removeChannelMutation = useMutation({
-    mutationFn: async (action: "leave" | "archive" | "delete") => {
-      if (!selected) return;
-      if (action === "leave") await leaveChannel(selected.id);
-      if (action === "archive") await archiveChannel(selected.id);
-      if (action === "delete") await deleteChannel(selected.id);
-    },
-    onSuccess: async () => {
+  const channelLifecycle = useChannelLifecycle({
+    onRemoveSelected: () => {
       setSettingsOpen(false);
       clearChannel();
-      await queryClient.invalidateQueries({
-        queryKey: ["channels", ownerPubkey],
-      });
     },
-    onError: mutationError("Could not update channel membership"),
+    ownerPubkey,
+    selectedChannelId: selected?.id ?? null,
   });
   const searchMutation = useMutation({
     mutationFn: (rawQuery: string) => {
@@ -604,6 +594,7 @@ export function ChannelsWorkspace({
       <ChannelSidebar
         open={sidebar.open}
         channels={channels}
+        ownerPubkey={ownerPubkey}
         selectedId={selected?.id ?? null}
         mutedChannelIds={mutedChannelIds}
         starredChannelIds={starredChannelIds}
@@ -622,7 +613,13 @@ export function ChannelsWorkspace({
         onNewDm={() => setDmOpen(true)}
         onBrowse={() => setBrowserOpen(true)}
         onSelect={selectChannel}
-        contextActions={{ setMuted, setSettingsOpen, setStarred }}
+        contextActions={{
+          lifecyclePending: channelLifecycle.pending,
+          mutateLifecycle: channelLifecycle.mutateLifecycle,
+          setMuted,
+          setSettingsOpen,
+          setStarred,
+        }}
         onMarkRead={markChannelRead}
         onMarkUnread={markChannelUnread}
       />
@@ -948,15 +945,11 @@ export function ChannelsWorkspace({
         isMuted={selected ? mutedChannelIds.has(selected.id) : false}
         open={settingsOpen}
         ownerPubkey={ownerPubkey}
-        pending={settingsMutation.isPending || removeChannelMutation.isPending}
-        onArchive={() => removeChannelMutation.mutate("archive")}
+        pending={settingsMutation.isPending || channelLifecycle.pending}
+        onArchive={channelLifecycle.archiveSelected}
         onClose={() => setSettingsOpen(false)}
-        onDelete={() =>
-          removeChannelMutation.mutateAsync("delete").then(() => undefined)
-        }
-        onLeave={() =>
-          removeChannelMutation.mutateAsync("leave").then(() => undefined)
-        }
+        onDelete={channelLifecycle.deleteSelected}
+        onLeave={channelLifecycle.leaveSelected}
         onMutedChange={(muted) => {
           if (selected) setMuted(selected.id, muted);
         }}

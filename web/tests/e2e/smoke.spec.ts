@@ -1,4 +1,5 @@
 import { createHash, createHmac } from "node:crypto";
+import { schnorr } from "@noble/curves/secp256k1.js";
 import {
   expect,
   test,
@@ -36,6 +37,7 @@ import {
   WAVE_MESSAGE_MARKER,
 } from "../../src/features/channels/wave-message";
 import { buildProductFeedbackEvent } from "../../src/features/settings/feedback-api";
+import { verifiedAgentOwnerPubkey } from "../../src/shared/lib/nip-oa";
 
 const testPort = process.env.BUZZ_WEB_TEST_PORT ?? "4173";
 const testOrigin = `http://localhost:${testPort}`;
@@ -85,6 +87,37 @@ test("profile edits preserve interoperable kind-0 metadata", () => {
     website: "https://example.com",
     lud16: "owner@example.com",
   });
+});
+
+test("NIP-OA agent ownership requires a valid owner signature", async () => {
+  const ownerSecret = new Uint8Array(32);
+  ownerSecret[31] = 4;
+  const agentSecret = new Uint8Array(32);
+  agentSecret[31] = 5;
+  const ownerPubkey = getPublicKey(ownerSecret);
+  const agentPubkey = getPublicKey(agentSecret);
+  const digest = createHash("sha256")
+    .update(`nostr:agent-auth:${agentPubkey}:`)
+    .digest();
+  const signature = Buffer.from(schnorr.sign(digest, ownerSecret)).toString(
+    "hex",
+  );
+  const profile = finalizeEvent(
+    {
+      kind: 0,
+      created_at: 1,
+      content: "{}",
+      tags: [["auth", ownerPubkey, "", signature]],
+    },
+    agentSecret,
+  );
+  await expect(verifiedAgentOwnerPubkey(profile)).resolves.toBe(ownerPubkey);
+
+  const forged = {
+    ...profile,
+    tags: [["auth", ownerPubkey, "", "00".repeat(64)]],
+  };
+  await expect(verifiedAgentOwnerPubkey(forged)).resolves.toBeNull();
 });
 
 test("custom emoji tags are canonical, unique, and self-contained", () => {
@@ -1447,6 +1480,13 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
                 "3",
               ],
               [
+                "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+                "member-space",
+                "A channel owned by another community member.",
+                "stream",
+                "2",
+              ],
+              [
                 "77777777-7777-4777-8777-777777777777",
                 "sales",
                 "Revenue pipeline planning.",
@@ -1585,6 +1625,25 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
                     created_at: createdAt,
                     content: "",
                     tags: [
+                      ["d", "cccccccc-cccc-4ccc-8ccc-cccccccccccc"],
+                      ["p", catalogPubkey, "", "owner"],
+                      ["p", ownerPubkey, "", "member"],
+                    ],
+                  },
+                  signer,
+                ),
+              ]),
+            );
+            socket.send(
+              JSON.stringify([
+                "EVENT",
+                subscriptionId,
+                finalizeEvent(
+                  {
+                    kind: 39002,
+                    created_at: createdAt,
+                    content: "",
+                    tags: [
                       ["d", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"],
                       ["p", ownerPubkey, "", "owner"],
                       ...fixtureMemberTags(5),
@@ -1652,6 +1711,36 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
                       tags: [
                         ["d", directMessageChannelId],
                         ["p", ownerPubkey, "", "owner"],
+                      ],
+                    },
+                    signer,
+                  ),
+                ]),
+              );
+            }
+          }
+          if (filters.includes("30622")) {
+            const hiddenDmIds = submittedEvents
+              .filter((event) => event.kind === 41012)
+              .flatMap((event) =>
+                event.tags
+                  .filter((tag) => tag[0] === "h" && tag[1])
+                  .map((tag) => tag[1]),
+              );
+            if (hiddenDmIds.length) {
+              socket.send(
+                JSON.stringify([
+                  "EVENT",
+                  subscriptionId,
+                  finalizeEvent(
+                    {
+                      kind: 30622,
+                      created_at: Math.floor(Date.now() / 1000),
+                      content: "",
+                      tags: [
+                        ["d", ownerPubkey],
+                        ["p", ownerPubkey],
+                        ...hiddenDmIds.map((id) => ["h", id]),
                       ],
                     },
                     signer,
@@ -3199,6 +3288,15 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     return menu;
   };
   let channelContextMenu = await openGeneralContextMenu();
+  await expect(
+    channelContextMenu.getByRole("menuitem", { name: "Leave channel" }),
+  ).toBeVisible();
+  await expect(
+    channelContextMenu.getByRole("menuitem", { name: "Archive channel" }),
+  ).toBeVisible();
+  await expect(
+    channelContextMenu.getByRole("menuitem", { name: "Delete channel" }),
+  ).toBeVisible();
   await page.screenshot({ path: "/tmp/buzz-web-channel-context-menu.png" });
   await channelContextMenu.getByRole("menuitem", { name: "Copy" }).click();
   await expect(
@@ -3306,6 +3404,73 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await expect(contextChannelSettings).toBeVisible();
   await contextChannelSettings.getByRole("button", { name: "Close" }).click();
   await expect(contextChannelSettings).toBeHidden();
+  channelContextMenu = await openGeneralContextMenu();
+  await channelContextMenu
+    .getByRole("menuitem", { name: "Leave channel" })
+    .click();
+  const contextLeaveDialog = page.getByRole("dialog", {
+    name: "Leave channel",
+  });
+  await expect(contextLeaveDialog).toContainText('Leave "general"?');
+  await contextLeaveDialog.getByRole("button", { name: "Cancel" }).click();
+  channelContextMenu = await openGeneralContextMenu();
+  await channelContextMenu
+    .getByRole("menuitem", { name: "Delete channel" })
+    .click();
+  const contextDeleteDialog = page.getByRole("dialog", {
+    name: "Delete channel?",
+  });
+  await expect(contextDeleteDialog).toContainText(
+    "This action cannot be undone.",
+  );
+  await contextDeleteDialog.getByRole("button", { name: "Cancel" }).click();
+  const memberChannelRow = page.getByTestId(
+    "channel-sidebar-row-cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+  );
+  await memberChannelRow.click({ button: "right" });
+  const memberChannelMenu = page.getByRole("menu", {
+    name: "Channel actions for member-space",
+  });
+  await expect(
+    memberChannelMenu.getByRole("menuitem", { name: "Leave channel" }),
+  ).toBeVisible();
+  await expect(
+    memberChannelMenu.getByRole("menuitem", {
+      name: "Loading channel actions...",
+    }),
+  ).toBeHidden();
+  await expect(
+    memberChannelMenu.getByRole("menuitem", { name: "Archive channel" }),
+  ).toHaveCount(0);
+  await expect(
+    memberChannelMenu.getByRole("menuitem", { name: "Delete channel" }),
+  ).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await memberChannelRow.click();
+  await page.getByRole("button", { name: "Channel settings" }).click();
+  const memberChannelSettings = page.getByRole("dialog", {
+    name: "Channel settings",
+  });
+  await expect(memberChannelSettings.getByLabel("Name")).toBeDisabled();
+  await expect(
+    memberChannelSettings.getByRole("button", { name: "Leave", exact: true }),
+  ).toBeVisible();
+  await expect(
+    memberChannelSettings.getByRole("button", {
+      name: "Archive",
+      exact: true,
+    }),
+  ).toHaveCount(0);
+  await expect(
+    memberChannelSettings.getByRole("button", {
+      name: "Delete",
+      exact: true,
+    }),
+  ).toHaveCount(0);
+  await memberChannelSettings
+    .getByRole("button", { name: "Close", exact: true })
+    .click();
+  await generalSidebarRow.click();
   await page.getByRole("button", { name: "Rename 🚀 Launch" }).click();
   const renameSectionDialog = page.getByRole("dialog", {
     name: "Rename section",
@@ -3643,7 +3808,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   );
   await deleteChannelDialog.getByRole("button", { name: "Cancel" }).click();
   await expect(deleteChannelDialog).toBeHidden();
-  await page.getByRole("button", { name: "Close" }).click();
+  await page.getByRole("button", { name: "Close", exact: true }).click();
   await expect(page.getByRole("img", { name: "Muted" })).toBeVisible();
   await expect
     .poll(() =>
@@ -4684,7 +4849,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   ).toBeVisible();
   await page.getByRole("button", { name: "Copy link" }).click();
   await expect(page.getByRole("button", { name: "Copied" })).toBeVisible();
-  await page.getByRole("button", { name: "Close" }).click();
+  await page.getByRole("button", { name: "Close", exact: true }).click();
   await page.getByRole("button", { name: "Custom emoji" }).click();
   await expect(
     page.getByRole("heading", { name: "Custom emoji" }),
@@ -6456,6 +6621,25 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   );
   expect(feedbackEvent?.content).toContain("![image](");
   expect(feedbackEvent?.content).toContain("[feedback-diagnostics-");
+
+  const dmSidebarRow = page.getByTestId(
+    `channel-sidebar-row-${directMessageChannelId}`,
+  );
+  await expect(dmSidebarRow).toBeVisible();
+  await dmSidebarRow.hover();
+  await page.getByRole("button", { name: "Close direct message" }).click();
+  await expect(dmSidebarRow).toBeHidden();
+  await expect
+    .poll(() =>
+      submittedEvents.some(
+        (event) =>
+          event.kind === 41012 &&
+          event.tags.some(
+            (tag) => tag[0] === "h" && tag[1] === directMessageChannelId,
+          ),
+      ),
+    )
+    .toBe(true);
 
   await page.getByTestId("sidebar-profile-card").click();
   await page.getByTestId("profile-popover-lock").click();

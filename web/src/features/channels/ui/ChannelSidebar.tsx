@@ -15,12 +15,13 @@ import {
   Pencil,
   Star,
   Trash2,
+  X,
 } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@/shared/ui/button";
 import { DestructiveConfirmDialog } from "@/shared/ui/destructive-confirm-dialog";
-import type { Channel } from "../channel-api";
+import type { Channel, ChannelLifecycleAction } from "../channel-api";
 import type { ChannelSortGroup, ChannelSortMode } from "../use-channel-sort";
 import type { ChannelSection } from "../use-channel-sections";
 import { ChannelSectionDialog } from "./ChannelSectionDialog";
@@ -32,6 +33,7 @@ import {
 export function ChannelSidebar({
   open,
   channels,
+  ownerPubkey,
   selectedId,
   unread,
   mutedChannelIds,
@@ -56,6 +58,7 @@ export function ChannelSidebar({
 }: {
   open: boolean;
   channels: Channel[];
+  ownerPubkey: string;
   selectedId: string | null;
   unread: Record<string, number>;
   mutedChannelIds: ReadonlySet<string>;
@@ -67,6 +70,11 @@ export function ChannelSidebar({
   onNewDm: () => void;
   onBrowse: () => void;
   contextActions: {
+    lifecyclePending: boolean;
+    mutateLifecycle: (input: {
+      action: ChannelLifecycleAction;
+      channelId: string;
+    }) => Promise<void>;
     setMuted: (id: string, muted: boolean) => void;
     setSettingsOpen: (open: boolean) => void;
     setStarred: (id: string, starred: boolean) => void;
@@ -89,6 +97,10 @@ export function ChannelSidebar({
   }>({ open: false, section: null });
   const [contextTarget, setContextTarget] =
     useState<ChannelContextTarget | null>(null);
+  const [lifecycleConfirm, setLifecycleConfirm] = useState<{
+    action: "leave" | "delete";
+    channel: Channel;
+  } | null>(null);
   const [deleteSectionTarget, setDeleteSectionTarget] = useState<{
     id: string;
     name: string;
@@ -311,6 +323,13 @@ export function ChannelSidebar({
               muted={mutedChannelIds.has(channel.id)}
               unread={unread[channel.id] ?? 0}
               onClick={() => onSelect(channel.id)}
+              hidePending={contextActions.lifecyclePending}
+              onHide={() =>
+                void contextActions.mutateLifecycle({
+                  action: "hide",
+                  channelId: channel.id,
+                })
+              }
               onContextMenu={(x, y) => setContextTarget({ channel, x, y })}
               onReadChange={() =>
                 (unread[channel.id] ?? 0)
@@ -351,6 +370,8 @@ export function ChannelSidebar({
         assignedSectionId={
           contextTarget ? assignments[contextTarget.channel.id] : undefined
         }
+        currentPubkey={ownerPubkey}
+        lifecyclePending={contextActions.lifecyclePending}
         muted={
           contextTarget ? mutedChannelIds.has(contextTarget.channel.id) : false
         }
@@ -368,6 +389,33 @@ export function ChannelSidebar({
                   open: true,
                   section: null,
                   assignChannelId: contextTarget.channel.id,
+                })
+            : undefined
+        }
+        onArchive={
+          contextTarget && contextTarget.channel.channelType !== "dm"
+            ? () =>
+                void contextActions.mutateLifecycle({
+                  action: "archive",
+                  channelId: contextTarget.channel.id,
+                })
+            : undefined
+        }
+        onDelete={
+          contextTarget && contextTarget.channel.channelType !== "dm"
+            ? () =>
+                setLifecycleConfirm({
+                  action: "delete",
+                  channel: contextTarget.channel,
+                })
+            : undefined
+        }
+        onLeave={
+          contextTarget?.channel.channelType === "stream"
+            ? () =>
+                setLifecycleConfirm({
+                  action: "leave",
+                  channel: contextTarget.channel,
                 })
             : undefined
         }
@@ -418,6 +466,37 @@ export function ChannelSidebar({
         }}
         open={deleteSectionTarget !== null}
         title="Delete section"
+      />
+      <DestructiveConfirmDialog
+        confirmLabel={
+          lifecycleConfirm?.action === "leave" ? "Leave" : "Delete channel"
+        }
+        description={
+          lifecycleConfirm?.action === "leave"
+            ? `Leave "${lifecycleConfirm.channel.name}"? You'll stop receiving its messages and can rejoin later.`
+            : `Delete ${lifecycleConfirm?.channel.name ?? "this channel"} from the community list. This action cannot be undone.`
+        }
+        onClose={() => setLifecycleConfirm(null)}
+        onConfirm={() => {
+          if (!lifecycleConfirm) return;
+          void contextActions
+            .mutateLifecycle({
+              action: lifecycleConfirm.action,
+              channelId: lifecycleConfirm.channel.id,
+            })
+            .then(() => setLifecycleConfirm(null))
+            .catch(() => {});
+        }}
+        open={lifecycleConfirm !== null}
+        pending={contextActions.lifecyclePending}
+        pendingLabel={
+          lifecycleConfirm?.action === "leave" ? "Leaving..." : "Deleting..."
+        }
+        title={
+          lifecycleConfirm?.action === "leave"
+            ? "Leave channel"
+            : "Delete channel?"
+        }
       />
     </>
   );
@@ -560,6 +639,8 @@ function ChannelButton({
   starred = false,
   onClick,
   onContextMenu,
+  hidePending = false,
+  onHide,
   onStarredChange,
   onReadChange,
   sections,
@@ -573,6 +654,8 @@ function ChannelButton({
   starred?: boolean;
   onClick: () => void;
   onContextMenu: (x: number, y: number) => void;
+  hidePending?: boolean;
+  onHide?: () => void;
   onStarredChange?: () => void;
   onReadChange?: () => void;
   sections?: ChannelSection[];
@@ -605,11 +688,25 @@ function ChannelButton({
           <BellOff aria-label="Muted" className="h-3.5 w-3.5 shrink-0" />
         ) : null}
         {unread ? (
-          <span className="min-w-5 rounded-full bg-primary px-1.5 py-0.5 text-center text-[0.65rem] text-primary-foreground">
+          <span
+            className={`min-w-5 rounded-full bg-primary px-1.5 py-0.5 text-center text-[0.65rem] text-primary-foreground ${onHide ? "group-hover:hidden" : ""}`}
+          >
             {Math.min(unread, 99)}
           </span>
         ) : null}
       </button>
+      {onHide ? (
+        <button
+          aria-label="Close direct message"
+          className="mr-1 rounded p-1 opacity-0 hover:bg-background/70 group-hover:opacity-100 focus:opacity-100"
+          disabled={hidePending}
+          onClick={onHide}
+          title="Close direct message"
+          type="button"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      ) : null}
       {sections?.length && onAssignSection ? (
         <select
           aria-label={`Move #${channel.name} to section`}
@@ -626,7 +723,7 @@ function ChannelButton({
           ))}
         </select>
       ) : null}
-      {onReadChange ? (
+      {onReadChange && !onHide ? (
         <button
           aria-label={`${unread ? "Mark read" : "Mark unread"} #${channel.name}`}
           className="rounded p-1 opacity-0 hover:bg-background/70 group-hover:opacity-100 focus:opacity-100"
