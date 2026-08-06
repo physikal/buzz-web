@@ -41,6 +41,7 @@ import {
   type CustomEmoji,
 } from "@/features/settings/custom-emoji-api";
 import { StatusEmoji } from "@/features/user-status/StatusEmoji";
+import { useFeatureEnabled } from "@/shared/features";
 import { useEscapeSurface } from "@/shared/hooks/use-escape-surface";
 import { truncatePubkey } from "@/shared/lib/pubkey";
 import { Badge } from "@/shared/ui/badge";
@@ -303,6 +304,8 @@ function ProfileSummary({
   isArchived: boolean;
   wavePending: boolean;
 }) {
+  const showFollowAction = useFeatureEnabled("pulse");
+  const canToggleFollow = showFollowAction && Boolean(onToggleFollow);
   return (
     <div className="space-y-5">
       <ProfileHero
@@ -317,7 +320,7 @@ function ProfileSummary({
 
       {pubkey !== ownerPubkey ? (
         <div className="grid grid-cols-2 gap-2">
-          {onToggleFollow ? (
+          {canToggleFollow ? (
             <Button
               disabled={followPending}
               onClick={onToggleFollow}
@@ -328,7 +331,7 @@ function ProfileSummary({
             </Button>
           ) : null}
           <Button
-            className={onToggleFollow ? undefined : "col-span-2"}
+            className={canToggleFollow ? undefined : "col-span-2"}
             onClick={onMessage}
           >
             <MessageCircle />

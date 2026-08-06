@@ -5,6 +5,7 @@ import {
   parseProfilePanelTab,
   parseProfilePanelView,
 } from "@/features/profile/profile-panel-state";
+import { usePreviewFeatureWarning } from "@/shared/features";
 
 const ProjectsPage = lazy(async () => {
   const module = await import("@/features/projects/ui/ProjectsPage");
@@ -36,6 +37,7 @@ export const Route = createFileRoute("/projects/$projectId")({
 });
 
 function ProjectRoute() {
+  usePreviewFeatureWarning("projects");
   const { projectId } = Route.useParams();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();

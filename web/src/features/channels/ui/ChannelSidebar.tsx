@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 
+import { FeatureGate } from "@/shared/features";
 import { Button } from "@/shared/ui/button";
 import { DestructiveConfirmDialog } from "@/shared/ui/destructive-confirm-dialog";
 import type { Channel, ChannelLifecycleAction } from "../channel-api";
@@ -279,33 +280,35 @@ export function ChannelSidebar({
               }
             />
           ))}
-          {forumChannels.length ? (
-            <div className="mt-5">
-              <SectionHeader
-                group="forums"
-                label="Forums"
-                onAdd={onCreate}
-                onSortModeChange={onSortModeChange}
-                sortMode={sortModeFor("forums")}
+          <FeatureGate feature="forum">
+            {forumChannels.length ? (
+              <div className="mt-5">
+                <SectionHeader
+                  group="forums"
+                  label="Forums"
+                  onAdd={onCreate}
+                  onSortModeChange={onSortModeChange}
+                  sortMode={sortModeFor("forums")}
+                />
+              </div>
+            ) : null}
+            {forumChannels.map((channel) => (
+              <ChannelButton
+                channel={channel}
+                key={channel.id}
+                muted={mutedChannelIds.has(channel.id)}
+                onClick={() => onSelect(channel.id)}
+                onContextMenu={(x, y) => setContextTarget({ channel, x, y })}
+                onReadChange={() =>
+                  (unread[channel.id] ?? 0)
+                    ? onMarkRead(channel.id)
+                    : onMarkUnread(channel.id)
+                }
+                selected={selectedId === channel.id}
+                unread={unread[channel.id] ?? 0}
               />
-            </div>
-          ) : null}
-          {forumChannels.map((channel) => (
-            <ChannelButton
-              channel={channel}
-              key={channel.id}
-              muted={mutedChannelIds.has(channel.id)}
-              onClick={() => onSelect(channel.id)}
-              onContextMenu={(x, y) => setContextTarget({ channel, x, y })}
-              onReadChange={() =>
-                (unread[channel.id] ?? 0)
-                  ? onMarkRead(channel.id)
-                  : onMarkUnread(channel.id)
-              }
-              selected={selectedId === channel.id}
-              unread={unread[channel.id] ?? 0}
-            />
-          ))}
+            ))}
+          </FeatureGate>
           <div className="mt-5">
             <SectionHeader
               group="dms"

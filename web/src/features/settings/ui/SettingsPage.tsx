@@ -5,9 +5,9 @@ import {
   Bell,
   Bot,
   Camera,
-  CalendarClock,
   Copy,
   FileStack,
+  FlaskConical,
   Keyboard,
   MonitorCog,
   Volume2,
@@ -26,7 +26,6 @@ import { lockOwnerVault } from "@/features/owner-vault/lib/vault-worker-client";
 import { useOwnerSessionState } from "@/features/owner-vault/lib/use-owner-session-state";
 import { OwnerBackupPanel } from "@/features/owner-vault/ui/OwnerBackupPanel";
 import { OwnerPasskeysPanel } from "@/features/owner-vault/ui/OwnerPasskeysPanel";
-import { RemindersPanel } from "@/features/reminders/ui/RemindersPanel";
 import { SetStatusDialog } from "@/features/user-status/SetStatusDialog";
 import { StatusEmoji } from "@/features/user-status/StatusEmoji";
 import { useOwnerStatus } from "@/features/user-status/use-owner-status";
@@ -37,6 +36,7 @@ import { AgentDefaultsPanel } from "./AgentDefaultsPanel";
 import { AgentBehaviorPanel } from "./AgentBehaviorPanel";
 import { AgentRuntimesPanel } from "./AgentRuntimesPanel";
 import { CustomEmojiPanel } from "./CustomEmojiPanel";
+import { ExperimentalFeaturesPanel } from "./ExperimentalFeaturesPanel";
 import { KeyboardShortcutsPanel } from "./KeyboardShortcutsPanel";
 import { ModerationPanel } from "./ModerationPanel";
 import { AppearancePanel } from "./AppearancePanel";
@@ -53,16 +53,22 @@ import {
 
 const SETTINGS_ROWS: Array<[SettingsSection, string, React.ReactNode]> = [
   ["profile", "Profile", <UserRound key="profile" />],
-  ["notifications", "Notifications", <Bell key="notifications" />],
   ["appearance", "Appearance", <MonitorCog key="appearance" />],
+  ["notifications", "Notifications", <Bell key="notifications" />],
   ["voice", "Voice", <Volume2 key="voice" />],
   ["shortcuts", "Shortcuts", <Keyboard key="shortcuts" />],
-  ["agents", "Agents", <Bot key="agents" />],
+  ["custom-emoji", "Custom emoji", <Smile key="custom-emoji" />],
   ["channel-templates", "Templates", <FileStack key="templates" />],
-  ["reminders", "Reminders", <CalendarClock key="reminders" />],
   ["community-members", "Invites", <Ticket key="community-members" />],
   ["moderation", "Moderation", <ShieldAlert key="moderation" />],
-  ["custom-emoji", "Custom emoji", <Smile key="custom-emoji" />],
+  ["agents", "Agents", <Bot key="agents" />],
+  ["experimental", "Experiments", <FlaskConical key="experimental" />],
+];
+
+const SETTINGS_GROUPS = [
+  { label: "Personal", rows: SETTINGS_ROWS.slice(0, 6) },
+  { label: "Communities", rows: SETTINGS_ROWS.slice(6, 9) },
+  { label: "App", rows: SETTINGS_ROWS.slice(9) },
 ];
 
 export function SettingsPage({
@@ -104,14 +110,14 @@ function SettingsWorkspace({
     onSectionChange?.(next);
   }
   return (
-    <div className="flex min-h-dvh bg-background">
+    <div className="flex h-dvh overflow-hidden bg-background">
       <AppPrimarySidebar
         active="settings"
         onDisconnect={onDisconnect}
         ownerPubkey={ownerPubkey}
         visibleFrom="lg"
       />
-      <aside className="hidden w-52 shrink-0 border-r p-3 md:block">
+      <aside className="hidden w-52 shrink-0 overflow-y-auto border-r p-3 md:block">
         <h1 className="px-2 py-3 text-lg font-semibold">Settings</h1>
         <SettingsNav active={section} onSelect={selectSection} />
       </aside>
@@ -164,6 +170,7 @@ function SettingsWorkspace({
             <VoicePanel ownerPubkey={ownerPubkey} />
           ) : null}
           {section === "shortcuts" ? <KeyboardShortcutsPanel /> : null}
+          {section === "experimental" ? <ExperimentalFeaturesPanel /> : null}
           {section === "agents" ? (
             <div className="space-y-12">
               <AgentBehaviorPanel ownerPubkey={ownerPubkey} />
@@ -173,9 +180,6 @@ function SettingsWorkspace({
           ) : null}
           {section === "channel-templates" ? (
             <ChannelTemplatesPanel ownerPubkey={ownerPubkey} />
-          ) : null}
-          {section === "reminders" ? (
-            <RemindersPanel ownerPubkey={ownerPubkey} />
           ) : null}
           {section === "community-members" ? (
             <CommunityMembersPanel ownerPubkey={ownerPubkey} />
@@ -200,17 +204,26 @@ function SettingsNav({
   onSelect: (section: SettingsSection) => void;
 }) {
   return (
-    <nav className="space-y-1">
-      {SETTINGS_ROWS.map(([value, label, icon]) => (
-        <button
-          className={`flex w-full items-center gap-2 rounded-md px-2 py-2 text-sm ${active === value ? "bg-accent font-medium" : "text-muted-foreground hover:bg-accent"}`}
-          key={value}
-          onClick={() => onSelect(value)}
-          type="button"
-        >
-          <span className="[&_svg]:h-4 [&_svg]:w-4">{icon}</span>
-          {label}
-        </button>
+    <nav className="space-y-4">
+      {SETTINGS_GROUPS.map((group) => (
+        <div key={group.label}>
+          <p className="px-2 pb-1 text-xs font-medium text-muted-foreground">
+            {group.label}
+          </p>
+          <div className="space-y-1">
+            {group.rows.map(([value, label, icon]) => (
+              <button
+                className={`flex w-full items-center gap-2 rounded-md px-2 py-2 text-sm ${active === value ? "bg-accent font-medium" : "text-muted-foreground hover:bg-accent"}`}
+                key={value}
+                onClick={() => onSelect(value)}
+                type="button"
+              >
+                <span className="[&_svg]:h-4 [&_svg]:w-4">{icon}</span>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
       ))}
     </nav>
   );

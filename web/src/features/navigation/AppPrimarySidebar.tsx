@@ -21,6 +21,7 @@ import {
 } from "@/features/home/home-api";
 import { listReminders } from "@/features/reminders/reminder-api";
 import { readNotificationSettings } from "@/features/settings/notification-settings";
+import { FeatureGate } from "@/shared/features";
 import { SidebarOwnerProfileMenu } from "./SidebarOwnerProfileMenu";
 
 export type AppSection =
@@ -91,24 +92,30 @@ export function AppPrimarySidebar({
           label="Channels"
           to="/channels"
         />
-        <PrimaryLink
-          active={active === "pulse"}
-          icon={<Zap />}
-          label="Pulse"
-          to="/pulse"
-        />
-        <PrimaryLink
-          active={active === "projects"}
-          icon={<FolderKanban />}
-          label="Projects"
-          to="/projects"
-        />
-        <PrimaryLink
-          active={active === "workflows"}
-          icon={<GitFork />}
-          label="Workflows"
-          to="/workflows"
-        />
+        <FeatureGate feature="pulse">
+          <PrimaryLink
+            active={active === "pulse"}
+            icon={<Zap />}
+            label="Pulse"
+            to="/pulse"
+          />
+        </FeatureGate>
+        <FeatureGate feature="projects">
+          <PrimaryLink
+            active={active === "projects"}
+            icon={<FolderKanban />}
+            label="Projects"
+            to="/projects"
+          />
+        </FeatureGate>
+        <FeatureGate feature="workflows">
+          <PrimaryLink
+            active={active === "workflows"}
+            icon={<GitFork />}
+            label="Workflows"
+            to="/workflows"
+          />
+        </FeatureGate>
         <PrimaryLink
           active={active === "agents"}
           icon={<Bot />}

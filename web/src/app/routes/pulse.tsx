@@ -7,6 +7,7 @@ import {
   type ProfilePanelTab,
   type ProfilePanelView,
 } from "@/features/profile/profile-panel-state";
+import { usePreviewFeatureWarning } from "@/shared/features";
 
 const PulsePage = lazy(async () => {
   const module = await import("@/features/pulse/ui/PulsePage");
@@ -36,6 +37,7 @@ export const Route = createFileRoute("/pulse")({
 });
 
 function PulseRoute() {
+  usePreviewFeatureWarning("pulse");
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   return (

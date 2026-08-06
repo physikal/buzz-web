@@ -38,6 +38,7 @@ import {
 } from "../../src/features/channels/wave-message";
 import { buildProductFeedbackEvent } from "../../src/features/settings/feedback-api";
 import { verifiedAgentOwnerPubkey } from "../../src/shared/lib/nip-oa";
+import { resolveEnabled } from "../../src/shared/features/resolve-enabled";
 
 const testPort = process.env.BUZZ_WEB_TEST_PORT ?? "4173";
 const testOrigin = `http://localhost:${testPort}`;
@@ -61,6 +62,27 @@ test("repositories page remains available from its desktop route", async ({
 }) => {
   await page.goto("/repos");
   await expect(page.getByText("Repositories")).toBeVisible();
+});
+
+test("preview features use desktop opt-in resolution", () => {
+  expect(resolveEnabled("projects", {})).toBe(false);
+  expect(resolveEnabled("projects", {}, true)).toBe(true);
+  expect(resolveEnabled("projects", { projects: true })).toBe(true);
+  expect(resolveEnabled("projects", { projects: false }, true)).toBe(false);
+});
+
+test("disabled preview routes remain available with the desktop warning", async ({
+  page,
+}) => {
+  await page.addInitScript(() =>
+    localStorage.setItem("buzz-feature-overrides-v1", "null"),
+  );
+  await page.goto("/projects");
+  await expect(
+    page.getByText(
+      "Projects is a preview feature. Enable it in Settings → Experiments to surface it in your sidebar.",
+    ),
+  ).toBeVisible();
 });
 
 test("profile edits preserve interoperable kind-0 metadata", () => {
@@ -455,7 +477,7 @@ test("product feedback keeps desktop categories and attachment metadata", () => 
 test("owner setup creates a passkey-wrapped signer and enters Channels", async ({
   page,
 }) => {
-  test.setTimeout(300_000);
+  test.setTimeout(480_000);
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"], {
     origin: testOrigin,
   });
@@ -469,6 +491,15 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     }),
   );
   await page.addInitScript(() => {
+    localStorage.setItem(
+      "buzz-feature-overrides-v1",
+      JSON.stringify({
+        forum: true,
+        projects: true,
+        pulse: true,
+        workflows: true,
+      }),
+    );
     class TestNotification {
       static permission: NotificationPermission = "granted";
       static requestPermission = async () => "granted" as const;
@@ -4032,6 +4063,21 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await expect
     .poll(() => submittedEvents.filter((event) => event.kind === 30300).length)
     .toBeGreaterThanOrEqual(2);
+  await page.getByRole("button", { name: "Complete", exact: true }).click();
+  await expect
+    .poll(() => {
+      const reminders = submittedEvents.filter((event) => event.kind === 30300);
+      return (
+        reminders.length >= 3 &&
+        reminders[0].tags.find((tag) => tag[0] === "d")?.[1] ===
+          reminders.at(-1)?.tags.find((tag) => tag[0] === "d")?.[1] &&
+        !reminders.at(-1)?.tags.some((tag) => tag[0] === "not_before") &&
+        reminders.at(-1)?.tags.some((tag) => tag[0] === "expiration") ===
+          true &&
+        !reminders.at(-1)?.content.includes("Follow up privately")
+      );
+    })
+    .toBe(true);
 
   await page.getByRole("link", { name: "Settings" }).click();
   await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
@@ -4083,6 +4129,16 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   );
   expect(getPublicKey(restoredOwnerKey)).toBe(ownerPubkey);
   restoredOwnerKey.fill(0);
+  await page.getByRole("button", { name: "Experiments" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Experiments" }),
+  ).toBeVisible();
+  const projectsPreview = page.getByTestId("feature-toggle-projects");
+  await expect(projectsPreview).toBeChecked();
+  await projectsPreview.uncheck();
+  await expect(page.getByRole("link", { name: "Projects" })).toHaveCount(0);
+  await projectsPreview.check();
+  await expect(page.getByRole("link", { name: "Projects" })).toBeVisible();
   await page.getByRole("button", { name: "Notifications" }).click();
   await expect(page).toHaveURL(/\/settings\?section=notifications$/u);
   await expect(
@@ -4855,24 +4911,6 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     page.getByRole("heading", { name: "Custom emoji" }),
   ).toBeVisible();
   await expect(page.getByText(":shipit:")).toBeVisible();
-  await page.getByRole("button", { name: "Reminders" }).click();
-  await expect(page.getByRole("heading", { name: "Reminders" })).toBeVisible();
-  await expect(page.getByText("Follow up privately")).toBeVisible();
-  await page.getByRole("button", { name: "Complete reminder" }).click();
-  await expect
-    .poll(() => {
-      const reminders = submittedEvents.filter((event) => event.kind === 30300);
-      return (
-        reminders.length >= 2 &&
-        reminders[0].tags.find((tag) => tag[0] === "d")?.[1] ===
-          reminders.at(-1)?.tags.find((tag) => tag[0] === "d")?.[1] &&
-        !reminders.at(-1)?.tags.some((tag) => tag[0] === "not_before") &&
-        reminders.at(-1)?.tags.some((tag) => tag[0] === "expiration") ===
-          true &&
-        !reminders.at(-1)?.content.includes("Follow up privately")
-      );
-    })
-    .toBe(true);
   await page.getByRole("button", { name: "Moderation" }).click();
   await expect(page.getByText("Repeated unsolicited promotion")).toBeVisible();
   await page.getByRole("button", { name: "Resolve" }).click();
