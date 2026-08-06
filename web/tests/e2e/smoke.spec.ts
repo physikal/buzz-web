@@ -1,10 +1,12 @@
 import { createHash, createHmac } from "node:crypto";
-import { schnorr } from "@noble/curves/secp256k1.js";
+import { secp256k1, schnorr } from "@noble/curves/secp256k1.js";
 import {
   expect,
   test,
   type Download as PlaywrightDownload,
+  type WebSocketRoute,
 } from "@playwright/test";
+import { nip19 } from "nostr-tools";
 import { v2 as nip44 } from "nostr-tools/nip44";
 import {
   decrypt as decryptNip49,
@@ -43,6 +45,18 @@ import { resolveEnabled } from "../../src/shared/features/resolve-enabled";
 const testPort = process.env.BUZZ_WEB_TEST_PORT ?? "4173";
 const testOrigin = `http://localhost:${testPort}`;
 
+function pairingHkdf32(
+  salt: Uint8Array,
+  input: Uint8Array,
+  info: string,
+): Buffer {
+  const extractSalt = salt.length === 0 ? Buffer.alloc(32) : Buffer.from(salt);
+  const prk = createHmac("sha256", extractSalt).update(input).digest();
+  return createHmac("sha256", prk)
+    .update(Buffer.concat([Buffer.from(info), Buffer.from([1])]))
+    .digest();
+}
+
 async function downloadedBytes(download: PlaywrightDownload): Promise<Buffer> {
   const stream = await download.createReadStream();
   const chunks: Buffer[] = [];
@@ -69,6 +83,69 @@ test("preview features use desktop opt-in resolution", () => {
   expect(resolveEnabled("projects", {}, true)).toBe(true);
   expect(resolveEnabled("projects", { projects: true })).toBe(true);
   expect(resolveEnabled("projects", { projects: false }, true)).toBe(false);
+});
+
+test("NIP-AB pairing derivation matches the shared protocol vectors", () => {
+  const sessionSecret = Buffer.from(
+    "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2",
+    "hex",
+  );
+  const sourceSecret = Buffer.from(
+    "7f4c11a9c9d1e3b5a7f2e4d6c8b0a2f4e6d8c0b2a4f6e8d0c2b4a6f8e0d2c4b5",
+    "hex",
+  );
+  const targetSecret = Buffer.from(
+    "3a5b7c9d1e3f5a7b9c1d3e5f7a9b1c3d5e7f9a1b3c5d7e9f1a3b5c7d9e1f3a5b",
+    "hex",
+  );
+  const sourcePubkey = getPublicKey(sourceSecret);
+  const targetPubkey = getPublicKey(targetSecret);
+  expect(sourcePubkey).toBe(
+    "199e64ca60662cb2d6e91d16cb065be51ad74a6ee5f8c5b0fdc53d246611ed9a",
+  );
+  expect(targetPubkey).toBe(
+    "89a9fa762105d0aee2b19678246fe7b823aabbc4f4bf691a1ce8a70fcd36d6e4",
+  );
+
+  const targetPoint = Buffer.concat([
+    Buffer.from([0x02]),
+    Buffer.from(targetPubkey, "hex"),
+  ]);
+  const shared = Buffer.from(
+    secp256k1.getSharedSecret(sourceSecret, targetPoint, true).slice(1),
+  );
+  expect(shared.toString("hex")).toBe(
+    "9b4b6d6990713d89d6d9982e506ee1bbcde6f05c54d9d2978696e8a7274d4408",
+  );
+  const sessionId = pairingHkdf32(
+    new Uint8Array(),
+    sessionSecret,
+    "nostr-pair-session-id",
+  );
+  expect(sessionId.toString("hex")).toBe(
+    "fb357d0f8e8d5a5ba3b2a91cb18c119e1567b07ffa38cdebb73e68df78f5a380",
+  );
+  const sasInput = pairingHkdf32(sessionSecret, shared, "nostr-pair-sas-v1");
+  expect(sasInput.toString("hex")).toBe(
+    "e8b03a329f3a0ac37fe7fbe929171e14b72812be67e33c5d6e193543c41798d3",
+  );
+  expect(sasInput.readUInt32BE(0) % 1_000_000).toBe(863_346);
+  const transcript = Buffer.concat([
+    sessionId,
+    Buffer.from(sourcePubkey, "hex"),
+    Buffer.from(targetPubkey, "hex"),
+    sasInput,
+  ]);
+  expect(
+    pairingHkdf32(
+      sessionSecret,
+      transcript,
+      "nostr-pair-transcript-v1",
+    ).toString("hex"),
+  ).toBe("d662818ff8911fc60a2d025f8b8b4756107104e85888dd202d28db5ca2cf28d3");
+  sourceSecret.fill(0);
+  targetSecret.fill(0);
+  shared.fill(0);
 });
 
 test("disabled preview routes remain available with the desktop warning", async ({
@@ -666,6 +743,14 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     | ((event: (typeof submittedEvents)[number]) => void)
     | null = null;
   let capturedSearchFilter: Record<string, unknown> | null = null;
+  const pairingTargetSecret = new Uint8Array(32);
+  pairingTargetSecret[31] = 9;
+  const pairingTargetPubkey = getPublicKey(pairingTargetSecret);
+  let pairingSocket: WebSocketRoute | null = null;
+  let pairingSourcePubkey = "";
+  let pairingSessionSecret: Uint8Array | null = null;
+  let pairingSasInput: Buffer | null = null;
+  let pairingPayloadVerified = false;
   let addedCredentialCount = 0;
   let claimedCredential: {
     credential_id: string;
@@ -1382,6 +1467,104 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
       }),
     });
   });
+  await page.routeWebSocket(
+    new RegExp(`ws://(?:127\\.0\\.0\\.1|localhost):${testPort}/pair/?$`),
+    (socket) => {
+      pairingSocket = socket;
+      socket.onMessage((message) => {
+        const frame = JSON.parse(String(message)) as unknown[];
+        if (frame[0] === "REQ" && typeof frame[1] === "string") {
+          const filter = frame[2] as { "#p"?: string[] };
+          pairingSourcePubkey = filter["#p"]?.[0] ?? "";
+          expect(pairingSourcePubkey).toMatch(/^[0-9a-f]{64}$/u);
+          socket.send(JSON.stringify(["EOSE", frame[1]]));
+          return;
+        }
+        if (frame[0] !== "EVENT" || !frame[1]) return;
+        const event = frame[1] as (typeof submittedEvents)[number];
+        expect(verifyEvent(event)).toBe(true);
+        expect(event.kind).toBe(24_134);
+        expect(event.pubkey).toBe(pairingSourcePubkey);
+        expect(event.tags).toEqual([["p", pairingTargetPubkey]]);
+        socket.send(JSON.stringify(["OK", event.id, true, ""]));
+
+        const conversationKey = nip44.utils.getConversationKey(
+          pairingTargetSecret,
+          pairingSourcePubkey,
+        );
+        let plaintext: string;
+        try {
+          plaintext = nip44.decrypt(event.content, conversationKey);
+        } finally {
+          conversationKey.fill(0);
+        }
+        const payload = JSON.parse(plaintext) as {
+          type: string;
+          transcript_hash?: string;
+          payload_type?: string;
+          payload?: string;
+        };
+        if (payload.type === "sas-confirm") {
+          expect(pairingSessionSecret).not.toBeNull();
+          expect(pairingSasInput).not.toBeNull();
+          const sessionId = pairingHkdf32(
+            new Uint8Array(),
+            pairingSessionSecret ?? new Uint8Array(),
+            "nostr-pair-session-id",
+          );
+          const transcript = Buffer.concat([
+            sessionId,
+            Buffer.from(pairingSourcePubkey, "hex"),
+            Buffer.from(pairingTargetPubkey, "hex"),
+            pairingSasInput ?? Buffer.alloc(0),
+          ]);
+          expect(payload.transcript_hash).toBe(
+            pairingHkdf32(
+              pairingSessionSecret ?? new Uint8Array(),
+              transcript,
+              "nostr-pair-transcript-v1",
+            ).toString("hex"),
+          );
+          return;
+        }
+        if (payload.type === "payload") {
+          expect(payload.payload_type).toBe("custom");
+          const credentials = JSON.parse(payload.payload ?? "{}") as {
+            relayUrl?: string;
+            pubkey?: string;
+            nsec?: string;
+          };
+          expect(credentials.relayUrl).toBe(testOrigin);
+          expect(credentials.pubkey).toBe(ownerPubkey);
+          const decoded = nip19.decode(credentials.nsec ?? "");
+          expect(decoded.type).toBe("nsec");
+          expect(
+            decoded.type === "nsec" ? getPublicKey(decoded.data) : null,
+          ).toBe(ownerPubkey);
+          if (decoded.type === "nsec") decoded.data.fill(0);
+          pairingPayloadVerified = true;
+          const completionConversation = nip44.utils.getConversationKey(
+            pairingTargetSecret,
+            pairingSourcePubkey,
+          );
+          const complete = finalizeEvent(
+            {
+              kind: 24_134,
+              created_at: Math.floor(Date.now() / 1_000),
+              tags: [["p", pairingSourcePubkey]],
+              content: nip44.encrypt(
+                JSON.stringify({ type: "complete", success: true }),
+                completionConversation,
+              ),
+            },
+            pairingTargetSecret,
+          );
+          completionConversation.fill(0);
+          socket.send(JSON.stringify(["EVENT", "pair", complete]));
+        }
+      });
+    },
+  );
   await page.routeWebSocket(
     new RegExp(
       `ws://(?:127\\.0\\.0\\.1|localhost):${testPort}/huddle/[0-9a-f-]+/audio$`,
@@ -4129,6 +4312,105 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   );
   expect(getPublicKey(restoredOwnerKey)).toBe(ownerPubkey);
   restoredOwnerKey.fill(0);
+  await expect(page.getByText("Encrypted backup downloaded")).toBeHidden({
+    timeout: 10_000,
+  });
+  await page.getByRole("button", { name: "Mobile" }).click();
+  await expect(page).toHaveURL(/\/settings\?section=mobile$/u);
+  await expect(page.getByRole("heading", { name: "Mobile" })).toBeVisible();
+  await page.getByTestId("start-pairing-button").click();
+  await expect(page.getByTestId("mobile-pairing-qr")).toBeVisible();
+  await page.getByTestId("mobile-pairing-qr").evaluate(async (element) => {
+    await Promise.all(
+      element
+        .getAnimations({ subtree: true })
+        .map((animation) => animation.finished),
+    );
+  });
+  await page.screenshot({
+    path: "/tmp/buzz-web-settings-mobile.png",
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByTestId("mobile-pairing-card")).toBeVisible();
+  await page.screenshot({
+    path: "/tmp/buzz-web-settings-mobile-narrow.png",
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.getByTestId("copy-pairing-code").click();
+  await expect(page.getByText("Copied to clipboard")).toBeHidden({
+    timeout: 10_000,
+  });
+  const pairingUri = await page.evaluate(() => navigator.clipboard.readText());
+  const pairingUrl = new URL(pairingUri);
+  expect(pairingUrl.protocol).toBe("nostrpair:");
+  expect(pairingUrl.hostname).toBe(pairingSourcePubkey);
+  expect(pairingUrl.searchParams.get("relay")).toBe(
+    `ws://localhost:${testPort}/pair`,
+  );
+  pairingSessionSecret = Buffer.from(
+    pairingUrl.searchParams.get("secret") ?? "",
+    "hex",
+  );
+  expect(pairingSessionSecret).toHaveLength(32);
+  const pairingSourcePoint = new Uint8Array(33);
+  pairingSourcePoint[0] = 0x02;
+  pairingSourcePoint.set(Buffer.from(pairingSourcePubkey, "hex"), 1);
+  const pairingShared = secp256k1
+    .getSharedSecret(pairingTargetSecret, pairingSourcePoint, true)
+    .slice(1);
+  pairingSasInput = pairingHkdf32(
+    pairingSessionSecret,
+    pairingShared,
+    "nostr-pair-sas-v1",
+  );
+  pairingShared.fill(0);
+  pairingSourcePoint.fill(0);
+  const pairingSas = (pairingSasInput.readUInt32BE(0) % 1_000_000)
+    .toString()
+    .padStart(6, "0");
+  const pairingConversation = nip44.utils.getConversationKey(
+    pairingTargetSecret,
+    pairingSourcePubkey,
+  );
+  const offer = finalizeEvent(
+    {
+      kind: 24_134,
+      created_at: Math.floor(Date.now() / 1_000),
+      tags: [["p", pairingSourcePubkey]],
+      content: nip44.encrypt(
+        JSON.stringify({
+          type: "offer",
+          session_id: pairingHkdf32(
+            new Uint8Array(),
+            pairingSessionSecret,
+            "nostr-pair-session-id",
+          ).toString("hex"),
+          version: 1,
+        }),
+        pairingConversation,
+      ),
+    },
+    pairingTargetSecret,
+  );
+  pairingConversation.fill(0);
+  expect(pairingSocket).not.toBeNull();
+  pairingSocket?.send(JSON.stringify(["EVENT", "pair", offer]));
+  const pairingDialog = page.getByTestId("mobile-pairing-dialog");
+  await expect(pairingDialog).toBeVisible();
+  await expect(page.getByTestId("pairing-sas-code")).toHaveText(
+    `${pairingSas.slice(0, 3)} ${pairingSas.slice(3)}`,
+  );
+  await page.screenshot({
+    path: "/tmp/buzz-web-settings-mobile-sas.png",
+    fullPage: true,
+  });
+  await page.getByTestId("confirm-sas").click();
+  await expect(page.getByTestId("mobile-pairing-done")).toBeVisible();
+  expect(pairingPayloadVerified).toBe(true);
+  await pairingDialog.getByRole("button", { name: "Close" }).click();
+  await expect(page.getByTestId("start-pairing-button")).toBeVisible();
   await page.getByRole("button", { name: "Experiments" }).click();
   await expect(
     page.getByRole("heading", { name: "Experiments" }),
@@ -5486,7 +5768,15 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await expect(
     page.getByRole("heading", { name: "Create PR from web" }),
   ).toBeVisible();
-  await expect(page.getByText("feature/create-pr → main")).toBeVisible();
+  const pullRequestMetadata = page.getByRole("complementary", {
+    name: "Pull request metadata",
+  });
+  await expect(
+    pullRequestMetadata.getByText("feature/create-pr", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    pullRequestMetadata.getByText("main", { exact: true }),
+  ).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Merge", exact: true }),
   ).toHaveCount(0);

@@ -31,6 +31,8 @@ use crate::state::AppState;
 /// Pure Nostr protocol: WebSocket (NIP-01), HTTP bridge (NIP-98), media (Blossom),
 /// git (smart HTTP), NIP-05, and health probes.
 pub fn build_router(state: Arc<AppState>) -> Router {
+    let pairing_relay = Arc::new(buzz_pair_relay::Relay::new());
+    let pairing_state = Arc::clone(&state);
     let media_body_limit = state
         .config
         .media
@@ -63,6 +65,20 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         // WebSocket + NIP-11
         .route("/", get(nip11_or_ws_handler))
         .route("/info", get(relay_info_handler))
+        .route(
+            "/pair",
+            get(move |ws: WebSocketUpgrade| {
+                let pairing_relay = Arc::clone(&pairing_relay);
+                let state = Arc::clone(&pairing_state);
+                async move {
+                    if state.shutting_down.load(Ordering::Relaxed) {
+                        return (StatusCode::SERVICE_UNAVAILABLE, "relay restarting")
+                            .into_response();
+                    }
+                    buzz_pair_relay::upgrade_axum(ws, pairing_relay)
+                }
+            }),
+        )
         .route("/.well-known/nostr.json", get(api::nip05::nostr_nip05))
         // Health endpoints
         .route("/health", get(health_handler))

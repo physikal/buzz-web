@@ -1086,6 +1086,7 @@ dependencies = [
 name = "buzz-pair-relay"
 version = "0.1.0"
 dependencies = [
+ "axum",
  "futures-util",
  "http-body-util",
  "hyper",
@@ -1197,6 +1198,7 @@ dependencies = [
  "buzz-core",
  "buzz-db",
  "buzz-media",
+ "buzz-pair-relay",
  "buzz-pubsub",
  "buzz-relay-mesh",
  "buzz-sdk",

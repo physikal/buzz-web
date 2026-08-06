@@ -63,6 +63,7 @@ buzz-sdk = { workspace = true }
 buzz-workflow = { workspace = true, features = ["reqwest"] }
 buzz-media = { workspace = true }
 buzz-agent-host = { path = "../buzz-agent-host" }
+buzz-pair-relay = { path = "../buzz-pair-relay" }
 s3 = { version = "0.37", package = "rust-s3", default-features = false, features = ["tokio-rustls-tls", "fail-on-err", "tags"] }
 tempfile = "3"
 bytes = "1"

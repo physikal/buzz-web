@@ -7,8 +7,13 @@ import {
   encrypt as encryptNip49,
 } from "nostr-tools/nip49";
 import { finalizeEvent, getPublicKey } from "nostr-tools/pure";
+import type { Event } from "nostr-tools/pure";
 
 import { decodeBase64Url, encodeBase64Url, randomBytes } from "./encoding";
+import {
+  SourcePairingSession,
+  type PairingEventResult,
+} from "./pairing-session.worker";
 
 type UnsignedEvent = {
   kind: number;
@@ -69,11 +74,33 @@ type WorkerRequest =
       slug: string;
     }
   | { id: number; action: "nip49-export"; password: string }
+  | { id: number; action: "pairing-create"; pairingRelayUrl: string }
+  | {
+      id: number;
+      action: "pairing-sign-auth";
+      challenge: string;
+      relayUrl: string;
+    }
+  | { id: number; action: "pairing-handle-event"; event: Event }
+  | { id: number; action: "pairing-confirm"; relayHttpUrl: string }
+  | { id: number; action: "pairing-abort"; reason?: string }
   | { id: number; action: "public-key" | "lock" };
 
 let secretKey: Uint8Array<ArrayBuffer> | null = null;
+let pairingSession: SourcePairingSession | null = null;
+
+function resetPairingSession(): void {
+  pairingSession?.destroy();
+  pairingSession = null;
+}
+
+function requirePairingSession(): SourcePairingSession {
+  if (!pairingSession) throw new Error("There is no active pairing session.");
+  return pairingSession;
+}
 
 function setSecret(next: Uint8Array<ArrayBuffer>): void {
+  resetPairingSession();
   secretKey?.fill(0);
   secretKey = new Uint8Array(next);
 }
@@ -341,10 +368,54 @@ self.onmessage = async (message: MessageEvent<WorkerRequest>) => {
         result = encryptNip49(requireSecret(), request.password);
         break;
       }
+      case "pairing-create": {
+        requireSecret();
+        resetPairingSession();
+        pairingSession = await SourcePairingSession.create(
+          request.pairingRelayUrl,
+        );
+        result = {
+          pubkey: pairingSession.publicKey,
+          qrUri: pairingSession.qrUri,
+        };
+        break;
+      }
+      case "pairing-sign-auth":
+        result = requirePairingSession().signAuth(
+          request.challenge,
+          request.relayUrl,
+        );
+        break;
+      case "pairing-handle-event": {
+        const handled: PairingEventResult =
+          await requirePairingSession().handleEvent(request.event);
+        result = handled;
+        if (
+          handled.type === "complete" ||
+          handled.type === "failed" ||
+          handled.type === "aborted"
+        ) {
+          resetPairingSession();
+        }
+        break;
+      }
+      case "pairing-confirm":
+        result = await requirePairingSession().confirm(
+          requireSecret(),
+          request.relayHttpUrl,
+        );
+        break;
+      case "pairing-abort": {
+        const session = requirePairingSession();
+        result = { event: session.abort(request.reason) };
+        resetPairingSession();
+        break;
+      }
       case "public-key":
         result = { pubkey: getPublicKey(requireSecret()) };
         break;
       case "lock":
+        resetPairingSession();
         secretKey?.fill(0);
         secretKey = null;
         result = { locked: true };

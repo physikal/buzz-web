@@ -15,6 +15,13 @@ export type CreatedOwnerVault = {
   recovery: EncryptedWrapper;
 };
 
+export type PairingWorkerEventResult =
+  | { type: "ignored" }
+  | { type: "sas"; sas: string }
+  | { type: "complete" }
+  | { type: "failed" }
+  | { type: "aborted"; reason: string };
+
 type WorkerResponse = {
   id: number;
   ok: boolean;
@@ -198,6 +205,63 @@ export async function exportOwnerNip49Backup(
   });
   armAutoLock();
   return backup;
+}
+
+export async function createMobilePairingSession(
+  pairingRelayUrl: string,
+): Promise<{ pubkey: string; qrUri: string }> {
+  const pairing = await request<{ pubkey: string; qrUri: string }>({
+    action: "pairing-create",
+    pairingRelayUrl,
+  });
+  armAutoLock();
+  return pairing;
+}
+
+export async function signMobilePairingAuth(
+  challenge: string,
+  relayUrl: string,
+): Promise<SignedNostrEvent> {
+  const event = await request<SignedNostrEvent>({
+    action: "pairing-sign-auth",
+    challenge,
+    relayUrl,
+  });
+  armAutoLock();
+  return event;
+}
+
+export async function handleMobilePairingEvent(
+  event: SignedNostrEvent,
+): Promise<PairingWorkerEventResult> {
+  const result = await request<PairingWorkerEventResult>({
+    action: "pairing-handle-event",
+    event,
+  });
+  armAutoLock();
+  return result;
+}
+
+export async function confirmMobilePairing(
+  relayHttpUrl: string,
+): Promise<[SignedNostrEvent, SignedNostrEvent]> {
+  const events = await request<[SignedNostrEvent, SignedNostrEvent]>({
+    action: "pairing-confirm",
+    relayHttpUrl,
+  });
+  armAutoLock();
+  return events;
+}
+
+export async function abortMobilePairing(
+  reason = "user_denied",
+): Promise<SignedNostrEvent | null> {
+  const result = await request<{ event: SignedNostrEvent | null }>({
+    action: "pairing-abort",
+    reason,
+  });
+  armAutoLock();
+  return result.event;
 }
 
 export async function lockOwnerVault(): Promise<void> {

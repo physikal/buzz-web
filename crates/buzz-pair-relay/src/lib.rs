@@ -30,6 +30,9 @@ use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use axum::extract::ws::{Message as AxumMessage, WebSocket};
+use axum::extract::WebSocketUpgrade;
+use axum::response::{IntoResponse, Response as AxumResponse};
 use futures_util::{SinkExt, StreamExt};
 use http_body_util::Full;
 use hyper::body::{Bytes, Incoming};
@@ -51,7 +54,9 @@ use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use tokio::time::timeout;
 use tokio_tungstenite::tungstenite::handshake::derive_accept_key;
-use tokio_tungstenite::tungstenite::protocol::{Message, Role, WebSocketConfig};
+use tokio_tungstenite::tungstenite::protocol::{
+    Message as TungsteniteMessage, Role, WebSocketConfig,
+};
 use tokio_tungstenite::WebSocketStream;
 use tokio_util::sync::CancellationToken;
 
@@ -94,6 +99,14 @@ enum OutMsg {
     Close,
 }
 
+enum InMsg {
+    Text(String),
+    Binary,
+    Ping(Vec<u8>),
+    Pong,
+    Close,
+}
+
 struct Sub {
     conn_id: u64,
     sub_id: String,
@@ -126,6 +139,14 @@ impl Relay {
             seen_ids: Mutex::new(Vec::new()),
             delivered: Mutex::new(HashMap::new()),
         }
+    }
+
+    fn reserve_connection(&self) -> Option<u64> {
+        if self.conn_count.fetch_add(1, Ordering::Relaxed) >= MAX_CONNS {
+            self.conn_count.fetch_sub(1, Ordering::Relaxed);
+            return None;
+        }
+        Some(self.next_conn_id.fetch_add(1, Ordering::Relaxed))
     }
 
     /// Atomically check-and-reserve an event ID. Evicts expired entries first.
@@ -592,7 +613,8 @@ fn decode_hex64(s: &str) -> Option<[u8; 64]> {
     Some(out)
 }
 
-type WsSink = futures_util::stream::SplitSink<WebSocketStream<TokioIo<Upgraded>>, Message>;
+type WsSink =
+    futures_util::stream::SplitSink<WebSocketStream<TokioIo<Upgraded>>, TungsteniteMessage>;
 
 async fn writer_task(mut sink: WsSink, mut rx: mpsc::Receiver<OutMsg>, cancel: CancellationToken) {
     loop {
@@ -601,9 +623,9 @@ async fn writer_task(mut sink: WsSink, mut rx: mpsc::Receiver<OutMsg>, cancel: C
             m = rx.recv() => match m { Some(m) => m, None => break },
         };
         let ws_msg = match msg {
-            OutMsg::Text(s) => Message::Text(s.into()),
-            OutMsg::Pong(d) => Message::Pong(d.into()),
-            OutMsg::Close => Message::Close(None),
+            OutMsg::Text(s) => TungsteniteMessage::Text(s.into()),
+            OutMsg::Pong(d) => TungsteniteMessage::Pong(d.into()),
+            OutMsg::Close => TungsteniteMessage::Close(None),
         };
         let result = tokio::select! {
             _ = cancel.cancelled() => break,
@@ -618,14 +640,80 @@ async fn writer_task(mut sink: WsSink, mut rx: mpsc::Receiver<OutMsg>, cancel: C
 }
 
 async fn handle_conn(relay: Arc<Relay>, conn_id: u64, stream: WebSocketStream<TokioIo<Upgraded>>) {
+    let (sink, source) = stream.split();
+    let source = source.map(|frame| match frame {
+        Ok(TungsteniteMessage::Text(text)) => InMsg::Text(text.to_string()),
+        Ok(TungsteniteMessage::Binary(_)) | Ok(TungsteniteMessage::Frame(_)) => InMsg::Binary,
+        Ok(TungsteniteMessage::Ping(data)) => InMsg::Ping(data.to_vec()),
+        Ok(TungsteniteMessage::Pong(_)) => InMsg::Pong,
+        Ok(TungsteniteMessage::Close(_)) | Err(_) => InMsg::Close,
+    });
+    let (tx, rx) = mpsc::channel::<OutMsg>(CHANNEL_CAP);
+    let cancel = CancellationToken::new();
+    let writer_handle = tokio::spawn(writer_task(sink, rx, cancel.clone()));
+    handle_session(relay, conn_id, source, tx, writer_handle, cancel).await;
+}
+
+async fn axum_writer_task(
+    mut sink: futures_util::stream::SplitSink<WebSocket, AxumMessage>,
+    mut rx: mpsc::Receiver<OutMsg>,
+    cancel: CancellationToken,
+) {
+    loop {
+        let msg = tokio::select! {
+            _ = cancel.cancelled() => break,
+            m = rx.recv() => match m { Some(m) => m, None => break },
+        };
+        let ws_msg = match msg {
+            OutMsg::Text(s) => AxumMessage::Text(s.into()),
+            OutMsg::Pong(d) => AxumMessage::Pong(d.into()),
+            OutMsg::Close => AxumMessage::Close(None),
+        };
+        let result = tokio::select! {
+            _ = cancel.cancelled() => break,
+            r = timeout(Duration::from_secs(5), sink.send(ws_msg)) => r,
+        };
+        match result {
+            Err(_) | Ok(Err(_)) => break,
+            Ok(Ok(())) => {}
+        }
+    }
+}
+
+async fn handle_axum_conn(relay: Arc<Relay>, mut socket: WebSocket) {
+    let Some(conn_id) = relay.reserve_connection() else {
+        let _ = socket.send(AxumMessage::Close(None)).await;
+        return;
+    };
+    tracing_opened(conn_id, relay.conn_count.load(Ordering::Relaxed));
+    let (sink, source) = socket.split();
+    let source = source.map(|frame| match frame {
+        Ok(AxumMessage::Text(text)) => InMsg::Text(text.to_string()),
+        Ok(AxumMessage::Binary(_)) => InMsg::Binary,
+        Ok(AxumMessage::Ping(data)) => InMsg::Ping(data.to_vec()),
+        Ok(AxumMessage::Pong(_)) => InMsg::Pong,
+        Ok(AxumMessage::Close(_)) | Err(_) => InMsg::Close,
+    });
+    let (tx, rx) = mpsc::channel::<OutMsg>(CHANNEL_CAP);
+    let cancel = CancellationToken::new();
+    let writer_handle = tokio::spawn(axum_writer_task(sink, rx, cancel.clone()));
+    handle_session(relay, conn_id, source, tx, writer_handle, cancel).await;
+}
+
+async fn handle_session<S>(
+    relay: Arc<Relay>,
+    conn_id: u64,
+    mut source: S,
+    tx: mpsc::Sender<OutMsg>,
+    writer_handle: tokio::task::JoinHandle<()>,
+    cancel: CancellationToken,
+) where
+    S: futures_util::Stream<Item = InMsg> + Unpin,
+{
     let _guard = ConnGuard {
         relay: Arc::clone(&relay),
         conn_id,
     };
-    let (sink, mut source) = stream.split();
-    let (tx, rx) = mpsc::channel::<OutMsg>(CHANNEL_CAP);
-    let cancel = CancellationToken::new();
-    let writer_handle = tokio::spawn(writer_task(sink, rx, cancel.clone()));
     tokio::pin!(writer_handle);
 
     let mut msg_rate = RateWindow::new();
@@ -649,29 +737,24 @@ async fn handle_conn(relay: Arc<Relay>, conn_id: u64, stream: WebSocketStream<To
             break 'conn;
         }
 
-        let frame = match frame {
-            Ok(f) => f,
-            Err(_) => break 'conn,
-        };
-
         match frame {
-            Message::Binary(_) | Message::Frame(_) => break 'conn,
+            InMsg::Binary => break 'conn,
 
-            Message::Ping(data) => {
-                if tx.try_send(OutMsg::Pong(data.to_vec())).is_err() {
+            InMsg::Ping(data) => {
+                if tx.try_send(OutMsg::Pong(data)).is_err() {
                     break 'conn;
                 }
             }
 
-            Message::Pong(_) => {}
+            InMsg::Pong => {}
 
-            Message::Close(_) => {
+            InMsg::Close => {
                 let _ = tx.try_send(OutMsg::Close);
                 break 'conn;
             }
 
-            Message::Text(text) => {
-                let arr: Vec<Value> = match serde_json::from_str::<Value>(text.as_str()).ok() {
+            InMsg::Text(text) => {
+                let arr: Vec<Value> = match serde_json::from_str::<Value>(&text).ok() {
                     Some(Value::Array(a)) if !a.is_empty() => a,
                     _ => {
                         let _ = tx.try_send(OutMsg::Text(make_notice("error: invalid message")));
@@ -910,6 +993,22 @@ async fn handle_conn(relay: Arc<Relay>, conn_id: u64, stream: WebSocketStream<To
     cancel.cancel();
 }
 
+/// Upgrade an Axum route to the hardened ephemeral pairing relay.
+///
+/// The route is intentionally unauthenticated because the QR session secret
+/// and ephemeral NIP-44 keys provide the pairing authentication. No event is
+/// persisted or forwarded outside the live, uniquely-addressed session.
+pub fn upgrade_axum(ws: WebSocketUpgrade, relay: Arc<Relay>) -> AxumResponse {
+    ws.max_message_size(MAX_FRAME)
+        .max_frame_size(MAX_FRAME)
+        .on_upgrade(move |socket| handle_axum_conn(relay, socket))
+        .into_response()
+}
+
+fn tracing_opened(conn_id: u64, active: u32) {
+    eprintln!("conn opened conn_id={conn_id} active={active}");
+}
+
 async fn http_service(
     relay: Arc<Relay>,
     mut req: Request<Incoming>,
@@ -947,19 +1046,12 @@ async fn http_service(
     }
 
     // Reserve slot before upgrading.
-    if relay.conn_count.fetch_add(1, Ordering::Relaxed) >= MAX_CONNS {
-        relay.conn_count.fetch_sub(1, Ordering::Relaxed);
+    let Some(conn_id) = relay.reserve_connection() else {
         let mut r = Response::new(Full::default());
         *r.status_mut() = StatusCode::SERVICE_UNAVAILABLE;
         return Ok(r);
-    }
-
-    let conn_id = relay.next_conn_id.fetch_add(1, Ordering::Relaxed);
-    eprintln!(
-        "conn opened conn_id={} active={}",
-        conn_id,
-        relay.conn_count.load(Ordering::Relaxed)
-    );
+    };
+    tracing_opened(conn_id, relay.conn_count.load(Ordering::Relaxed));
 
     let accept = derive_accept_key(key.as_ref().map(|k| k.as_bytes()).unwrap_or(b""));
     let relay_clone = Arc::clone(&relay);

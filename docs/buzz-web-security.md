@@ -32,6 +32,22 @@ runtime and does not give an agent process access to Docker.
   backup inside the worker; the browser verifies that its public key matches the
   configured relay owner, and neither the backup nor its password enters the
   claim payload.
+- Mobile pairing preserves the desktop NIP-AB boundary inside that worker. The
+  page receives the QR URI and six-digit SAS, but the ephemeral private key,
+  transcript inputs, and plaintext owner key remain worker-only. The owner
+  `nsec` is constructed only after explicit SAS confirmation and leaves the
+  worker solely inside a signed NIP-44 ciphertext addressed to the mobile
+  device's ephemeral key. Mutable pairing-key buffers and derived material are
+  zeroed when the session ends, the vault locks, or its owner key changes.
+- The public `/pair` WebSocket is the existing `buzz-pair-relay` protocol core
+  embedded in the relay image, so a single-container deployment needs no
+  second public service. It persists nothing and accepts only signed kind-24134
+  events with one exact `p` tag and structurally valid NIP-44 content. It keeps
+  the sidecar's 4 KiB frame cap, 120-second connection lifetime, 128-connection
+  cap, freshness checks, event and message rate limits, per-session event cap,
+  unique live recipient, bounded deduplication, and bounded delivery maps.
+  Authentication is intentionally the QR secret plus ephemeral NIP-44 key
+  agreement; relay membership and the owner key are never used on this path.
 - The relay verifies that the signer is the tenant's current relay owner before
   listing, creating, starting, stopping, or deleting hosted agents.
 - The relay creates agent identities server-side. Agent private keys and
@@ -149,6 +165,15 @@ The observer journal adds encrypted telemetry volume, timestamps, and the
 hosted-agent association to database backups. Message, prompt, tool, and result
 content remains NIP-44 ciphertext, but traffic analysis is still possible and
 backups must honor the same 30-day retention policy operationally.
+
+The pairing endpoint is public so an unpaired mobile device can reach it. An
+attacker can consume its bounded connection quota or interrupt a session if it
+also obtains the QR material, but cannot use it to query or persist relay data.
+Display the QR only to the intended device and reject any SAS mismatch. Running
+the protocol core in the relay process removes sidecar process isolation; its
+strict parser and resource caps limit that added blast radius, but deployments
+that require process-level fault isolation may still advertise a separately
+hosted `BUZZ_PAIRING_RELAY_URL`.
 
 WebAuthn credentials are phishing-resistant and domain-bound, which improves
 login phishing resistance relative to manually pasting an `nsec`. PRF support

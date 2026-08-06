@@ -3,6 +3,40 @@
 @plugin "@tailwindcss/typography";
 @config "../../../tailwind.config.js";
 
+@keyframes buzz-qr-cell-reveal {
+  0%,
+  27% {
+    opacity: 0;
+    transform: scale(0);
+  }
+
+  50% {
+    opacity: 0.5;
+    transform: scale(1.1);
+  }
+
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.buzz-qr-cell-reveal {
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: buzz-qr-cell-reveal 58ms linear var(--buzz-qr-reveal-delay, 0ms)
+    forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .buzz-qr-cell-reveal {
+    opacity: 1;
+    transform: none;
+    animation: none;
+  }
+}
+
 @layer base {
   :root {
     /* Catppuccin Latte (mauve accent) */

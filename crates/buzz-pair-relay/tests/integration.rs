@@ -6,12 +6,13 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use axum::{extract::WebSocketUpgrade, routing::get, Router};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
 use tokio::net::TcpListener;
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
-use buzz_pair_relay::{run_server, Relay};
+use buzz_pair_relay::{run_server, upgrade_axum, Relay};
 
 use secp256k1::{Keypair, Secp256k1, SecretKey};
 use sha2::{Digest, Sha256};
@@ -1390,4 +1391,34 @@ async fn test_event_tag_string_too_long() {
         "unexpected message: {}",
         resp[3]
     );
+}
+
+/// 52. The in-process Axum endpoint uses the same hardened protocol core as
+///     the standalone sidecar, allowing buzz-relay to serve `/pair` itself.
+#[tokio::test]
+async fn test_axum_upgrade_serves_pairing_protocol() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let relay = Arc::new(Relay::new());
+    let app = Router::new().route(
+        "/pair",
+        get(move |ws: WebSocketUpgrade| {
+            let relay = Arc::clone(&relay);
+            async move { upgrade_axum(ws, relay) }
+        }),
+    );
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+
+    let mut ws = connect(&format!("ws://{addr}/pair")).await;
+    send(
+        &mut ws,
+        &json!(["REQ", "pair", { "kinds": [24134], "#p": [P_A] }]),
+    )
+    .await;
+    assert_eq!(recv(&mut ws).await, json!(["EOSE", "pair"]));
+
+    ws.close(None).await.unwrap();
+    server.abort();
 }

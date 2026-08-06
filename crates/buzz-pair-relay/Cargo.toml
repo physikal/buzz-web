@@ -16,6 +16,7 @@ name = "buzz-pair-relay"
 path = "src/main.rs"
 
 [dependencies]
+axum             = { workspace = true, features = ["ws"] }
 tokio            = { workspace = true, features = ["rt-multi-thread", "macros", "net", "time", "sync"] }
 tokio-tungstenite = { workspace = true }
 serde_json       = { workspace = true }

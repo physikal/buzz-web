@@ -13,6 +13,7 @@ import {
   Volume2,
   ShieldAlert,
   Smile,
+  Smartphone,
   Ticket,
   UserRound,
 } from "lucide-react";
@@ -39,6 +40,7 @@ import { CustomEmojiPanel } from "./CustomEmojiPanel";
 import { ExperimentalFeaturesPanel } from "./ExperimentalFeaturesPanel";
 import { KeyboardShortcutsPanel } from "./KeyboardShortcutsPanel";
 import { ModerationPanel } from "./ModerationPanel";
+import { MobilePairingPanel } from "./MobilePairingPanel";
 import { AppearancePanel } from "./AppearancePanel";
 import { NotificationsPanel } from "./NotificationsPanel";
 import { VoicePanel } from "./VoicePanel";
@@ -63,6 +65,7 @@ const SETTINGS_ROWS: Array<[SettingsSection, string, React.ReactNode]> = [
   ["moderation", "Moderation", <ShieldAlert key="moderation" />],
   ["agents", "Agents", <Bot key="agents" />],
   ["experimental", "Experiments", <FlaskConical key="experimental" />],
+  ["mobile", "Mobile", <Smartphone key="mobile" />],
 ];
 
 const SETTINGS_GROUPS = [
@@ -190,6 +193,7 @@ function SettingsWorkspace({
           {section === "moderation" ? (
             <ModerationPanel ownerPubkey={ownerPubkey} />
           ) : null}
+          {section === "mobile" ? <MobilePairingPanel /> : null}
         </div>
       </main>
     </div>

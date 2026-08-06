@@ -9,7 +9,8 @@ export type SettingsSection =
   | "channel-templates"
   | "community-members"
   | "custom-emoji"
-  | "moderation";
+  | "moderation"
+  | "mobile";
 
 export const SETTINGS_SECTION_VALUES: readonly SettingsSection[] = [
   "profile",
@@ -23,6 +24,7 @@ export const SETTINGS_SECTION_VALUES: readonly SettingsSection[] = [
   "community-members",
   "moderation",
   "custom-emoji",
+  "mobile",
 ];
 
 export function isSettingsSection(value: unknown): value is SettingsSection {
