@@ -35,6 +35,7 @@ import {
   parseWaveMessageContent,
   WAVE_MESSAGE_MARKER,
 } from "../../src/features/channels/wave-message";
+import { buildProductFeedbackEvent } from "../../src/features/settings/feedback-api";
 
 const testPort = process.env.BUZZ_WEB_TEST_PORT ?? "4173";
 const testOrigin = `http://localhost:${testPort}`;
@@ -383,6 +384,38 @@ test("wave messages use the desktop marker and fallback semantics", () => {
   ).toEqual({ fallbackText: "Alice waved at you." });
   expect(parseWaveMessageContent(WAVE_MESSAGE_MARKER)).toEqual({
     fallbackText: "Someone waved at you.",
+  });
+});
+
+test("product feedback keeps desktop categories and attachment metadata", () => {
+  expect(
+    buildProductFeedbackEvent(
+      { category: "bug", message: "Private feedback" },
+      [
+        {
+          filename: "screen.png",
+          media: {
+            url: "https://buzz.example/media/hash",
+            sha256: "ab".repeat(32),
+            size: 42,
+            type: "image/png",
+          },
+        },
+      ],
+    ),
+  ).toEqual({
+    content: "Private feedback\n![image](https://buzz.example/media/hash)",
+    tags: [
+      ["category", "bug"],
+      [
+        "imeta",
+        "url https://buzz.example/media/hash",
+        "m image/png",
+        `x ${"ab".repeat(32)}`,
+        "size 42",
+        "filename screen.png",
+      ],
+    ],
   });
 });
 
@@ -6253,6 +6286,53 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   await page.getByRole("button", { name: "Leave huddle" }).click();
   await expect(page.getByLabel("Active huddle")).toBeHidden();
   await page.getByRole("button", { name: /^general\b/u }).click();
+
+  await page.getByTestId("sidebar-profile-card").click();
+  await page.getByTestId("profile-popover-send-feedback").click();
+  await expect(page.getByTestId("send-feedback-dialog")).toBeVisible();
+  await expect(page.getByTestId("feedback-privacy-disclosure")).toContainText(
+    "not posted to a channel",
+  );
+  await page.getByTestId("feedback-category-bug").click();
+  await page
+    .getByTestId("feedback-message")
+    .fill("The profile menu needs private feedback.");
+  await page.getByTestId("feedback-file-input").setInputFiles({
+    name: "feedback.gif",
+    mimeType: "image/gif",
+    buffer: Buffer.from(
+      "R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==",
+      "base64",
+    ),
+  });
+  await expect(page.getByTestId("feedback-attachment-thumb")).toBeVisible();
+  await page.getByTestId("feedback-attachment-thumb").click();
+  await expect(page.getByTestId("feedback-attachment-preview")).toBeVisible();
+  await page.getByRole("button", { name: "Close image preview" }).click();
+  await page.getByTestId("feedback-include-logs").check();
+  await page.screenshot({ path: "/tmp/buzz-web-feedback-desktop.png" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({ path: "/tmp/buzz-web-feedback-mobile.png" });
+  await page.getByTestId("feedback-submit").click();
+  await expect(page.getByTestId("send-feedback-dialog")).toBeHidden();
+  await page.setViewportSize({ width: 1280, height: 720 });
+  const feedbackEvent = submittedEvents.find((event) => event.kind === 42000);
+  expect(feedbackEvent).toBeTruthy();
+  expect(feedbackEvent?.tags).toContainEqual(["category", "bug"]);
+  expect(feedbackEvent?.tags.filter((tag) => tag[0] === "imeta")).toHaveLength(
+    2,
+  );
+  expect(feedbackEvent?.tags.some((tag) => tag[0] === "h")).toBe(false);
+  expect(feedbackEvent?.content).toContain(
+    "The profile menu needs private feedback.",
+  );
+  expect(feedbackEvent?.content).toContain("![image](");
+  expect(feedbackEvent?.content).toContain("[feedback-diagnostics-");
 
   await page.getByTestId("sidebar-profile-card").click();
   await page.getByTestId("profile-popover-lock").click();

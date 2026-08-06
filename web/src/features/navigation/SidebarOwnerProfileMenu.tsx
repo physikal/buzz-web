@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Check, LockKeyhole, Settings, Smile } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { getOwnerProfile } from "@/features/settings/settings-api";
@@ -15,6 +15,11 @@ import { useEscapeSurface } from "@/shared/hooks/use-escape-surface";
 import { truncatePubkey } from "@/shared/lib/pubkey";
 
 const STATUSES: PresenceStatus[] = ["online", "away", "offline"];
+
+const SendFeedbackDialog = lazy(async () => ({
+  default: (await import("@/features/settings/ui/SendFeedbackDialog"))
+    .SendFeedbackDialog,
+}));
 
 function presenceLabel(status: PresenceStatus) {
   return status.slice(0, 1).toUpperCase() + status.slice(1);
@@ -33,6 +38,7 @@ export function SidebarOwnerProfileMenu({
   const [menuOpen, setMenuOpen] = useState(false);
   const [presenceOpen, setPresenceOpen] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const presence = usePresenceSession();
   const ownerStatus = useOwnerStatus(ownerPubkey);
@@ -210,6 +216,18 @@ export function SidebarOwnerProfileMenu({
             </button>
 
             <div className="my-1 h-px bg-border" />
+            <button
+              className={MENU_ITEM}
+              data-testid="profile-popover-send-feedback"
+              onClick={() => {
+                setMenuOpen(false);
+                setFeedbackOpen(true);
+              }}
+              role="menuitem"
+              type="button"
+            >
+              <span className="flex-1">Send feedback</span>
+            </button>
             <Link
               className={MENU_ITEM}
               data-testid="profile-popover-settings"
@@ -248,6 +266,14 @@ export function SidebarOwnerProfileMenu({
         open={statusOpen}
         pending={ownerStatus.isPending}
       />
+      {feedbackOpen ? (
+        <Suspense fallback={null}>
+          <SendFeedbackDialog
+            onClose={() => setFeedbackOpen(false)}
+            open={feedbackOpen}
+          />
+        </Suspense>
+      ) : null}
     </>
   );
 }
