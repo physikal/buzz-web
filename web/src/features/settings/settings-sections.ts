@@ -9,6 +9,7 @@ export type SettingsSection =
   | "channel-templates"
   | "community-members"
   | "custom-emoji"
+  | "local-archive"
   | "moderation"
   | "mobile";
 
@@ -24,6 +25,7 @@ export const SETTINGS_SECTION_VALUES: readonly SettingsSection[] = [
   "community-members",
   "moderation",
   "custom-emoji",
+  "local-archive",
   "mobile",
 ];
 

@@ -742,6 +742,12 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   let sendActiveChannelEvent:
     | ((event: (typeof submittedEvents)[number]) => void)
     | null = null;
+  let sendArchiveChannelEvent:
+    | ((event: (typeof submittedEvents)[number]) => void)
+    | null = null;
+  let sendArchiveOwnerEvent:
+    | ((event: (typeof submittedEvents)[number]) => void)
+    | null = null;
   let capturedSearchFilter: Record<string, unknown> | null = null;
   const pairingTargetSecret = new Uint8Array(32);
   pairingTargetSecret[31] = 9;
@@ -1641,6 +1647,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
             kinds?: number[];
             authors?: string[];
             "#h"?: string[];
+            "#p"?: string[];
             limit?: number;
             since?: number;
           }>;
@@ -1666,6 +1673,28 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
             )
           ) {
             sendActiveChannelEvent = (event) =>
+              socket.send(JSON.stringify(["EVENT", subscriptionId, event]));
+          }
+          if (
+            requestFilters.some(
+              (filter) =>
+                filter.limit === 0 &&
+                filter.kinds?.includes(9) &&
+                filter["#h"]?.includes("44444444-4444-4444-8444-444444444444"),
+            )
+          ) {
+            sendArchiveChannelEvent = (event) =>
+              socket.send(JSON.stringify(["EVENT", subscriptionId, event]));
+          }
+          if (
+            requestFilters.some(
+              (filter) =>
+                filter.limit === 0 &&
+                filter.kinds?.includes(44_200) &&
+                filter["#p"]?.includes(ownerPubkey),
+            )
+          ) {
+            sendArchiveOwnerEvent = (event) =>
               socket.send(JSON.stringify(["EVENT", subscriptionId, event]));
           }
           const signer = catalogSecret;
@@ -2469,7 +2498,12 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
               ]),
             );
           }
-          if (filters.includes("24200") && ownerPubkey) {
+          if (
+            ownerPubkey &&
+            requestFilters.some(
+              (filter) => filter.kinds?.includes(24_200) && filter.limit !== 0,
+            )
+          ) {
             const conversationKey = nip44.utils.getConversationKey(
               agentSecret,
               ownerPubkey,
@@ -3518,7 +3552,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   ).toBeVisible();
   await channelContextMenu
     .getByRole("menuitem", { name: "Copy channel ID" })
-    .click();
+    .click({ force: true });
   await expect
     .poll(() => page.evaluate(() => navigator.clipboard.readText()))
     .toBe("44444444-4444-4444-8444-444444444444");
@@ -4411,6 +4445,218 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   expect(pairingPayloadVerified).toBe(true);
   await pairingDialog.getByRole("button", { name: "Close" }).click();
   await expect(page.getByTestId("start-pairing-button")).toBeVisible();
+  await page.getByRole("button", { name: "Local archive" }).click();
+  await expect(page).toHaveURL(/\/settings\?section=local-archive$/u);
+  await expect(
+    page.getByRole("heading", { name: "Local archive" }),
+  ).toBeVisible();
+  const observerArchiveToggle = page.getByRole("checkbox", {
+    name: "Archive my agents’ observer frames",
+  });
+  await observerArchiveToggle.click();
+  await expect(observerArchiveToggle).toBeChecked();
+  const metricArchiveToggle = page.getByRole("checkbox", {
+    name: "Archive my agents’ turn metrics",
+  });
+  await metricArchiveToggle.click();
+  await expect(metricArchiveToggle).toBeChecked();
+  await expect
+    .poll(() =>
+      page.evaluate(async (pubkey) => {
+        const request = indexedDB.open("buzz-web-local-archive", 1);
+        const database = await new Promise<IDBDatabase>((resolve, reject) => {
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = () => reject(request.error);
+        });
+        const transaction = database.transaction("subscriptions", "readonly");
+        const rows = await new Promise<
+          Array<{ kinds: number[]; ownerPubkey: string }>
+        >((resolve, reject) => {
+          const get = transaction.objectStore("subscriptions").getAll();
+          get.onsuccess = () => resolve(get.result);
+          get.onerror = () => reject(get.error);
+        });
+        database.close();
+        return rows
+          .filter(
+            (row) =>
+              row.ownerPubkey === pubkey &&
+              (row.kinds.includes(24_200) || row.kinds.includes(44_200)),
+          )
+          .flatMap((row) => row.kinds)
+          .sort((left, right) => left - right);
+      }, ownerPubkey),
+    )
+    .toEqual([24_200, 44_200]);
+  await expect.poll(() => sendArchiveOwnerEvent !== null).toBe(true);
+  const metricConversation = nip44.utils.getConversationKey(
+    agentSecret,
+    ownerPubkey,
+  );
+  const metricPayload = {
+    harness: "codex",
+    model: "gpt-5",
+    channelId: "44444444-4444-4444-8444-444444444444",
+    sessionId: "session-web-archive",
+    turnId: "turn-1",
+    turnSeq: 1,
+    timestamp: new Date().toISOString(),
+    turn: {
+      inputTokens: 120,
+      outputTokens: 30,
+      totalTokens: 150,
+      costUsd: 0.01,
+    },
+    cumulative: {
+      inputTokens: 120,
+      outputTokens: 30,
+      totalTokens: 150,
+      costUsd: 0.01,
+    },
+    deltaReliable: true,
+    stopReason: "end_turn",
+  };
+  const metricCiphertext = nip44.encrypt(
+    JSON.stringify(metricPayload),
+    metricConversation,
+  );
+  const archiveMetric = finalizeEvent(
+    {
+      kind: 44_200,
+      created_at: Math.floor(Date.now() / 1_000),
+      content: metricCiphertext,
+      tags: [
+        ["p", ownerPubkey],
+        ["agent", agentPubkey],
+      ],
+    },
+    agentSecret,
+  );
+  sendArchiveOwnerEvent?.(archiveMetric);
+  await page.getByTestId("local-archive-open-add").click();
+  await page.getByLabel("Channel").selectOption({ label: "general" });
+  await page
+    .getByRole("checkbox", { name: "Stream messages (kind 9)" })
+    .check();
+  await page.getByLabel("Advanced: custom kinds").fill("1337 nope");
+  await expect(page.getByText("Invalid tokens (ignored): nope")).toBeVisible();
+  await page.getByTestId("local-archive-confirm-add").click();
+  await expect(
+    page.getByTestId("local-archive-sub-44444444-4444-4444-8444-444444444444"),
+  ).toContainText("kinds: 9, 1337");
+  await expect.poll(() => sendArchiveChannelEvent !== null).toBe(true);
+  const archiveCandidate = finalizeEvent(
+    {
+      kind: 9,
+      created_at: Math.floor(Date.now() / 1_000),
+      content: "Persist this verified local archive event",
+      tags: [["h", "44444444-4444-4444-8444-444444444444"]],
+    },
+    humanSecret,
+  );
+  sendArchiveChannelEvent?.(archiveCandidate);
+  const readLocalArchive = () =>
+    page.evaluate(async () => {
+      const request = indexedDB.open("buzz-web-local-archive", 1);
+      const database = await new Promise<IDBDatabase>((resolve, reject) => {
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      const transaction = database.transaction(
+        ["events", "event-scopes"],
+        "readonly",
+      );
+      const readAll = <T>(storeName: string) =>
+        new Promise<T[]>((resolve, reject) => {
+          const get = transaction.objectStore(storeName).getAll();
+          get.onsuccess = () => resolve(get.result);
+          get.onerror = () => reject(get.error);
+        });
+      const [events, scopes] = await Promise.all([
+        readAll<Record<string, unknown>>("events"),
+        readAll<Record<string, unknown>>("event-scopes"),
+      ]);
+      database.close();
+      return { events, scopes };
+    });
+  await expect
+    .poll(async () => (await readLocalArchive()).events.length, {
+      timeout: 10_000,
+    })
+    .toBe(2);
+  const archived = await readLocalArchive();
+  const archivedChannelEvent = archived.events.find(
+    (event) => event.eventId === archiveCandidate.id,
+  );
+  const archivedMetric = archived.events.find(
+    (event) => event.eventId === archiveMetric.id,
+  );
+  expect(archivedChannelEvent).toMatchObject({
+    ownerPubkey,
+    eventId: archiveCandidate.id,
+    kind: 9,
+    author: humanPubkey,
+  });
+  expect(archivedMetric).toMatchObject({
+    ownerPubkey,
+    eventId: archiveMetric.id,
+    kind: 44_200,
+    author: agentPubkey,
+  });
+  expect(JSON.parse(String(archivedMetric?.rawJson))).toMatchObject(
+    metricPayload,
+  );
+  expect(String(archivedMetric?.rawJson)).not.toContain(metricCiphertext);
+  expect(
+    archived.scopes.find((scope) => scope.eventId === archiveCandidate.id),
+  ).toMatchObject({
+    ownerPubkey,
+    eventId: archiveCandidate.id,
+    scopeType: "channel_h",
+    scopeValue: "44444444-4444-4444-8444-444444444444",
+  });
+  expect(JSON.stringify(archived)).not.toMatch(/nsec|private.?key/u);
+  sendArchiveChannelEvent?.({
+    ...archiveCandidate,
+    content: "Tampered after signing",
+  });
+  const invalidMetric = finalizeEvent(
+    {
+      kind: 44_200,
+      created_at: Math.floor(Date.now() / 1_000),
+      content: nip44.encrypt(
+        JSON.stringify({ harness: "", timestamp: "not-a-date" }),
+        metricConversation,
+      ),
+      tags: [
+        ["p", ownerPubkey],
+        ["agent", agentPubkey],
+      ],
+    },
+    agentSecret,
+  );
+  metricConversation.fill(0);
+  sendArchiveOwnerEvent?.(invalidMetric);
+  await page.waitForTimeout(2_500);
+  expect((await readLocalArchive()).events).toHaveLength(2);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByTestId("settings-local-archive")).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: "/tmp/buzz-web-settings-local-archive-mobile.png",
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page
+    .getByRole("button", { name: "Remove archive subscription for general" })
+    .click();
+  await expect(page.getByTestId("local-archive-subscriptions")).toContainText(
+    "No channel subscriptions yet",
+  );
   await page.getByRole("button", { name: "Experiments" }).click();
   await expect(
     page.getByRole("heading", { name: "Experiments" }),

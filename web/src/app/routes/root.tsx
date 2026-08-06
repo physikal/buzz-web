@@ -11,6 +11,7 @@ import {
   type ChannelAction,
 } from "@/features/channels/channel-actions";
 import { ChannelNotifier } from "@/features/channels/ui/ChannelNotifier";
+import { LocalArchiveSync } from "@/features/local-archive/LocalArchiveSync";
 import { hasUnlockedOwnerVault } from "@/features/owner-vault/lib/vault-worker-client";
 import { useOwnerSessionState } from "@/features/owner-vault/lib/use-owner-session-state";
 import { ReminderNotifier } from "@/features/reminders/ui/ReminderNotifier";
@@ -127,6 +128,7 @@ function RootLayoutContent() {
     >
       <div className="flex min-h-dvh flex-col">
         <ChannelNotifier ownerPubkey={ownerPubkey} />
+        <LocalArchiveSync ownerPubkey={ownerPubkey} />
         <ReminderNotifier ownerPubkey={ownerPubkey} />
         <main className="flex flex-1 flex-col">
           <Suspense

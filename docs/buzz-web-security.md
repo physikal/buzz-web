@@ -105,6 +105,22 @@ runtime and does not give an agent process access to Docker.
   newest 10,000 frames at most once every ten seconds and history older than 30
   days is reaped; one response is capped at 3,000 frames and 8 MiB. Deleting the
   hosted agent cascades its history.
+- Local archive is opt-in, browser-local storage that mirrors the desktop save
+  subscriptions. Each IndexedDB row is partitioned by owner pubkey and relay
+  URL. Live-only subscriptions use the existing owner-authenticated NIP-42
+  connection, and the archive re-verifies every event signature, routing tag,
+  current saved subscription, and allowed kind before an atomic event/scope
+  write. Observer frames additionally require `frame=telemetry` and an exact
+  author/agent binding. Batches are capped at 25 events, individual stored
+  values at 256 KiB, and a subscription at 128 valid Nostr kinds. The archive
+  receives no private key or vault wrapper.
+- Kind-44200 turn metrics follow the desktop archive behavior: ciphertext is
+  decrypted through the owner worker, the NIP-AM payload and numeric fields are
+  validated fail-closed, and only then is the plaintext metric JSON stored.
+  Invalid signatures, tags, ciphertext, or payloads are discarded. Other
+  archived events, including kind-24200 observer frames, retain their original
+  signed envelope. Removing a subscription stops future capture but, as on
+  desktop, does not purge events already retained.
 - Each agent runs under a stable, unique Unix UID with a mode `0700` data
   directory. The supervisor uses fenced, short-lived database leases; a stale
   runner terminates when it can no longer renew its lease. During a host pause
@@ -165,6 +181,14 @@ The observer journal adds encrypted telemetry volume, timestamps, and the
 hosted-agent association to database backups. Message, prompt, tool, and result
 content remains NIP-44 ciphertext, but traffic analysis is still possible and
 backups must honor the same 30-day retention policy operationally.
+
+The local archive belongs to the browser profile, not the server, and therefore
+does not synchronize across devices. Same-origin code can read IndexedDB, so a
+compromised live web origin can read retained events and plaintext turn metrics
+even while the owner vault is locked. This is comparable to an OS user reading
+the desktop SQLite archive, but the relevant isolation boundary is the browser
+origin rather than a native application directory. Clearing site data removes
+the local archive; ordinary server backups do not contain it.
 
 The pairing endpoint is public so an unpaired mobile device can reach it. An
 attacker can consume its bounded connection quota or interrupt a session if it

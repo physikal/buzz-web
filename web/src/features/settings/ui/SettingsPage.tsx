@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import {
   ArrowLeft,
+  Archive,
   Bell,
   Bot,
   Camera,
@@ -21,6 +22,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { OwnerConnection } from "@/features/agents/ui/OwnerConnection";
+import { LocalArchivePanel } from "@/features/local-archive/ui/LocalArchivePanel";
 import { ChannelTemplatesPanel } from "@/features/channel-templates/ui/ChannelTemplatesPanel";
 import { AppPrimarySidebar } from "@/features/navigation/AppPrimarySidebar";
 import { lockOwnerVault } from "@/features/owner-vault/lib/vault-worker-client";
@@ -60,6 +62,7 @@ const SETTINGS_ROWS: Array<[SettingsSection, string, React.ReactNode]> = [
   ["voice", "Voice", <Volume2 key="voice" />],
   ["shortcuts", "Shortcuts", <Keyboard key="shortcuts" />],
   ["custom-emoji", "Custom emoji", <Smile key="custom-emoji" />],
+  ["local-archive", "Local archive", <Archive key="local-archive" />],
   ["channel-templates", "Templates", <FileStack key="templates" />],
   ["community-members", "Invites", <Ticket key="community-members" />],
   ["moderation", "Moderation", <ShieldAlert key="moderation" />],
@@ -69,9 +72,9 @@ const SETTINGS_ROWS: Array<[SettingsSection, string, React.ReactNode]> = [
 ];
 
 const SETTINGS_GROUPS = [
-  { label: "Personal", rows: SETTINGS_ROWS.slice(0, 6) },
-  { label: "Communities", rows: SETTINGS_ROWS.slice(6, 9) },
-  { label: "App", rows: SETTINGS_ROWS.slice(9) },
+  { label: "Personal", rows: SETTINGS_ROWS.slice(0, 7) },
+  { label: "Communities", rows: SETTINGS_ROWS.slice(7, 10) },
+  { label: "App", rows: SETTINGS_ROWS.slice(10) },
 ];
 
 export function SettingsPage({
@@ -189,6 +192,9 @@ function SettingsWorkspace({
           ) : null}
           {section === "custom-emoji" ? (
             <CustomEmojiPanel ownerPubkey={ownerPubkey} />
+          ) : null}
+          {section === "local-archive" ? (
+            <LocalArchivePanel ownerPubkey={ownerPubkey} />
           ) : null}
           {section === "moderation" ? (
             <ModerationPanel ownerPubkey={ownerPubkey} />
