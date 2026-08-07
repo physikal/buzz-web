@@ -54,10 +54,14 @@ export async function collectFeedbackDiagnostics() {
       headers: { Accept: "application/nostr+json" },
     });
     const info = (await response.json().catch(() => null)) as {
+      build?: unknown;
       version?: unknown;
     } | null;
     if (response.ok && typeof info?.version === "string") {
-      deploymentVersion = info.version;
+      deploymentVersion =
+        typeof info.build === "string"
+          ? `${info.version} (${info.build})`
+          : info.version;
     }
   } catch {
     // Diagnostics are optional and remain useful without a version response.

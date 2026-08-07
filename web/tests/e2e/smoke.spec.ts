@@ -4479,6 +4479,9 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
 
   await page.getByRole("link", { name: "Settings" }).click();
   await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+  await expect(page.getByTestId("settings-build")).toHaveText(
+    /^(?:Development build|Build [0-9a-f]{9})$/u,
+  );
   await expect(page.getByRole("heading", { name: "Profile" })).toBeVisible();
   await expect(page.getByLabel("Display name")).toHaveValue("");
   await expect(page.getByText("Not set", { exact: true })).toBeVisible();

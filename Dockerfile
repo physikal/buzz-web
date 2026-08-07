@@ -15,6 +15,7 @@ ARG RUST_VERSION=1.95
 ARG NODE_VERSION=24
 ARG DEBIAN_VERSION=bookworm
 ARG SOURCE_REPOSITORY=https://github.com/block/buzz
+ARG BUZZ_BUILD_SHA=development
 
 # Optional extra CA bundle for builds behind a TLS-intercepting corporate proxy
 # (e.g. a Cloudflare/Zscaler gateway that re-signs TLS). Empty by default, so
@@ -52,6 +53,8 @@ RUN cargo chef prepare --recipe-path recipe.json
 
 # ─── Stage 3: cook dependencies, then build the binary ──────────────────────
 FROM chef AS builder
+ARG BUZZ_BUILD_SHA
+ENV BUZZ_BUILD_SHA=${BUZZ_BUILD_SHA}
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         build-essential \
@@ -98,6 +101,8 @@ RUN strip target/release/buzz-relay \
 # vice versa.
 FROM node:${NODE_VERSION}-${DEBIAN_VERSION}-slim AS web-builder
 WORKDIR /build
+ARG BUZZ_BUILD_SHA
+ENV VITE_BUZZ_BUILD_SHA=${BUZZ_BUILD_SHA}
 # Trust an optional corporate-proxy CA so corepack + pnpm can fetch over an
 # intercepting TLS gateway (no-op if EXTRA_CA_CERTS is unset).
 ARG EXTRA_CA_CERTS
@@ -136,6 +141,7 @@ RUN pnpm -C web build && pnpm -C admin-web build
 # ─── Stage 5: shared runtime ────────────────────────────────────────────────
 FROM debian:${DEBIAN_VERSION}-slim AS runtime-base
 ARG SOURCE_REPOSITORY
+ARG BUZZ_BUILD_SHA
 
 # OCI annotations: required for GHCR to auto-link the image to this repo and
 # inherit its visibility. org.opencontainers.image.source is the load-bearing
@@ -145,6 +151,7 @@ LABEL org.opencontainers.image.title="Buzz" \
       org.opencontainers.image.source="${SOURCE_REPOSITORY}" \
       org.opencontainers.image.url="${SOURCE_REPOSITORY}" \
       org.opencontainers.image.documentation="${SOURCE_REPOSITORY}#readme" \
+      org.opencontainers.image.revision="${BUZZ_BUILD_SHA}" \
       org.opencontainers.image.licenses="Apache-2.0"
 
 RUN apt-get update \
@@ -197,11 +204,13 @@ COPY --from=stripped-binaries /build/target/release/buzz-pair-relay /usr/local/b
 # keeps Node and third-party ACP adapters out of the relay's attack surface.
 FROM node:${NODE_VERSION}-${DEBIAN_VERSION}-slim AS agent-runtime-base
 ARG SOURCE_REPOSITORY
+ARG BUZZ_BUILD_SHA
 
 LABEL org.opencontainers.image.title="Buzz Agent Host" \
       org.opencontainers.image.description="Centralized, fenced Buzz ACP agent supervisor" \
       org.opencontainers.image.source="${SOURCE_REPOSITORY}" \
       org.opencontainers.image.url="${SOURCE_REPOSITORY}" \
+      org.opencontainers.image.revision="${BUZZ_BUILD_SHA}" \
       org.opencontainers.image.licenses="Apache-2.0"
 
 COPY deploy/agent-runtime/package.json deploy/agent-runtime/package-lock.json /opt/buzz-agent-runtime/

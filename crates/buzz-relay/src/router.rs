@@ -504,6 +504,7 @@ async fn status_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse
     Json(json!({
         "service": "buzz-relay",
         "version": env!("CARGO_PKG_VERSION"),
+        "build": crate::nip11::BUILD_ID,
         "uptime_seconds": uptime_secs,
     }))
 }

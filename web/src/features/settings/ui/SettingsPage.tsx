@@ -80,6 +80,12 @@ const SETTINGS_GROUPS = [
   { label: "App", rows: SETTINGS_ROWS.slice(10) },
 ];
 
+const BUILD_ID = import.meta.env.VITE_BUZZ_BUILD_SHA?.trim() || "development";
+const BUILD_LABEL =
+  BUILD_ID === "development"
+    ? "Development build"
+    : `Build ${BUILD_ID.slice(0, 9)}`;
+
 export function SettingsPage({
   initialSection = "profile",
   onSectionChange,
@@ -126,9 +132,18 @@ function SettingsWorkspace({
         ownerPubkey={ownerPubkey}
         visibleFrom="lg"
       />
-      <aside className="hidden w-52 shrink-0 overflow-y-auto border-r p-3 md:block">
+      <aside className="hidden w-52 shrink-0 flex-col overflow-y-auto border-r p-3 md:flex">
         <h1 className="px-2 py-3 text-lg font-semibold">Settings</h1>
-        <SettingsNav active={section} onSelect={selectSection} />
+        <div className="flex-1">
+          <SettingsNav active={section} onSelect={selectSection} />
+        </div>
+        <p
+          className="px-2 pb-1 pt-4 text-xs text-muted-foreground"
+          data-testid="settings-build"
+          title={BUILD_ID}
+        >
+          {BUILD_LABEL}
+        </p>
       </aside>
       <main className="min-w-0 flex-1 overflow-y-auto p-4 md:p-8">
         <div className="mb-6 md:hidden">
@@ -166,6 +181,13 @@ function SettingsWorkspace({
               </option>
             ))}
           </select>
+          <p
+            className="mt-2 text-right text-xs text-muted-foreground"
+            data-testid="settings-build-mobile"
+            title={BUILD_ID}
+          >
+            {BUILD_LABEL}
+          </p>
         </div>
         <div className="mx-auto max-w-2xl">
           {section === "profile" ? (

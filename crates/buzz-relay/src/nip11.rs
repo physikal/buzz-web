@@ -14,6 +14,12 @@ use crate::config::DEFAULT_MAX_FRAME_BYTES;
 /// only when membership enforcement is actually enabled — see that function.
 pub(crate) const SUPPORTED_NIPS: &[u32] = &[1, 2, 10, 11, 16, 17, 23, 25, 29, 33, 38, 42, 50, 56];
 
+/// Source revision embedded by the image build for deployment identification.
+pub const BUILD_ID: &str = match option_env!("BUZZ_BUILD_SHA") {
+    Some(value) => value,
+    None => "development",
+};
+
 /// NIP-43 (relay membership). Advertised only when the relay actually
 /// enforces membership (`BUZZ_REQUIRE_RELAY_MEMBERSHIP=true`) AND has a
 /// stable signing key — both are required for kind 13534/8000/8001 events
@@ -47,6 +53,8 @@ pub struct RelayInfo {
     pub software: String,
     /// Relay software version string.
     pub version: String,
+    /// Source revision for the deployed build.
+    pub build: String,
     /// Protocol and resource limits advertised to clients.
     pub limitation: Option<RelayLimitation>,
     /// Public WebSocket URL of the dedicated NIP-AB device-pairing relay.
@@ -166,6 +174,7 @@ impl RelayInfo {
             push: None,
             software: "https://github.com/block/buzz".to_string(),
             version: env!("CARGO_PKG_VERSION").to_string(),
+            build: BUILD_ID.to_string(),
             limitation: Some(relay_limitation(max_message_length)),
             pairing_relay_url: pairing_relay_url.map(str::to_string),
             relay_self: relay_self.map(|s| s.to_string()),
@@ -393,6 +402,12 @@ mod tests {
     fn build_advertises_buzz_repository_url() {
         let info = RelayInfo::build(None, None, false, DEFAULT_MAX_FRAME_BYTES, None);
         assert_eq!(info.software, "https://github.com/block/buzz");
+    }
+
+    #[test]
+    fn build_advertises_source_revision() {
+        let info = RelayInfo::build(None, None, false, DEFAULT_MAX_FRAME_BYTES, None);
+        assert_eq!(info.build, BUILD_ID);
     }
 
     #[test]
