@@ -101,6 +101,7 @@ function parseCatalogPersona(
       "openrouter",
       "databricks",
       "databricks_v2",
+      "relay-mesh",
     ].includes(provider ?? "")
       ? (provider as AgentPersona["provider"])
       : null;

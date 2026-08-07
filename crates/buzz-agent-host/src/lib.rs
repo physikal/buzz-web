@@ -56,6 +56,15 @@ pub fn derive_control_token(key: &[u8; 32]) -> String {
     hex::encode(hasher.finalize())
 }
 
+/// Domain-separated token passed to the unprivileged shared-compute child.
+/// Compromise of that child does not reveal the agent secret-envelope key.
+pub fn derive_mesh_control_token(key: &[u8; 32]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(b"buzz-mesh-host-control:v1\0");
+    hasher.update(key);
+    hex::encode(hasher.finalize())
+}
+
 /// Fixed vendor CLI command used for subscription authentication.
 pub fn subscription_auth_command(runtime: &str) -> Option<(&'static str, &'static [&'static str])> {
     match runtime {

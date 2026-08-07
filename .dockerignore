@@ -3,8 +3,19 @@ target/
 **/target/
 desktop/src-tauri/target/
 
-# Native non-relay UI builds (not part of the public image)
-desktop/
+# Native UI builds are not part of the public image. The hosted mesh process
+# compiles these four policy modules directly so web and desktop cannot drift.
+desktop/*
+!desktop/src-tauri/
+desktop/src-tauri/*
+!desktop/src-tauri/src/
+desktop/src-tauri/src/*
+!desktop/src-tauri/src/mesh_llm/
+desktop/src-tauri/src/mesh_llm/*
+!desktop/src-tauri/src/mesh_llm/catalog.rs
+!desktop/src-tauri/src/mesh_llm/identity.rs
+!desktop/src-tauri/src/mesh_llm/transport_policy.rs
+!desktop/src-tauri/src/mesh_llm/usage.rs
 mobile/
 
 # Node artifacts (built inside the image; host outputs would invalidate cache)
@@ -20,6 +31,7 @@ web/dist/
 .vscode/
 .idea/
 .scratch/
+.hermit/
 
 # Local environment / secrets — never want these in the build context
 .env

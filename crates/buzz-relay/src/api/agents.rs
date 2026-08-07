@@ -217,6 +217,12 @@ pub async fn create_agent(
         .map(|(key, value)| (key.clone(), Value::String(value.clone())))
         .collect::<serde_json::Map<String, Value>>();
 
+    if credential_mode != "subscription" && start_immediately {
+        if let Some(model_id) = relay_mesh_model(&runtime, provider.as_deref(), model.as_deref()) {
+            super::compute::ensure_agent_client(&state, &tenant, model_id).await?;
+        }
+    }
+
     let envelope_key = std::env::var("BUZZ_AGENT_SECRET_KEY")
         .map_err(|_| {
             api_error(
@@ -893,6 +899,13 @@ async fn set_state(
                 ));
             }
         }
+        if let Some(model_id) = relay_mesh_model(
+            &record.runtime,
+            record.provider.as_deref(),
+            record.model.as_deref(),
+        ) {
+            super::compute::ensure_agent_client(&state, &tenant, model_id).await?;
+        }
     }
     let record = state
         .db
@@ -904,6 +917,22 @@ async fn set_state(
         })?
         .ok_or_else(|| api_error(StatusCode::NOT_FOUND, "agent not found"))?;
     Ok(Json(json!({ "agent": record })))
+}
+
+fn relay_mesh_model<'a>(
+    runtime: &str,
+    provider: Option<&str>,
+    model: Option<&'a str>,
+) -> Option<&'a str> {
+    if runtime.trim() != "buzz-agent" || provider.map(str::trim) != Some("relay-mesh") {
+        return None;
+    }
+    Some(
+        model
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("auto"),
+    )
 }
 
 /// Delete a stopped agent and revoke its direct relay membership.
@@ -1059,7 +1088,7 @@ fn validate_create(input: &CreateAgentRequest) -> Result<(), (StatusCode, Json<V
             ("claude", _) | ("buzz-agent", Some("anthropic")) => Some("ANTHROPIC_API_KEY"),
             ("buzz-agent", Some("openai")) => Some("OPENAI_COMPAT_API_KEY"),
             ("buzz-agent", Some("openrouter")) => Some("OPENROUTER_API_KEY"),
-            ("buzz-agent", Some("databricks" | "databricks_v2")) => None,
+            ("buzz-agent", Some("databricks" | "databricks_v2" | "relay-mesh")) => None,
             _ => None,
         };
         if required_secret.is_some_and(|name| !input.secrets.contains_key(name)) {
@@ -1088,7 +1117,14 @@ fn validate_runtime_config(input: &CreateAgentRequest) -> Result<(), (StatusCode
     if input.runtime == "buzz-agent" {
         if !matches!(
             provider,
-            Some("anthropic" | "openai" | "openrouter" | "databricks" | "databricks_v2")
+            Some(
+                "anthropic"
+                    | "openai"
+                    | "openrouter"
+                    | "databricks"
+                    | "databricks_v2"
+                    | "relay-mesh"
+            )
         ) || input
             .model
             .as_deref()
@@ -1097,6 +1133,18 @@ fn validate_runtime_config(input: &CreateAgentRequest) -> Result<(), (StatusCode
             return Err(api_error(
                 StatusCode::BAD_REQUEST,
                 "Buzz Agent requires a provider and model",
+            ));
+        }
+        if provider == Some("relay-mesh")
+            && (input
+                .model
+                .as_deref()
+                .is_none_or(|model| !super::compute::is_hosted_model_ref(model.trim()))
+                || !input.secrets.is_empty())
+        {
+            return Err(api_error(
+                StatusCode::BAD_REQUEST,
+                "relay-mesh accepts only a catalog model and no provider secrets",
             ));
         }
     } else if provider.is_some() || !input.runtime_config.is_empty() {
@@ -1282,6 +1330,32 @@ mod tests {
         request
             .runtime_config
             .insert("LD_PRELOAD".into(), "/tmp/inject.so".into());
+        assert!(validate_create(&request).is_err());
+    }
+
+    #[test]
+    fn shared_compute_needs_no_secret_and_rejects_provider_urls() {
+        let mut request = valid_request();
+        request.runtime = "buzz-agent".into();
+        request.model = Some("auto".into());
+        request.provider = Some("relay-mesh".into());
+        request.secrets.clear();
+        request
+            .runtime_config
+            .insert("max_output_tokens".into(), "2048".into());
+        assert!(validate_create(&request).is_ok());
+
+        request
+            .runtime_config
+            .insert("base_url".into(), "http://attacker.invalid/v1".into());
+        assert!(validate_create(&request).is_err());
+        request.runtime_config.remove("base_url");
+        request.model = Some("http://169.254.169.254/latest/meta-data".into());
+        assert!(validate_create(&request).is_err());
+        request.model = Some("auto".into());
+        request
+            .secrets
+            .insert("OPENAI_API_KEY".into(), "unused-secret".into());
         assert!(validate_create(&request).is_err());
     }
 

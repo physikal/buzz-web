@@ -59,6 +59,7 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 sqlx = { workspace = true }
 reqwest = { workspace = true }
 base64 = "0.22"
+ed25519-dalek = "=3.0.0-rc.0"
 buzz-sdk = { workspace = true }
 buzz-workflow = { workspace = true, features = ["reqwest"] }
 buzz-media = { workspace = true }

@@ -165,6 +165,7 @@ export function TeamDeployDialog({
           openrouter: openRouterKey,
           databricks: databricksToken,
           databricks_v2: databricksToken,
+          "relay-mesh": "",
         },
         databricksHost,
         runtimeCatalog.runtimes,
@@ -417,7 +418,10 @@ function teamAgentInput(
     persona_id: persona.id,
     system_prompt: systemPrompt,
     runtime,
-    model: persona.model ?? undefined,
+    model:
+      provider === "relay-mesh"
+        ? persona.model?.trim() || "auto"
+        : (persona.model ?? undefined),
     provider,
     parallelism: persona.parallelism ?? 1,
     runtime_config: runtimeConfig,

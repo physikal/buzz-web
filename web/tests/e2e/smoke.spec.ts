@@ -4,6 +4,7 @@ import {
   expect,
   test,
   type Download as PlaywrightDownload,
+  type Request as PlaywrightRequest,
   type WebSocketRoute,
 } from "@playwright/test";
 import { nip19 } from "nostr-tools";
@@ -717,6 +718,23 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
   let ownerPubkey = "";
   const managedAgents: Array<Record<string, unknown>> = [];
   const createdAgentInputs: Array<Record<string, unknown>> = [];
+  const computeStartInputs: Array<Record<string, unknown>> = [];
+  let computeStopCount = 0;
+  let computeStatus: Record<string, unknown> = {
+    state: "off",
+    mode: null,
+    health: { status: "ok", reason: null },
+    apiBaseUrl: null,
+    consoleUrl: null,
+    modelId: null,
+    modelName: null,
+    maxVramGb: null,
+    endpointId: null,
+    deviceId: null,
+    deviceName: null,
+    desiredEnabled: false,
+    progress: null,
+  };
   const restoredMemory: Array<{ slug: string; body: string }> = [];
   const uploadedMedia = new Map<
     string,
@@ -1144,6 +1162,168 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
       }),
     });
   });
+  function expectComputeReadAuth(request: PlaywrightRequest) {
+    const authorization = request.headers().authorization ?? "";
+    const event = JSON.parse(
+      Buffer.from(authorization.slice("Nostr ".length), "base64").toString(
+        "utf8",
+      ),
+    );
+    expect(verifyEvent(event)).toBe(true);
+    expect(event.pubkey).toBe(ownerPubkey);
+    expect(event.tags).toContainEqual(["u", request.url()]);
+    expect(event.tags).toContainEqual(["method", "GET"]);
+    expect(event.tags.some((tag: string[]) => tag[0] === "payload")).toBe(
+      false,
+    );
+  }
+  await page.route("**/api/compute/status", async (route) => {
+    const request = route.request();
+    expectComputeReadAuth(request);
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      headers: { "Cache-Control": "private, no-store" },
+      body: JSON.stringify(computeStatus),
+    });
+  });
+  await page.route("**/api/compute/catalog", async (route) => {
+    expectComputeReadAuth(route.request());
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        gpuName: "Test GPU",
+        vramDisplay: "24 GB",
+        vramGb: 24,
+        recommended: "meshllm/test-model:Q4_K_M",
+        entries: [
+          {
+            name: "meshllm/test-model:Q4_K_M",
+            size: "8.0GB",
+            sizeGb: 8,
+            description: "Test model",
+            fit: "comfortable",
+            installed: true,
+            recommended: true,
+            curated: true,
+          },
+          {
+            name: "meshllm/large-model:Q4_K_M",
+            size: "30GB",
+            sizeGb: 30,
+            description: "Large test model",
+            fit: "too_large",
+            installed: false,
+            recommended: false,
+            curated: false,
+          },
+        ],
+      }),
+    });
+  });
+  await page.route("**/api/compute/models", async (route) => {
+    expectComputeReadAuth(route.request());
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        models: [{ id: "meshllm/test-model:Q4_K_M", name: null }],
+      }),
+    });
+  });
+  await page.route("**/api/compute/usage", async (route) => {
+    expectComputeReadAuth(route.request());
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        inflight: 1,
+        peakInflight: 2,
+        requestsServed: 4,
+        tokensServed: 320,
+        tokensPerSecond: 18.4,
+        localAttempts: 1,
+        remoteAttempts: 3,
+        endpointAttempts: 0,
+        peers: 2,
+      }),
+    });
+  });
+  await page.route("**/api/compute/start", async (route) => {
+    const request = route.request();
+    const body = request.postData() ?? "";
+    const authorization = request.headers().authorization ?? "";
+    const event = JSON.parse(
+      Buffer.from(authorization.slice("Nostr ".length), "base64").toString(
+        "utf8",
+      ),
+    );
+    expect(verifyEvent(event)).toBe(true);
+    expect(event.pubkey).toBe(ownerPubkey);
+    expect(event.tags).toContainEqual(["u", request.url()]);
+    expect(event.tags).toContainEqual(["method", "POST"]);
+    expect(event.tags).toContainEqual([
+      "payload",
+      createHash("sha256").update(body).digest("hex"),
+    ]);
+    computeStartInputs.push(JSON.parse(body) as Record<string, unknown>);
+    computeStatus = {
+      ...computeStatus,
+      state: "starting",
+      mode: "serve",
+      modelId: computeStartInputs.at(-1)?.modelId,
+      modelName: computeStartInputs.at(-1)?.modelId,
+      maxVramGb: computeStartInputs.at(-1)?.maxVramGb ?? null,
+      desiredEnabled: true,
+      health: { status: "degraded", reason: "preparing shared compute" },
+      progress: {
+        label: "test-model",
+        file: "test-model.gguf",
+        downloadedBytes: 2_000_000_000,
+        totalBytes: 8_000_000_000,
+        status: "downloading",
+        done: false,
+      },
+    };
+    await route.fulfill({
+      status: 202,
+      contentType: "application/json",
+      body: JSON.stringify(computeStatus),
+    });
+  });
+  await page.route("**/api/compute/stop", async (route) => {
+    const request = route.request();
+    expect(request.postData()).toBeNull();
+    const authorization = request.headers().authorization ?? "";
+    const event = JSON.parse(
+      Buffer.from(authorization.slice("Nostr ".length), "base64").toString(
+        "utf8",
+      ),
+    );
+    expect(verifyEvent(event)).toBe(true);
+    expect(event.pubkey).toBe(ownerPubkey);
+    expect(event.tags).toContainEqual(["method", "POST"]);
+    expect(event.tags.some((tag: string[]) => tag[0] === "payload")).toBe(
+      false,
+    );
+    computeStopCount += 1;
+    computeStatus = {
+      ...computeStatus,
+      state: "off",
+      mode: null,
+      modelId: null,
+      modelName: null,
+      desiredEnabled: false,
+      health: { status: "ok", reason: null },
+      progress: null,
+    };
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(computeStatus),
+    });
+  });
   await page.route("**/api/agents", async (route) => {
     const request = route.request();
     const authorization = request.headers().authorization ?? "";
@@ -1174,6 +1354,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
           "88888888-8888-4888-8888-888888888888",
           "99999999-9999-4999-8999-999999999999",
           "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
         ][managedAgents.length],
         owner_pubkey: ownerPubkey,
         agent_pubkey: agentPubkey,
@@ -4319,7 +4500,10 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
       name: "Web owner",
       about: "Owner profile from the browser",
     });
-  await page.getByLabel("Passkey label").fill("Bitwarden passkey");
+  await expect(page.getByText("Profile updated")).toBeVisible();
+  const passkeyLabel = page.getByLabel("Passkey label");
+  await passkeyLabel.fill("Bitwarden passkey");
+  await expect(passkeyLabel).toHaveValue("Bitwarden passkey");
   await page.getByRole("button", { name: "Add passkey" }).click();
   await expect(page.getByText("Passkey added")).toBeVisible();
   expect(addedCredentialCount).toBe(1);
@@ -5423,6 +5607,72 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
       );
     })
     .toBe(true);
+  await page.getByRole("button", { name: "Compute" }).click();
+  await expect(page).toHaveURL(/\/settings\?section=compute$/u);
+  await expect(
+    page.getByRole("heading", { name: "Share compute" }),
+  ).toBeVisible();
+  const computeModel = page.getByTestId("mesh-share-compute-model");
+  await expect(computeModel).toHaveValue("meshllm/test-model:Q4_K_M");
+  await expect(page.getByText("Test GPU, 24 GB AI memory")).toBeVisible();
+  await expect(
+    page.getByText("Already installed on this machine:"),
+  ).toBeVisible();
+  await page.getByText("Advanced", { exact: true }).click();
+  await page.getByLabel("Max VRAM (GB)").fill("16");
+  const computeToggle = page.getByRole("switch", {
+    name: "Share this machine",
+  });
+  await computeToggle.click();
+  await expect
+    .poll(() => computeStartInputs)
+    .toEqual([{ modelId: "meshllm/test-model:Q4_K_M", maxVramGb: 16 }]);
+  await expect(page.getByTestId("mesh-download-progress")).toContainText("25%");
+  computeStatus = {
+    ...computeStatus,
+    state: "running",
+    mode: "serve",
+    health: { status: "ok", reason: null },
+    progress: null,
+  };
+  await expect(page.getByText(/Sharing .* with relay members/u)).toBeVisible({
+    timeout: 5_000,
+  });
+  await expect(page.getByTestId("mesh-serving-usage")).toContainText(
+    "In use now by another member · 1 live",
+  );
+  await page.screenshot({ path: "/tmp/buzz-web-settings-compute.png" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByLabel("Settings section")).toHaveValue("compute");
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: "/tmp/buzz-web-settings-compute-mobile.png",
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await computeToggle.click();
+  await expect.poll(() => computeStopCount).toBe(1);
+  await expect(page.getByText("Not sharing right now.")).toBeVisible();
+  computeStatus = {
+    ...computeStatus,
+    state: "running",
+    mode: "client",
+    modelId: "meshllm/remote-model:Q4_K_M",
+    modelName: "meshllm/remote-model:Q4_K_M",
+    health: { status: "ok", reason: null },
+  };
+  await page.getByRole("button", { name: "Invites" }).click();
+  await page.getByRole("button", { name: "Compute" }).click();
+  await expect(computeToggle).not.toBeChecked();
+  await expect(computeToggle).toBeEnabled();
+  await expect(
+    page.getByText(/currently using another member's shared compute/u),
+  ).toBeVisible();
+  await expect(computeModel).toHaveValue("meshllm/test-model:Q4_K_M");
   await page.getByRole("button", { name: "Invites" }).click();
   await expect(
     page.getByRole("button", { name: "Invite to community" }),
@@ -6992,6 +7242,45 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
 
   await page.getByRole("link", { name: "Agents" }).click();
   await page.getByRole("button", { name: "New agent" }).click();
+  const sharedComputeAgentDialog = page.getByRole("dialog", {
+    name: "Create agent",
+  });
+  await sharedComputeAgentDialog
+    .getByText("Agent name", { exact: true })
+    .locator("..")
+    .getByRole("textbox")
+    .fill("Local reviewer");
+  await sharedComputeAgentDialog
+    .getByText(/^LLM provider/u)
+    .locator("..")
+    .getByRole("combobox")
+    .selectOption("relay-mesh", { timeout: 5_000 });
+  await expect(
+    sharedComputeAgentDialog.getByPlaceholder("Choose a model"),
+  ).toHaveValue("auto");
+  await expect(
+    sharedComputeAgentDialog.getByPlaceholder("Paste API key…"),
+  ).toHaveCount(0);
+  await sharedComputeAgentDialog
+    .getByRole("button", { name: "Advanced" })
+    .click();
+  await expect(
+    sharedComputeAgentDialog.getByLabel("Provider base URL"),
+  ).toHaveCount(0);
+  await sharedComputeAgentDialog
+    .getByRole("button", { name: "Create agent" })
+    .click();
+  await expect.poll(() => managedAgents.length).toBe(6);
+  expect(createdAgentInputs[5]).toMatchObject({
+    name: "Local reviewer",
+    runtime: "buzz-agent",
+    model: "auto",
+    provider: "relay-mesh",
+    credential_mode: "api-key",
+    secrets: {},
+    runtime_config: {},
+  });
+  await page.getByRole("button", { name: "New agent" }).click();
   const customAgentDialog = page.getByRole("dialog", { name: "Create agent" });
   await customAgentDialog
     .getByText("Agent name", { exact: true })
@@ -7015,8 +7304,8 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     .getByPlaceholder("Choose a model")
     .fill("gemini-2.5-pro");
   await customAgentDialog.getByRole("button", { name: "Create agent" }).click();
-  await expect.poll(() => managedAgents.length).toBe(6);
-  expect(createdAgentInputs[5]).toMatchObject({
+  await expect.poll(() => managedAgents.length).toBe(7);
+  expect(createdAgentInputs[6]).toMatchObject({
     name: "Gemini reviewer",
     runtime: "gemini",
     model: "gemini-2.5-pro",
@@ -7040,7 +7329,7 @@ test("owner setup creates a passkey-wrapped signer and enters Channels", async (
     "Also deletes 1 hosted agent instance and removes its relay membership",
   );
   await deletePersonaDialog.getByRole("button", { name: "Delete" }).click();
-  await expect.poll(() => managedAgents.length).toBe(5);
+  await expect.poll(() => managedAgents.length).toBe(6);
   await expect
     .poll(() => {
       const personaId = submittedEvents

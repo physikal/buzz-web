@@ -282,9 +282,11 @@ function AgentEditForm({
               <select
                 className="h-9 w-full rounded-md border bg-background px-3 text-sm"
                 value={provider}
-                onChange={(event) =>
-                  setProvider(event.target.value as AgentProvider)
-                }
+                onChange={(event) => {
+                  const next = event.target.value as AgentProvider;
+                  setProvider(next);
+                  if (next === "relay-mesh") setModel("auto");
+                }}
               >
                 {AGENT_PROVIDERS.map((entry) => (
                   <option key={entry.value} value={entry.value}>
@@ -320,7 +322,9 @@ function AgentEditForm({
               values={customSecrets}
             />
           ) : null}
-          {credentialMode === "api-key" && !customRuntime ? (
+          {credentialMode === "api-key" &&
+          !customRuntime &&
+          !(runtime === "buzz-agent" && provider === "relay-mesh") ? (
             <Field
               label={
                 runtime === "buzz-agent"

@@ -1,8 +1,8 @@
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use buzz_agent_host::{
-    decrypt_secret, legacy_secret_env_name, parse_envelope_key, runtime_command,
-    runtime_config_env_name,
+    decrypt_secret, derive_mesh_control_token, legacy_secret_env_name, parse_envelope_key,
+    runtime_command, runtime_config_env_name,
 };
 use buzz_core::CommunityId;
 use buzz_db::{managed_agent_host::ManagedAgentLease, Db, DbConfig};
@@ -42,6 +42,19 @@ async fn main() -> anyhow::Result<()> {
         .clamp(1, 64);
     tokio::fs::create_dir_all(&data_dir).await?;
 
+    let mesh_control_token = derive_mesh_control_token(&envelope_key);
+    let mesh_data_dir =
+        PathBuf::from(std::env::var("BUZZ_MESH_DATA_DIR").unwrap_or_else(|_| "/data/mesh".into()));
+    let mesh_reporter_pubkey = std::env::var("BUZZ_RELAY_PUBKEY").ok();
+    let _mesh_host_supervisor = spawn_mesh_host_supervisor(
+        mesh_data_dir,
+        runtime_path.clone(),
+        relay_url.clone(),
+        mesh_reporter_pubkey,
+        mesh_control_token.clone(),
+    )
+    .await?;
+
     let db = Db::new(&DbConfig {
         database_url,
         max_connections: 5,
@@ -63,6 +76,7 @@ async fn main() -> anyhow::Result<()> {
             control_bind,
             control_db,
             control_token,
+            mesh_control_token,
             control_dir,
             control_path,
             control_logs,
@@ -119,6 +133,50 @@ async fn main() -> anyhow::Result<()> {
             }
         }
     }
+}
+
+async fn spawn_mesh_host_supervisor(
+    data_dir: PathBuf,
+    runtime_path: String,
+    relay_url: String,
+    reporter_pubkey: Option<String>,
+    control_token: String,
+) -> anyhow::Result<tokio::task::JoinHandle<()>> {
+    let Some(reporter_pubkey) = reporter_pubkey else {
+        warn!("shared compute disabled because BUZZ_RELAY_PUBKEY is not configured");
+        return Ok(tokio::spawn(std::future::pending()));
+    };
+    prepare_workdir(&data_dir, 10_001).await?;
+    let binary = std::env::var("BUZZ_MESH_HOST_BIN")
+        .unwrap_or_else(|_| "/usr/local/bin/buzz-mesh-host".into());
+    Ok(tokio::spawn(async move {
+        loop {
+            let mut command = Command::new(&binary);
+            command
+                .env_clear()
+                .env("PATH", &runtime_path)
+                .env("HOME", &data_dir)
+                .env("BUZZ_MESH_DATA_DIR", &data_dir)
+                .env("BUZZ_MESH_HOST_CONTROL_TOKEN", &control_token)
+                .env("BUZZ_MESH_REPORTER_PUBKEY", &reporter_pubkey)
+                .env("BUZZ_RELAY_URL", &relay_url)
+                .env("RUST_LOG", "buzz_mesh_host=info")
+                .kill_on_drop(true)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::inherit())
+                .stderr(std::process::Stdio::inherit());
+            #[cfg(unix)]
+            command.uid(10_001).gid(10_001);
+            match command.spawn() {
+                Ok(mut child) => match child.wait().await {
+                    Ok(status) => warn!(%status, "shared compute host exited; restarting"),
+                    Err(error) => warn!(%error, "shared compute host wait failed; restarting"),
+                },
+                Err(error) => warn!(%error, "shared compute host could not start; retrying"),
+            }
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        }
+    }))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -228,6 +286,26 @@ async fn run_agent(
             || (record.runtime == "buzz-agent" && legacy_secret_env_name(name))
         {
             command.env(name, value);
+        }
+    }
+    if record.runtime == "buzz-agent" && record.provider.as_deref() == Some("relay-mesh") {
+        let model = record
+            .model
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("auto");
+        command
+            .env("BUZZ_AGENT_PROVIDER", "openai")
+            .env("BUZZ_AGENT_MODEL", model)
+            .env("OPENAI_COMPAT_BASE_URL", "http://127.0.0.1:9337/v1")
+            .env("OPENAI_COMPAT_MODEL", model)
+            .env("OPENAI_COMPAT_API_KEY", "buzz-mesh-local")
+            .env("OPENAI_COMPAT_API", "chat")
+            .env("BUZZ_AGENT_PREFER_MESH_FOR_AUTO", "1")
+            .env("BUZZ_AGENT_REQUIRE_REPLY", "1");
+        if !record.runtime_config.contains_key("max_output_tokens") {
+            command.env("BUZZ_AGENT_MAX_OUTPUT_TOKENS", "4096");
         }
     }
     #[cfg(unix)]

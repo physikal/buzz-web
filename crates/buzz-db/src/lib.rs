@@ -4043,6 +4043,14 @@ impl Db {
         managed_agent_host::list_owned(&self.pool, community, owner_pubkey).await
     }
 
+    /// Return only the models needed by desired-running hosted mesh agents.
+    pub async fn list_running_relay_mesh_models(
+        &self,
+        community: CommunityId,
+    ) -> Result<Vec<String>> {
+        managed_agent_host::list_running_relay_mesh_models(&self.pool, community).await
+    }
+
     /// Load one centralized agent belonging to `owner_pubkey`.
     pub async fn get_owned_managed_agent_host(
         &self,

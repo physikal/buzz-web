@@ -46,15 +46,17 @@ fn dedupe_targets(targets: Vec<MeshServeTarget>) -> Vec<MeshServeTarget> {
 /// a member removed from the NIP-43 roster leaves the intersection at the next
 /// roster poll regardless of how fresh their last status is.
 pub fn owner_ids_from_events(events: &[nostr::Event]) -> Vec<String> {
-    let Some(members) = latest_membership_list(events) else {
+    let Some(snapshot) = latest_membership_list(events) else {
         return Vec::new();
     };
     let mut ids: Vec<String> = events
         .iter()
         .filter(|event| event.kind.as_u16() as u64 == MESH_STATUS_KIND)
         .filter(|event| {
-            reporter_pubkey_from_status_event(event)
-                .is_some_and(|reporter| members.contains(&reporter.to_ascii_lowercase()))
+            reporter_pubkey_from_status_event(event).is_some_and(|reporter| {
+                let reporter = reporter.to_ascii_lowercase();
+                snapshot.members.contains(&reporter) || reporter == snapshot.relay_pubkey
+            })
         })
         .filter_map(owner_id_from_status_event)
         .collect();
@@ -63,13 +65,19 @@ pub fn owner_ids_from_events(events: &[nostr::Event]) -> Vec<String> {
     ids
 }
 
-fn latest_membership_list(events: &[nostr::Event]) -> Option<BTreeSet<String>> {
+struct MembershipSnapshot {
+    members: BTreeSet<String>,
+    relay_pubkey: String,
+}
+
+fn latest_membership_list(events: &[nostr::Event]) -> Option<MembershipSnapshot> {
     events
         .iter()
         .filter(|event| event.kind.as_u16() == 13_534)
         .max_by_key(|event| event.created_at)
-        .map(|event| {
-            event
+        .map(|event| MembershipSnapshot {
+            relay_pubkey: event.pubkey.to_hex().to_ascii_lowercase(),
+            members: event
                 .tags
                 .iter()
                 .filter_map(|tag| {
@@ -83,14 +91,16 @@ fn latest_membership_list(events: &[nostr::Event]) -> Option<BTreeSet<String>> {
                         .map(|pubkey| pubkey.trim().to_ascii_lowercase())
                 })
                 .filter(|pubkey| !pubkey.is_empty())
-                .collect()
+                .collect(),
         })
 }
 
 pub(crate) fn current_member_pubkeys(events: &[nostr::Event]) -> Vec<String> {
     latest_membership_list(events)
-        .map(BTreeSet::into_iter)
-        .map(Iterator::collect)
+        .map(|mut snapshot| {
+            snapshot.members.insert(snapshot.relay_pubkey);
+            snapshot.members.into_iter().collect()
+        })
         .unwrap_or_default()
 }
 
@@ -176,7 +186,7 @@ pub fn availability_from_events(events: Vec<nostr::Event>) -> MeshAvailability {
     if events.is_empty() {
         return MeshAvailability::unavailable("Buzz shared compute status is not published yet");
     }
-    let Some(members) = latest_membership_list(&events) else {
+    let Some(snapshot) = latest_membership_list(&events) else {
         return MeshAvailability::unavailable(
             "Buzz shared compute is waiting for the current member roster",
         );
@@ -193,7 +203,10 @@ pub fn availability_from_events(events: Vec<nostr::Event>) -> MeshAvailability {
     for event in events {
         if event.kind.as_u16() as u64 != MESH_STATUS_KIND
             || !status_is_fresh(&event, now)
-            || !members.contains(&event.pubkey.to_hex().to_ascii_lowercase())
+            || {
+                let reporter = event.pubkey.to_hex().to_ascii_lowercase();
+                !snapshot.members.contains(&reporter) && reporter != snapshot.relay_pubkey
+            }
         {
             continue;
         }

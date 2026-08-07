@@ -10,6 +10,7 @@ use std::{
 };
 
 use axum::{
+    body::Bytes,
     extract::{Path as AxumPath, State},
     http::{header, HeaderMap, StatusCode},
     routing::{get, post},
@@ -87,6 +88,7 @@ impl RuntimeLogStore {
 pub struct AuthControlState {
     db: Db,
     token: Arc<String>,
+    mesh_token: Arc<String>,
     data_dir: PathBuf,
     runtime_path: Arc<String>,
     sessions: Arc<RwLock<HashMap<SessionKey, Arc<AuthSession>>>>,
@@ -118,6 +120,7 @@ pub async fn serve(
     bind: SocketAddr,
     db: Db,
     token: String,
+    mesh_token: String,
     data_dir: PathBuf,
     runtime_path: String,
     runtime_logs: RuntimeLogStore,
@@ -125,6 +128,7 @@ pub async fn serve(
     let state = AuthControlState {
         db,
         token: Arc::new(token),
+        mesh_token: Arc::new(mesh_token),
         data_dir,
         runtime_path: Arc::new(runtime_path),
         sessions: Arc::new(RwLock::new(HashMap::new())),
@@ -137,11 +141,148 @@ pub async fn serve(
         )
         .route("/v1/agents/{community}/{id}/auth/input", post(input))
         .route("/v1/agents/{community}/{id}/logs", get(runtime_log))
+        .route("/v1/compute/status", get(compute_status))
+        .route("/v1/compute/catalog", get(compute_catalog))
+        .route("/v1/compute/models", get(compute_models))
+        .route("/v1/compute/usage", get(compute_usage))
+        .route("/v1/compute/report", get(compute_report))
+        .route("/v1/compute/start", post(compute_start))
+        .route("/v1/compute/ensure-client", post(compute_ensure_client))
+        .route("/v1/compute/stop", post(compute_stop))
         .with_state(state);
     let listener = tokio::net::TcpListener::bind(bind).await?;
     tracing::info!(%bind, "agent authentication control port ready");
     axum::serve(listener, router).await?;
     Ok(())
+}
+
+type ControlResponse = (StatusCode, HeaderMap, Json<serde_json::Value>);
+
+async fn compute_status(
+    State(state): State<AuthControlState>,
+    headers: HeaderMap,
+) -> Result<ControlResponse, (StatusCode, Json<serde_json::Value>)> {
+    authorize(&state, &headers)?;
+    proxy_compute(&state, reqwest::Method::GET, "status", None).await
+}
+
+async fn compute_catalog(
+    State(state): State<AuthControlState>,
+    headers: HeaderMap,
+) -> Result<ControlResponse, (StatusCode, Json<serde_json::Value>)> {
+    authorize(&state, &headers)?;
+    proxy_compute(&state, reqwest::Method::GET, "catalog", None).await
+}
+
+async fn compute_models(
+    State(state): State<AuthControlState>,
+    headers: HeaderMap,
+) -> Result<ControlResponse, (StatusCode, Json<serde_json::Value>)> {
+    authorize(&state, &headers)?;
+    proxy_compute(&state, reqwest::Method::GET, "models", None).await
+}
+
+async fn compute_usage(
+    State(state): State<AuthControlState>,
+    headers: HeaderMap,
+) -> Result<ControlResponse, (StatusCode, Json<serde_json::Value>)> {
+    authorize(&state, &headers)?;
+    proxy_compute(&state, reqwest::Method::GET, "usage", None).await
+}
+
+async fn compute_report(
+    State(state): State<AuthControlState>,
+    headers: HeaderMap,
+) -> Result<ControlResponse, (StatusCode, Json<serde_json::Value>)> {
+    authorize(&state, &headers)?;
+    proxy_compute(&state, reqwest::Method::GET, "report", None).await
+}
+
+async fn compute_start(
+    State(state): State<AuthControlState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<ControlResponse, (StatusCode, Json<serde_json::Value>)> {
+    authorize(&state, &headers)?;
+    if body.len() > 128 * 1024 {
+        return Err(error(StatusCode::PAYLOAD_TOO_LARGE, "request is too large"));
+    }
+    proxy_compute(&state, reqwest::Method::POST, "start", Some(body)).await
+}
+
+async fn compute_ensure_client(
+    State(state): State<AuthControlState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<ControlResponse, (StatusCode, Json<serde_json::Value>)> {
+    authorize(&state, &headers)?;
+    if body.len() > 128 * 1024 {
+        return Err(error(StatusCode::PAYLOAD_TOO_LARGE, "request is too large"));
+    }
+    proxy_compute(&state, reqwest::Method::POST, "ensure-client", Some(body)).await
+}
+
+async fn compute_stop(
+    State(state): State<AuthControlState>,
+    headers: HeaderMap,
+) -> Result<ControlResponse, (StatusCode, Json<serde_json::Value>)> {
+    authorize(&state, &headers)?;
+    proxy_compute(&state, reqwest::Method::POST, "stop", Some(Bytes::new())).await
+}
+
+async fn proxy_compute(
+    state: &AuthControlState,
+    method: reqwest::Method,
+    action: &'static str,
+    body: Option<Bytes>,
+) -> Result<ControlResponse, (StatusCode, Json<serde_json::Value>)> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10 * 60))
+        .build()
+        .map_err(|_| {
+            error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "shared compute is unavailable",
+            )
+        })?;
+    let mut request = client
+        .request(method, format!("http://127.0.0.1:8091/v1/compute/{action}"))
+        .bearer_auth(state.mesh_token.as_str())
+        .header(reqwest::header::ACCEPT, "application/json");
+    if let Some(body) = body {
+        request = request
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .body(body);
+    }
+    let response = request.send().await.map_err(|_| {
+        error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "shared compute is unavailable",
+        )
+    })?;
+    let status =
+        StatusCode::from_u16(response.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+    let bytes = response.bytes().await.map_err(|_| {
+        error(
+            StatusCode::BAD_GATEWAY,
+            "shared compute returned an invalid response",
+        )
+    })?;
+    if bytes.len() > 2 * 1024 * 1024 {
+        return Err(error(
+            StatusCode::BAD_GATEWAY,
+            "shared compute response is too large",
+        ));
+    }
+    let value = serde_json::from_slice(&bytes).map_err(|_| {
+        error(
+            StatusCode::BAD_GATEWAY,
+            "shared compute returned an invalid response",
+        )
+    })?;
+    let mut response_headers = HeaderMap::new();
+    response_headers.insert(header::CACHE_CONTROL, "no-store".parse().unwrap());
+    Ok((status, response_headers, Json(value)))
 }
 
 async fn runtime_log(

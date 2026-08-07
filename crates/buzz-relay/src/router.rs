@@ -155,6 +155,12 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/agents/{id}/auth/start", post(api::agents::start_auth))
         .route("/api/agents/{id}/auth/input", post(api::agents::auth_input))
         .route("/api/agents/{id}/logs", get(api::agents::agent_logs))
+        .route("/api/compute/status", get(api::compute::status))
+        .route("/api/compute/catalog", get(api::compute::catalog))
+        .route("/api/compute/models", get(api::compute::models))
+        .route("/api/compute/usage", get(api::compute::usage))
+        .route("/api/compute/start", post(api::compute::start))
+        .route("/api/compute/stop", post(api::compute::stop))
         .route(
             "/api/agents/{id}/activity",
             get(api::agents::agent_activity),

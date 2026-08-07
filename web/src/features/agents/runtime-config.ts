@@ -36,6 +36,12 @@ export const AGENT_PROVIDERS: Array<{
     credentialLabel: "Databricks token",
     credentialRequired: false,
   },
+  {
+    value: "relay-mesh",
+    label: "Buzz shared compute",
+    credentialLabel: "No credential required",
+    credentialRequired: false,
+  },
 ];
 
 export const THINKING_EFFORTS = [
@@ -141,7 +147,9 @@ export function validateAdvancedRuntimeDraft(
     return "Context limit must exceed max output tokens.";
   const url = provider.startsWith("databricks")
     ? draft.databricksHost
-    : draft.baseUrl;
+    : provider === "relay-mesh"
+      ? ""
+      : draft.baseUrl;
   if (provider.startsWith("databricks") && !url)
     return "Databricks host is required.";
   if (url) {
@@ -167,7 +175,12 @@ export function buildRuntimeConfig(
       ["max_rounds", draft.maxRounds],
       ["max_output_tokens", draft.maxOutputTokens],
       ["max_context_tokens", draft.maxContextTokens],
-      ["base_url", provider.startsWith("databricks") ? "" : draft.baseUrl],
+      [
+        "base_url",
+        provider.startsWith("databricks") || provider === "relay-mesh"
+          ? ""
+          : draft.baseUrl,
+      ],
       ["api_mode", provider === "openai" ? draft.apiMode : ""],
       ["api_version", provider === "anthropic" ? draft.apiVersion : ""],
       [
@@ -186,6 +199,7 @@ export function buildCredentialSecrets(
   if (!credential) return {};
   if (runtime === "codex") return { OPENAI_API_KEY: credential };
   if (runtime === "claude") return { ANTHROPIC_API_KEY: credential };
+  if (provider === "relay-mesh") return {};
   return {
     [{
       anthropic: "ANTHROPIC_API_KEY",

@@ -3,6 +3,7 @@
 pub mod admin;
 pub mod agents;
 pub mod bridge;
+pub mod compute;
 pub mod events;
 pub mod git;
 pub mod invites;

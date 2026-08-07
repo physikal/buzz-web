@@ -6,6 +6,7 @@ export type SettingsSection =
   | "shortcuts"
   | "experimental"
   | "agents"
+  | "compute"
   | "channel-templates"
   | "community-members"
   | "custom-emoji"
@@ -21,6 +22,7 @@ export const SETTINGS_SECTION_VALUES: readonly SettingsSection[] = [
   "shortcuts",
   "experimental",
   "agents",
+  "compute",
   "channel-templates",
   "community-members",
   "moderation",

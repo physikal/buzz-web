@@ -210,9 +210,11 @@ export function PersonaDialog({
                 aria-label="Provider"
                 className="h-9 w-full rounded-md border bg-background px-3 text-sm"
                 disabled={pending}
-                onChange={(event) =>
-                  setProvider(event.target.value as AgentProvider)
-                }
+                onChange={(event) => {
+                  const next = event.target.value as AgentProvider;
+                  setProvider(next);
+                  if (next === "relay-mesh") setModel("auto");
+                }}
                 value={provider}
               >
                 {AGENT_PROVIDERS.map((entry) => (

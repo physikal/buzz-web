@@ -18,7 +18,7 @@ services:
         /usr/local/bin/buzz-agent-bootstrap /staging /run/buzz-owner
         mkdir -p /relay-secrets /agent-secrets /postgres-secret /redis-secret /s3-secrets
         cp /staging/* /relay-secrets/
-        cp /staging/postgres_password /staging/agent_envelope_key /agent-secrets/
+        cp /staging/postgres_password /staging/agent_envelope_key /staging/relay_pubkey /agent-secrets/
         cp /staging/postgres_password /postgres-secret/
         cp /staging/redis_password /redis-secret/
         cp /staging/s3_access_key /staging/s3_secret_key /s3-secrets/
@@ -116,10 +116,12 @@ services:
       - |
         export DATABASE_URL="postgres://buzz:$$(cat /run/buzz-agent-secrets/postgres_password)@postgres:5432/buzz"
         export BUZZ_AGENT_SECRET_KEY="$$(cat /run/buzz-agent-secrets/agent_envelope_key)"
+        export BUZZ_RELAY_PUBKEY="$$(cat /run/buzz-agent-secrets/relay_pubkey)"
         exec /usr/local/bin/buzz-agent-host
     environment:
       BUZZ_RELAY_URL: wss://${BUZZ_DOMAIN:?set BUZZ_DOMAIN}
       BUZZ_AGENT_DATA_DIR: /data/agents
+      BUZZ_MESH_DATA_DIR: /data/mesh
       BUZZ_AGENT_HOST_CONTROL_BIND: 0.0.0.0:8090
       BUZZ_AGENT_HOST_MAX_AGENTS: ${BUZZ_AGENT_HOST_MAX_AGENTS:-8}
       BUZZ_AGENT_RUNTIME_CATALOG_JSON: ${BUZZ_AGENT_RUNTIME_CATALOG_JSON:-}
@@ -127,6 +129,7 @@ services:
     volumes:
       - buzz-agent-secrets:/run/buzz-agent-secrets:ro
       - buzz-agent-data:/data/agents
+      - buzz-mesh-data:/data/mesh
     tmpfs:
       - /tmp:size=256m,mode=1777
     read_only: true
@@ -226,6 +229,7 @@ volumes:
   buzz-minio-data:
   buzz-git-data:
   buzz-agent-data:
+  buzz-mesh-data:
 
 networks:
   edge:

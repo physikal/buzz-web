@@ -7,6 +7,7 @@ import {
   Bot,
   Camera,
   Copy,
+  Cpu,
   FileStack,
   FlaskConical,
   Keyboard,
@@ -23,6 +24,7 @@ import { toast } from "sonner";
 
 import { OwnerConnection } from "@/features/agents/ui/OwnerConnection";
 import { LocalArchivePanel } from "@/features/local-archive/ui/LocalArchivePanel";
+import { MeshComputeSettingsPanel } from "@/features/mesh-compute/ui/MeshComputeSettingsPanel";
 import { ChannelTemplatesPanel } from "@/features/channel-templates/ui/ChannelTemplatesPanel";
 import { AppPrimarySidebar } from "@/features/navigation/AppPrimarySidebar";
 import { lockOwnerVault } from "@/features/owner-vault/lib/vault-worker-client";
@@ -67,6 +69,7 @@ const SETTINGS_ROWS: Array<[SettingsSection, string, React.ReactNode]> = [
   ["community-members", "Invites", <Ticket key="community-members" />],
   ["moderation", "Moderation", <ShieldAlert key="moderation" />],
   ["agents", "Agents", <Bot key="agents" />],
+  ["compute", "Compute", <Cpu key="compute" />],
   ["experimental", "Experiments", <FlaskConical key="experimental" />],
   ["mobile", "Mobile", <Smartphone key="mobile" />],
 ];
@@ -184,6 +187,7 @@ function SettingsWorkspace({
               <AgentDefaultsPanel ownerPubkey={ownerPubkey} />
             </div>
           ) : null}
+          {section === "compute" ? <MeshComputeSettingsPanel /> : null}
           {section === "channel-templates" ? (
             <ChannelTemplatesPanel ownerPubkey={ownerPubkey} />
           ) : null}

@@ -403,6 +403,7 @@ export function snapshotPersonaInput(
     "openrouter",
     "databricks",
     "databricks_v2",
+    "relay-mesh",
   ].includes(snapshot.definition.provider ?? "")
     ? (snapshot.definition.provider as PersonaInput["provider"])
     : null;

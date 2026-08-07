@@ -9,7 +9,8 @@ export type AgentProvider =
   | "openai"
   | "openrouter"
   | "databricks"
-  | "databricks_v2";
+  | "databricks_v2"
+  | "relay-mesh";
 export type RespondToMode = "owner-only" | "allowlist" | "anyone";
 export type AgentCredentialMode = "api-key" | "subscription";
 

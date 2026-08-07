@@ -79,6 +79,7 @@ async function parseDefaults(event: NostrEvent): Promise<AgentDefaults | null> {
         "openrouter",
         "databricks",
         "databricks_v2",
+        "relay-mesh",
       ].includes(value.provider as string) ||
       !["api-key", "subscription"].includes(value.credential_mode as string) ||
       typeof value.model !== "string" ||
@@ -181,6 +182,7 @@ export async function saveAgentDefaults(input: AgentDefaults): Promise<void> {
       "openrouter",
       "databricks",
       "databricks_v2",
+      "relay-mesh",
     ].includes(input.provider)
   )
     throw new Error("Choose a valid provider.");

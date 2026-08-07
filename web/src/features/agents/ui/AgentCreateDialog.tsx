@@ -80,7 +80,9 @@ export function AgentCreateDialog({
   const [runtime, setRuntime] = useState<AgentRuntime>(initialRuntime);
   const [provider, setProvider] = useState<AgentProvider>(initialProvider);
   const [model, setModel] = useState(
-    defaults?.model ?? globalDefaults?.model ?? "",
+    defaults?.model ??
+      globalDefaults?.model ??
+      (initialProvider === "relay-mesh" ? "auto" : ""),
   );
   const [apiKey, setApiKey] = useState(
     globalMatches ? (globalDefaults?.apiKey ?? "") : "",
@@ -359,7 +361,11 @@ export function AgentCreateDialog({
                 <Field label="LLM provider" required>
                   <Select
                     disabled={pending}
-                    onChange={(value) => setProvider(value as AgentProvider)}
+                    onChange={(value) => {
+                      const next = value as AgentProvider;
+                      setProvider(next);
+                      if (next === "relay-mesh") setModel("auto");
+                    }}
                     value={provider}
                     options={AGENT_PROVIDERS}
                   />
@@ -398,7 +404,9 @@ export function AgentCreateDialog({
                 />
               ) : null}
 
-              {credentialMode === "api-key" && !customRuntime ? (
+              {credentialMode === "api-key" &&
+              !customRuntime &&
+              !(runtime === "buzz-agent" && provider === "relay-mesh") ? (
                 <Field
                   label={
                     runtime === "buzz-agent"

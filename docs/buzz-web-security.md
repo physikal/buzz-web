@@ -92,6 +92,52 @@ runtime and does not give an agent process access to Docker.
 - The agent host is not attached to the public edge network. Its control port
   is reachable only on the internal backend network, while a separate egress
   network provides the outbound access required by agent and vendor CLIs.
+- Shared Compute runs in a separate `buzz-mesh-host` child process as UID
+  `10001`, with an empty environment, its own mode-`0700` data volume, and a
+  domain-separated control token. It receives the relay public key, never the
+  relay signing key, owner key, provider credentials, agent envelope key,
+  database URL, or Docker socket. Its control API binds only to loopback; the
+  agent host exposes a fixed internal proxy rather than an arbitrary URL proxy.
+- Public Shared Compute reads and writes require the same short-lived,
+  owner-signed NIP-98 authorization and deployment-community binding as hosted
+  agent controls. Write signatures bind the exact body digest and replay nonce.
+  Loopback API and console addresses, internal roster versions, bootstrap dial
+  pointers, admission owner IDs, and mesh control tokens are never returned to
+  the browser.
+- The relay derives every mesh dial pointer and admission owner ID from the
+  current relay-signed membership snapshot plus fresh, member-signed MeshLLM
+  status. It verifies the Ed25519 owner binding and the signature over the exact
+  advertised endpoint set before using either value. The isolated host validates
+  the signed MeshLLM bootstrap token again before passing it to the runtime.
+- Relay-hosted MeshLLM status is signed by the relay key already authoritative
+  for the membership snapshot and contains a separate MeshLLM owner and endpoint
+  signature. Desktop discovery accepts that report only for the deployment
+  relay; it does not make relay-signed status from unrelated relays authoritative.
+- Mesh admission allowlists carry a length-delimited roster digest. The relay
+  coordinator checks it every 45 seconds and restarts serving or consuming
+  runtimes when verified membership changes, so removed identities do not stay
+  admitted for the lifetime of a process. Membership and status are queried
+  separately, preventing status volume from displacing the authoritative roster.
+- The coordinator reads only the distinct model ids of desired-running hosted
+  `relay-mesh` agents, capped at 64, and re-arms every required route after
+  process startup, ingress failure, admission-roster replacement, or verified
+  peer-endpoint rotation. The isolated host reports only a one-way fingerprint
+  for each active route target to the loopback coordinator. Live peer endpoints,
+  join tokens, and trusted owner ids are still derived from verified relay events
+  per route; they are never persisted on agent records, returned by the public
+  status API, or accepted from the browser.
+- Starting a hosted `relay-mesh` agent performs the same readiness preflight as
+  desktop: an existing serving runtime is reused, or an isolated client runtime
+  joins a currently verified member serving the exact model (`auto` may select
+  any live target). The browser cannot supply the endpoint, allowlist, local API
+  URL, or placeholder credential. The agent host applies the fixed loopback
+  OpenAI-compatible settings after owner configuration and rejects provider
+  secrets for this provider.
+- Hosted model inputs accept only bounded catalog IDs or explicit `hf://`
+  references. Local paths, bare GGUF filenames, traversal, whitespace, query or
+  fragment syntax, arbitrary URI schemes, and HTTP(S) URLs are rejected by the
+  browser, relay, and isolated host. This prevents the model field from becoming
+  a server-side file-read or arbitrary-request primitive.
 - Login output and confirmation input are capped, stripped of terminal control
   sequences, held only in process memory, and never written to the relay
   database or logs. Login sessions expire after 15 minutes. The resulting
@@ -159,6 +205,9 @@ runtime and does not give an agent process access to Docker.
    network, and provider access that particular harness has.
 6. Review and rebuild pinned harness dependencies regularly. Do not install
    extra runtimes in the relay image.
+7. Do not publish the agent-host control ports `8090`/`8091`, MeshLLM ingress
+   `9337`, or MeshLLM console `3131`. They are loopback or backend-network
+   implementation details; only the relay HTTPS endpoint belongs at the edge.
 
 ## Residual risk
 
@@ -225,3 +274,13 @@ process can read its own subscription credentials, just as a desktop harness
 can read credentials in its user profile. The UID boundary prevents another
 non-root agent process from reading them, but it is not protection against a
 compromised container host.
+
+Shared Compute downloads and executes a pinned MeshLLM native runtime and parses
+owner-selected model artifacts. This is comparable to enabling Shared Compute
+in Buzz Desktop, but a compromise has the server container's blast radius rather
+than one workstation user's process. Keep the MeshLLM dependency and image tag
+pinned, review upgrades, and restrict container egress to required model and
+transport services where the deployment supports an egress policy. The
+unprivileged child, empty environment, dedicated volume, and absence of database
+or signing secrets reduce impact; they do not turn native model parsing into a
+memory-safe isolation boundary.

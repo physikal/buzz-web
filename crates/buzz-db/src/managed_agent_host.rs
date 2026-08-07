@@ -287,6 +287,31 @@ pub async fn list_owned(
     rows.iter().map(row_to_record).collect()
 }
 
+/// List the distinct model ids required by desired-running relay-mesh agents.
+///
+/// This is an internal recovery view: it deliberately returns no owner,
+/// credential, prompt, or agent identity fields.
+pub async fn list_running_relay_mesh_models(
+    pool: &PgPool,
+    community: CommunityId,
+) -> Result<Vec<String>> {
+    let rows = sqlx::query(
+        "SELECT DISTINCT COALESCE(NULLIF(BTRIM(model), ''), 'auto') AS model_id \
+         FROM managed_agent_hosts \
+         WHERE community_id = $1 AND desired_state = 'running' \
+           AND BTRIM(runtime) = 'buzz-agent' AND BTRIM(provider) = 'relay-mesh' \
+         ORDER BY model_id LIMIT 64",
+    )
+    .bind(community.as_uuid())
+    .fetch_all(pool)
+    .await?;
+    let mut models = Vec::with_capacity(rows.len());
+    for row in rows {
+        models.push(row.try_get("model_id")?);
+    }
+    Ok(models)
+}
+
 /// Load an owned agent without returning encrypted secret columns.
 pub async fn get_owned(
     pool: &PgPool,

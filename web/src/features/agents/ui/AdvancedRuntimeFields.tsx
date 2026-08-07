@@ -140,7 +140,7 @@ export function AdvancedRuntimeFields({
                 value={draft.databricksHost}
               />
             </Field>
-          ) : (
+          ) : provider !== "relay-mesh" ? (
             <Field label="Provider base URL" optional>
               <Input
                 aria-label="Provider base URL"
@@ -151,7 +151,7 @@ export function AdvancedRuntimeFields({
                 value={draft.baseUrl}
               />
             </Field>
-          )}
+          ) : null}
           {provider === "openai" ? (
             <Field label="OpenAI API mode" optional>
               <select

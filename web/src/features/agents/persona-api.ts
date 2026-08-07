@@ -136,6 +136,7 @@ function parsePersona(event: NostrEvent): AgentPersona | null {
       "openrouter",
       "databricks",
       "databricks_v2",
+      "relay-mesh",
     ].includes(provider ?? "")
       ? (provider as AgentProvider)
       : null;

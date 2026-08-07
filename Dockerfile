@@ -73,6 +73,7 @@ RUN cargo build --release --locked -p buzz-relay --bin buzz-relay \
                                    -p buzz-pair-relay --bin buzz-pair-relay \
                                    -p buzz-agent-host --bin buzz-agent-host \
                                    -p buzz-agent-host --bin buzz-agent-bootstrap \
+                                   -p buzz-mesh-host --bin buzz-mesh-host \
                                    -p buzz-acp --bin buzz-acp \
                                    -p buzz-agent --bin buzz-agent \
                                    -p buzz-cli --bin buzz \
@@ -86,6 +87,7 @@ RUN strip target/release/buzz-relay \
     && strip target/release/buzz-pair-relay \
     && strip target/release/buzz-agent-host \
     && strip target/release/buzz-agent-bootstrap \
+    && strip target/release/buzz-mesh-host \
     && strip target/release/buzz-acp \
     && strip target/release/buzz-agent \
     && strip target/release/buzz \
@@ -228,6 +230,7 @@ ENTRYPOINT ["/usr/local/bin/buzz-agent-host"]
 FROM agent-runtime-base AS agent-runtime
 COPY --from=stripped-binaries /build/target/release/buzz-agent-host /usr/local/bin/buzz-agent-host
 COPY --from=stripped-binaries /build/target/release/buzz-agent-bootstrap /usr/local/bin/buzz-agent-bootstrap
+COPY --from=stripped-binaries /build/target/release/buzz-mesh-host /usr/local/bin/buzz-mesh-host
 COPY --from=stripped-binaries /build/target/release/buzz-acp /usr/local/bin/buzz-acp
 COPY --from=stripped-binaries /build/target/release/buzz-agent /usr/local/bin/buzz-agent
 COPY --from=stripped-binaries /build/target/release/buzz /usr/local/bin/buzz

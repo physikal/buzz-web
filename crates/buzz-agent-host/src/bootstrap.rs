@@ -33,6 +33,15 @@ fn main() -> anyhow::Result<()> {
         ensure_random_hex(Path::new(&service_dir).join(name))?;
     }
 
+    let relay_secret_path = Path::new(&service_dir).join("relay_private_key");
+    let relay_secret = fs::read_to_string(&relay_secret_path)
+        .with_context(|| format!("read {}", relay_secret_path.display()))?;
+    let relay_keys = Keys::parse(relay_secret.trim())?;
+    write_replace_secret(
+        &Path::new(&service_dir).join("relay_pubkey"),
+        &relay_keys.public_key().to_hex(),
+    )?;
+
     // Preserve existing deployments that already use the desktop/NIP-07 owner
     // key. Fresh web deployments claim ownership in the browser instead, so
     // the server never creates or handles their Nostr secret.

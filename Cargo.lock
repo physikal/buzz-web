@@ -892,6 +892,7 @@ dependencies = [
  "nix 0.31.3",
  "nostr",
  "rand 0.10.1",
+ "reqwest 0.13.4",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -1083,6 +1084,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "buzz-mesh-host"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "base64 0.22.1",
+ "hex",
+ "iroh",
+ "mesh-llm-client",
+ "mesh-llm-events",
+ "mesh-llm-host-runtime",
+ "mesh-llm-node",
+ "mesh-llm-sdk",
+ "mesh-llm-system",
+ "reqwest 0.13.4",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "subtle",
+ "tokio",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
 name = "buzz-pair-relay"
 version = "0.1.0"
 dependencies = [
@@ -1208,6 +1236,7 @@ dependencies = [
  "chrono",
  "dashmap",
  "deadpool-redis",
+ "ed25519-dalek",
  "flate2",
  "futures",
  "futures-util",

@@ -573,6 +573,12 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
+    if std::env::var("BUZZ_AGENT_HOST_CONTROL_URL").is_ok() {
+        tokio::spawn(buzz_relay::api::compute::run_coordinator(Arc::clone(
+            &state,
+        )));
+    }
+
     // Emit kind:39000/39002 discovery events for channels that exist in the DB
     // but don't have corresponding events (e.g. seeded via direct SQL inserts).
     // Only runs when BUZZ_RECONCILE_CHANNELS=true (dev/CI environments).

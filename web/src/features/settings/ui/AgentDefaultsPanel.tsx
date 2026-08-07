@@ -190,12 +190,16 @@ export function AgentDefaultsPanel({ ownerPubkey }: { ownerPubkey: string }) {
                 className="mt-2 h-10 w-full rounded-md border bg-background px-3 text-sm"
                 id="default-agent-provider"
                 value={draft.provider}
-                onChange={(event) =>
+                onChange={(event) => {
+                  const provider = event.target
+                    .value as AgentDefaults["provider"];
                   setDraft((current) => ({
                     ...current,
-                    provider: event.target.value as AgentDefaults["provider"],
-                  }))
-                }
+                    provider,
+                    model: provider === "relay-mesh" ? "auto" : current.model,
+                    apiKey: provider === "relay-mesh" ? "" : current.apiKey,
+                  }));
+                }}
               >
                 {AGENT_PROVIDERS.map((entry) => (
                   <option key={entry.value} value={entry.value}>
@@ -252,7 +256,11 @@ export function AgentDefaultsPanel({ ownerPubkey }: { ownerPubkey: string }) {
               />
             </label>
           ) : null}
-          {draft.credentialMode === "api-key" && !customRuntime ? (
+          {draft.credentialMode === "api-key" &&
+          !customRuntime &&
+          !(
+            draft.runtime === "buzz-agent" && draft.provider === "relay-mesh"
+          ) ? (
             <div>
               <label
                 className="block text-sm font-medium"
