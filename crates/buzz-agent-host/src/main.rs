@@ -40,7 +40,7 @@ async fn main() -> anyhow::Result<()> {
         .and_then(|value| value.parse::<usize>().ok())
         .unwrap_or(8)
         .clamp(1, 64);
-    tokio::fs::create_dir_all(&data_dir).await?;
+    prepare_data_root(&data_dir).await?;
 
     let mesh_control_token = derive_mesh_control_token(&envelope_key);
     let mesh_data_dir =
@@ -512,10 +512,47 @@ mod runtime_log_tests {
 }
 
 #[cfg(unix)]
+async fn prepare_data_root(path: &std::path::Path) -> anyhow::Result<()> {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    tokio::fs::create_dir_all(path).await?;
+    let status = Command::new("/usr/bin/chown")
+        .env_clear()
+        .arg("--no-dereference")
+        .arg("0:0")
+        .arg(path)
+        .status()
+        .await?;
+    if !status.success() {
+        anyhow::bail!("could not secure agent data root");
+    }
+    tokio::fs::set_permissions(path, std::fs::Permissions::from_mode(0o711)).await?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+async fn prepare_data_root(_path: &std::path::Path) -> anyhow::Result<()> {
+    anyhow::bail!("the centralized agent host requires a Unix runtime")
+}
+
+#[cfg(unix)]
 async fn prepare_workdir(path: &std::path::Path, sandbox_uid: u32) -> anyhow::Result<()> {
     use std::os::unix::fs::PermissionsExt as _;
 
     tokio::fs::create_dir_all(path).await?;
+    let status = Command::new("/usr/bin/chown")
+        .env_clear()
+        .arg("-R")
+        .arg("--no-dereference")
+        .arg("0:0")
+        .arg(path)
+        .status()
+        .await?;
+    if !status.success() {
+        anyhow::bail!("could not secure agent data directory");
+    }
+    tokio::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).await?;
+
     let ownership = format!("{sandbox_uid}:{sandbox_uid}");
     let status = Command::new("/usr/bin/chown")
         .env_clear()
@@ -528,7 +565,6 @@ async fn prepare_workdir(path: &std::path::Path, sandbox_uid: u32) -> anyhow::Re
     if !status.success() {
         anyhow::bail!("could not isolate agent data directory");
     }
-    tokio::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).await?;
     Ok(())
 }
 
